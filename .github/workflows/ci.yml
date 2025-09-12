@@ -168,6 +168,16 @@ jobs:
       name: staging
       url: https://staging.kurut.example.com
     steps:
+      - name: Upload deployment script
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          port: ${{ secrets.STAGING_PORT }}
+          source: "deploy.sh"
+          target: "/tmp/"
+          
       - name: Deploy to staging server
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -176,72 +186,19 @@ jobs:
           key: ${{ secrets.STAGING_SSH_KEY }}
           port: ${{ secrets.STAGING_PORT }}
           script: |
-            cd /opt/kurut-bot-staging
-            
-            # Скачиваем последний docker-compose.yml
-            curl -o docker-compose.yml https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
-            
-            # Авторизуемся в GitHub Container Registry
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            
-            # Обновляем образ
-            docker pull ${{ needs.docker.outputs.image-tag }}
-            
-            # Создаем .env файл с секретами для стейджинга
-            cat > .env << EOF
-            ENV=staging
-            TELEGRAM_BOT_TOKEN=${{ secrets.STAGING_TELEGRAM_BOT_TOKEN }}
-            TELEGRAM_ADMIN_TELEGRAM_IDS=${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
-            MARZBAN_TOKEN=${{ secrets.MARZBAN_TOKEN }}
-            MARZBAN_API_URL=${{ secrets.MARZBAN_API_URL }}
-            DB_PATH=/app/data/kurut.db
-            LOGGER_LEVEL=debug
-            IMAGE_TAG=${{ needs.docker.outputs.image-tag }}
-            EOF
-            
-            # Создаем директорию для данных если не существует
-            mkdir -p data
-            chmod 755 data
-            
-            # Резервное копирование базы данных
-            if [ -f data/kurut.db ]; then
-              cp data/kurut.db data/kurut.db.backup.$(date +%Y%m%d_%H%M%S)
-            fi
-            
-            # Убеждаемся что файл БД создастся с правильными правами
-            touch data/kurut.db
-            chmod 666 data/kurut.db
-            
-            # Выполняем миграции
-            docker-compose run --rm bot goose -dir migrations sqlite3 /app/data/kurut.db up
-            
-            # Обновляем и перезапускаем сервис
-            docker-compose up -d --no-deps bot
-            
-            # Ждем запуска и проверяем что приложение работает
-            echo "Waiting for application to start..."
-            sleep 15
-            
-            # Проверяем что контейнер работает
-            if ! docker-compose ps | grep kurut-bot | grep -q "Up"; then
-              echo "ERROR: Container is not running!"
-              docker-compose logs bot
-              exit 1
-            fi
-            
-            # Проверяем логи на ошибки
-            if docker-compose logs --tail=20 bot | grep -i "error\|fatal\|failed"; then
-              echo "ERROR: Application has errors in logs!"
-              docker-compose logs bot
-              exit 1
-            fi
-            
-            echo "✅ Application deployed and running successfully"
-            docker-compose ps
-            docker-compose logs --tail=10 bot
-            
-            # Очистка старых образов
-            docker image prune -f
+            chmod +x /tmp/deploy.sh
+            /tmp/deploy.sh \
+              "${{ github.repository }}" \
+              "${{ secrets.GITHUB_TOKEN }}" \
+              "${{ github.actor }}" \
+              "${{ needs.docker.outputs.image-tag }}" \
+              "${{ secrets.STAGING_TELEGRAM_BOT_TOKEN }}" \
+              "${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}" \
+              "${{ secrets.MARZBAN_TOKEN }}" \
+              "${{ secrets.MARZBAN_API_URL }}" \
+              "staging" \
+              "/opt/kurut-bot-staging" \
+              "debug"
 
   deploy-production:
     name: Deploy to Production
@@ -254,6 +211,16 @@ jobs:
       name: production
       url: https://kurut.example.com
     steps:
+      - name: Upload deployment script
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          port: ${{ secrets.PRODUCTION_PORT }}
+          source: "deploy.sh"
+          target: "/tmp/"
+          
       - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -262,81 +229,16 @@ jobs:
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_PORT }}
           script: |
-            # Переходим в директорию проекта
-            cd /opt/kurut-bot
-            
-            # Скачиваем последний docker-compose.yml
-            curl -o docker-compose.yml https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
-            
-            # Авторизуемся в GitHub Container Registry
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            
-            # Обновляем образ
-            docker pull ${{ needs.docker.outputs.image-tag }}
-            
-            # Создаем .env файл с секретами для продакшена
-            cat > .env << EOF
-            ENV=production
-            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
-            TELEGRAM_ADMIN_TELEGRAM_IDS=${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
-            MARZBAN_TOKEN=${{ secrets.MARZBAN_TOKEN }}
-            MARZBAN_API_URL=${{ secrets.MARZBAN_API_URL }}
-            DB_PATH=/app/data/kurut.db
-            LOGGER_LEVEL=info
-            IMAGE_TAG=${{ needs.docker.outputs.image-tag }}
-            EOF
-            
-            # Создаем директорию для данных если не существует
-            mkdir -p data
-            chmod 755 data
-            
-            # Резервное копирование базы данных
-            if [ -f data/kurut.db ]; then
-              cp data/kurut.db data/kurut.db.backup.$(date +%Y%m%d_%H%M%S)
-            fi
-            
-            # Убеждаемся что файл БД создастся с правильными правами
-            touch data/kurut.db
-            chmod 666 data/kurut.db
-            
-            # Выполняем миграции
-            docker-compose run --rm bot goose -dir migrations sqlite3 /app/data/kurut.db up
-            
-            # Обновляем и перезапускаем сервис
-            docker-compose up -d --no-deps bot
-            
-            # Ждем запуска и проверяем что приложение работает
-            echo "Waiting for application to start..."
-            sleep 15
-            
-            # Проверяем что контейнер работает
-            if ! docker-compose ps | grep kurut-bot | grep -q "Up"; then
-              echo "ERROR: Container is not running!"
-              docker-compose logs bot
-              exit 1
-            fi
-            
-            # Проверяем логи на ошибки
-            if docker-compose logs --tail=20 bot | grep -i "error\|fatal\|failed"; then
-              echo "ERROR: Application has errors in logs!"
-              docker-compose logs bot
-              exit 1
-            fi
-            
-            echo "✅ Application deployed and running successfully"
-            docker-compose ps
-            docker-compose logs --tail=10 bot
-            
-            # Очистка старых образов
-            docker image prune -f
-
-      - name: Health check
-        run: |
-          sleep 30
-          response=$(curl -s -o /dev/null -w "%{http_code}" https://kurut.example.com/health)
-          if [ $response -eq 200 ]; then
-            echo "Health check passed"
-          else
-            echo "Health check failed with status code: $response"
-            exit 1
-          fi
+            chmod +x /tmp/deploy.sh
+            /tmp/deploy.sh \
+              "${{ github.repository }}" \
+              "${{ secrets.GITHUB_TOKEN }}" \
+              "${{ github.actor }}" \
+              "${{ needs.docker.outputs.image-tag }}" \
+              "${{ secrets.TELEGRAM_BOT_TOKEN }}" \
+              "${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}" \
+              "${{ secrets.MARZBAN_TOKEN }}" \
+              "${{ secrets.MARZBAN_API_URL }}" \
+              "production" \
+              "/opt/kurut-bot" \
+              "info"
