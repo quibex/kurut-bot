@@ -8,7 +8,7 @@ CREATE TABLE payments (
     payment_url TEXT,
     processed_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_payments_user_id ON payments(user_id);
