@@ -208,16 +208,37 @@ jobs:
               cp data/kurut.db data/kurut.db.backup.$(date +%Y%m%d_%H%M%S)
             fi
             
+            # Убеждаемся что файл БД создастся с правильными правами
+            touch data/kurut.db
+            chmod 666 data/kurut.db
+            
             # Выполняем миграции
             docker-compose run --rm bot goose -dir migrations sqlite3 /app/data/kurut.db up
             
             # Обновляем и перезапускаем сервис
             docker-compose up -d --no-deps bot
             
-            # Проверяем статус
-            sleep 10
+            # Ждем запуска и проверяем что приложение работает
+            echo "Waiting for application to start..."
+            sleep 15
+            
+            # Проверяем что контейнер работает
+            if ! docker-compose ps | grep kurut-bot | grep -q "Up"; then
+              echo "ERROR: Container is not running!"
+              docker-compose logs bot
+              exit 1
+            fi
+            
+            # Проверяем логи на ошибки
+            if docker-compose logs --tail=20 bot | grep -i "error\|fatal\|failed"; then
+              echo "ERROR: Application has errors in logs!"
+              docker-compose logs bot
+              exit 1
+            fi
+            
+            echo "✅ Application deployed and running successfully"
             docker-compose ps
-            docker-compose logs --tail=50 bot
+            docker-compose logs --tail=10 bot
             
             # Очистка старых образов
             docker image prune -f
@@ -274,16 +295,37 @@ jobs:
               cp data/kurut.db data/kurut.db.backup.$(date +%Y%m%d_%H%M%S)
             fi
             
+            # Убеждаемся что файл БД создастся с правильными правами
+            touch data/kurut.db
+            chmod 666 data/kurut.db
+            
             # Выполняем миграции
             docker-compose run --rm bot goose -dir migrations sqlite3 /app/data/kurut.db up
             
             # Обновляем и перезапускаем сервис
             docker-compose up -d --no-deps bot
             
-            # Проверяем статус
-            sleep 10
+            # Ждем запуска и проверяем что приложение работает
+            echo "Waiting for application to start..."
+            sleep 15
+            
+            # Проверяем что контейнер работает
+            if ! docker-compose ps | grep kurut-bot | grep -q "Up"; then
+              echo "ERROR: Container is not running!"
+              docker-compose logs bot
+              exit 1
+            fi
+            
+            # Проверяем логи на ошибки
+            if docker-compose logs --tail=20 bot | grep -i "error\|fatal\|failed"; then
+              echo "ERROR: Application has errors in logs!"
+              docker-compose logs bot
+              exit 1
+            fi
+            
+            echo "✅ Application deployed and running successfully"
             docker-compose ps
-            docker-compose logs --tail=50 bot
+            docker-compose logs --tail=10 bot
             
             # Очистка старых образов
             docker image prune -f
