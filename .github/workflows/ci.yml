@@ -264,9 +264,12 @@ jobs:
             
             echo "✅ Migrations completed successfully"
             
-            # Запуск приложения
+            # Останавливаем старые контейнеры и запускаем новые
+            echo "🛑 Stopping old containers..."
+            docker-compose down || true  # игнорируем ошибки если контейнеров нет
+            
             echo "🚀 Starting application..."
-            docker-compose up -d --no-deps bot
+            docker-compose up -d bot
             
             # Проверка работы
             echo "⏳ Waiting for application to start..."
@@ -401,9 +404,12 @@ jobs:
             
             echo "✅ Migrations completed successfully"
             
-            # Запуск приложения
+            # Останавливаем старые контейнеры и запускаем новые
+            echo "🛑 Stopping old containers..."
+            docker-compose down || true  # игнорируем ошибки если контейнеров нет
+            
             echo "🚀 Starting application..."
-            docker-compose up -d --no-deps bot
+            docker-compose up -d bot
             
             # Проверка работы
             echo "⏳ Waiting for application to start..."
