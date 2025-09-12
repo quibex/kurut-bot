@@ -194,6 +194,9 @@ jobs:
             # Скачиваем последний docker-compose.yml
             curl -o docker-compose.yml https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
             
+            # Авторизуемся в GitHub Container Registry
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
             # Обновляем образ
             docker pull ${{ needs.docker.outputs.image-tag }}
             
@@ -201,9 +204,9 @@ jobs:
             cat > .env << EOF
             ENV=staging
             TELEGRAM_BOT_TOKEN=${{ secrets.STAGING_TELEGRAM_BOT_TOKEN }}
-            TELEGRAM_ADMIN_TELEGRAM_IDS=${{ secrets.STAGING_TELEGRAM_ADMIN_TELEGRAM_IDS }}
-            MARZBAN_TOKEN=${{ secrets.STAGING_MARZBAN_TOKEN }}
-            MARZBAN_API_URL=${{ secrets.STAGING_MARZBAN_API_URL }}
+            TELEGRAM_ADMIN_TELEGRAM_IDS=${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
+            MARZBAN_TOKEN=${{ secrets.MARZBAN_TOKEN }}
+            MARZBAN_API_URL=${{ secrets.MARZBAN_API_URL }}
             DB_PATH=/app/data/kurut.db
             LOGGER_LEVEL=debug
             IMAGE_TAG=${{ needs.docker.outputs.image-tag }}
@@ -256,6 +259,9 @@ jobs:
             
             # Скачиваем последний docker-compose.yml
             curl -o docker-compose.yml https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
+            
+            # Авторизуемся в GitHub Container Registry
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
             # Обновляем образ
             docker pull ${{ needs.docker.outputs.image-tag }}
