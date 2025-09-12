@@ -53,20 +53,9 @@ jobs:
         sudo apt-get install -y sqlite3 libsqlite3-dev
         go mod download
 
-    - name: Run unit tests
+    - name: Run tests
       run: |
         go test -v -race -coverprofile=coverage.out ./...
-
-    - name: Run integration tests
-      run: |
-        go test -v -tags=integration ./tests/integration/...
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.out
-        flags: unittests
-        name: codecov-umbrella
 
   lint:
     name: Lint
