@@ -175,93 +175,109 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           port: ${{ secrets.STAGING_PORT }}
+          envs: REPO,GITHUB_TOKEN,GITHUB_ACTOR,IMAGE_TAG,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,MARZBAN_TOKEN,MARZBAN_API_URL,ENV_TYPE,LOG_LEVEL
           script: |
-            # Создаем рабочую директорию если не существует
-            sudo mkdir -p /opt/kurut-bot-staging || mkdir -p /opt/kurut-bot-staging
-            sudo chown $(whoami):$(whoami) /opt/kurut-bot-staging || chown $(whoami):$(whoami) /opt/kurut-bot-staging
-            cd /opt/kurut-bot-staging
+            # Параметры для staging
+            export REPO="${{ github.repository }}"
+            export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+            export GITHUB_ACTOR="${{ github.actor }}"
+            export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
+            export TELEGRAM_BOT_TOKEN="${{ secrets.STAGING_TELEGRAM_BOT_TOKEN }}"
+            export TELEGRAM_ADMIN_IDS="${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}"
+            export MARZBAN_TOKEN="${{ secrets.MARZBAN_TOKEN }}"
+            export MARZBAN_API_URL="${{ secrets.MARZBAN_API_URL }}"
+            export ENV_TYPE="staging"
+            export LOG_LEVEL="debug"
             
-            echo "🚀 Deploying to staging..."
+            # Универсальный скрипт деплоя
+            /bin/bash << 'DEPLOY_SCRIPT'
+            set -e
+            
+            # Основная директория (одинаковая для всех окружений)
+            DEPLOY_DIR="/opt/kurut-bot"
+            
+            echo "🚀 Deploying to $ENV_TYPE..."
+            
+            # Создаем рабочую директорию
+            sudo mkdir -p "$DEPLOY_DIR" || mkdir -p "$DEPLOY_DIR"
+            sudo chown $(whoami):$(whoami) "$DEPLOY_DIR" || chown $(whoami):$(whoami) "$DEPLOY_DIR"
+            cd "$DEPLOY_DIR"
             
             # Скачиваем файлы с репозитория
             echo "📥 Downloading files..."
-            curl -o docker-compose.yml https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
+            curl -o docker-compose.yml "https://raw.githubusercontent.com/$REPO/main/docker-compose.yml"
             
-            # Скачиваем миграции
-            rm -rf migrations
-            curl -L https://github.com/${{ github.repository }}/archive/main.tar.gz | tar -xz --strip=1 '*/migrations'
+            # Миграции уже встроены в Docker образ, не нужно скачивать
             
             # Авторизуемся в GitHub Container Registry
             echo "🔐 Logging in to GHCR..."
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
             
             # Обновляем образ
             echo "📦 Pulling Docker image..."
-            docker pull ${{ needs.docker.outputs.image-tag }}
+            docker pull "$IMAGE_TAG"
             
-            # Создаем .env файл с секретами
-            echo "⚙️ Creating environment for staging..."
+            # Создаем .env файл с переданными секретами
+            echo "⚙️ Creating environment for $ENV_TYPE..."
             cat > .env << EOF
-            ENV=staging
-            TELEGRAM_BOT_TOKEN=${{ secrets.STAGING_TELEGRAM_BOT_TOKEN }}
-            TELEGRAM_ADMIN_TELEGRAM_IDS=${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
-            MARZBAN_TOKEN=${{ secrets.MARZBAN_TOKEN }}
-            MARZBAN_API_URL=${{ secrets.MARZBAN_API_URL }}
+            ENV=$ENV_TYPE
+            TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
+            TELEGRAM_ADMIN_TELEGRAM_IDS=$TELEGRAM_ADMIN_IDS
+            MARZBAN_TOKEN=$MARZBAN_TOKEN
+            MARZBAN_API_URL=$MARZBAN_API_URL
             DB_PATH=/app/data/kurut.db
-            LOGGER_LEVEL=debug
-            IMAGE_TAG=${{ needs.docker.outputs.image-tag }}
+            LOGGER_LEVEL=$LOG_LEVEL
+            IMAGE_TAG=$IMAGE_TAG
             EOF
             
-            # Подготовка БД: создаем директорию с правильными правами
+            # Подготовка БД
             echo "💾 Setting up database..."
             mkdir -p data
             sudo chown -R 1000:1000 data 2>/dev/null || chown -R 1000:1000 data
             chmod -R 755 data
             
-            # Резервное копирование базы данных
+            # Бэкап базы
             if [ -f data/kurut.db ]; then
               echo "📋 Backing up existing database..."
-              cp data/kurut.db data/kurut.db.backup.$(date +%Y%m%d_%H%M%S)
+              cp data/kurut.db "data/kurut.db.backup.$(date +%Y%m%d_%H%M%S)"
             fi
             
-            # Создаем SQLite файл с правильными правами
+            # Создаем файл БД с правами
             touch data/kurut.db
             sudo chown 1000:1000 data/kurut.db 2>/dev/null || chown 1000:1000 data/kurut.db
             chmod 666 data/kurut.db
             
-            # Выполняем миграции через отдельный контейнер
+            # Миграции (используем встроенные в образ)
             echo "🔄 Running migrations..."
             docker run --rm \
-              -v $(pwd)/data:/app/data:rw \
-              -v $(pwd)/migrations:/app/migrations:ro \
+              -v "$(pwd)/data:/app/data:rw" \
               --user 1000:1000 \
-              ${{ needs.docker.outputs.image-tag }} \
+              "$IMAGE_TAG" \
               goose -dir migrations sqlite3 /app/data/kurut.db up
             
             if [ $? -ne 0 ]; then
-              echo "❌ Migration failed! Checking permissions..."
+              echo "❌ Migration failed!"
+              echo "Data directory:"
               ls -la data/
               exit 1
             fi
             
             echo "✅ Migrations completed successfully"
             
-            # Обновляем и перезапускаем сервис
+            # Запуск приложения
             echo "🚀 Starting application..."
             docker-compose up -d --no-deps bot
             
-            # Ждем запуска и проверяем что приложение работает
+            # Проверка работы
             echo "⏳ Waiting for application to start..."
             sleep 15
             
-            # Проверяем что контейнер работает
             if ! docker-compose ps | grep kurut-bot | grep -q "Up"; then
               echo "❌ ERROR: Container is not running!"
               docker-compose logs bot
               exit 1
             fi
             
-            # Проверяем логи на ошибки
             if docker-compose logs --tail=20 bot | grep -i "error\|fatal\|failed"; then
               echo "❌ ERROR: Application has errors in logs!"
               docker-compose logs bot
@@ -272,10 +288,11 @@ jobs:
             docker-compose ps
             docker-compose logs --tail=10 bot
             
-            # Очистка старых образов
+            # Очистка
             docker image prune -f
             
-            echo "🎉 Staging deployment completed!"
+            echo "🎉 $ENV_TYPE deployment completed!"
+            DEPLOY_SCRIPT
 
   deploy-production:
     name: Deploy to Production
@@ -295,93 +312,109 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_PORT }}
+          envs: REPO,GITHUB_TOKEN,GITHUB_ACTOR,IMAGE_TAG,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,MARZBAN_TOKEN,MARZBAN_API_URL,ENV_TYPE,LOG_LEVEL
           script: |
-            # Создаем рабочую директорию если не существует
-            sudo mkdir -p /opt/kurut-bot || mkdir -p /opt/kurut-bot
-            sudo chown $(whoami):$(whoami) /opt/kurut-bot || chown $(whoami):$(whoami) /opt/kurut-bot
-            cd /opt/kurut-bot
+            # Параметры для production
+            export REPO="${{ github.repository }}"
+            export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+            export GITHUB_ACTOR="${{ github.actor }}"
+            export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
+            export TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+            export TELEGRAM_ADMIN_IDS="${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}"
+            export MARZBAN_TOKEN="${{ secrets.MARZBAN_TOKEN }}"
+            export MARZBAN_API_URL="${{ secrets.MARZBAN_API_URL }}"
+            export ENV_TYPE="production"
+            export LOG_LEVEL="info"
             
-            echo "🚀 Deploying to production..."
+            # Универсальный скрипт деплоя
+            /bin/bash << 'DEPLOY_SCRIPT'
+            set -e
+            
+            # Основная директория (одинаковая для всех окружений)
+            DEPLOY_DIR="/opt/kurut-bot"
+            
+            echo "🚀 Deploying to $ENV_TYPE..."
+            
+            # Создаем рабочую директорию
+            sudo mkdir -p "$DEPLOY_DIR" || mkdir -p "$DEPLOY_DIR"
+            sudo chown $(whoami):$(whoami) "$DEPLOY_DIR" || chown $(whoami):$(whoami) "$DEPLOY_DIR"
+            cd "$DEPLOY_DIR"
             
             # Скачиваем файлы с репозитория
             echo "📥 Downloading files..."
-            curl -o docker-compose.yml https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
+            curl -o docker-compose.yml "https://raw.githubusercontent.com/$REPO/main/docker-compose.yml"
             
-            # Скачиваем миграции
-            rm -rf migrations
-            curl -L https://github.com/${{ github.repository }}/archive/main.tar.gz | tar -xz --strip=1 '*/migrations'
+            # Миграции уже встроены в Docker образ, не нужно скачивать
             
             # Авторизуемся в GitHub Container Registry
             echo "🔐 Logging in to GHCR..."
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
             
             # Обновляем образ
             echo "📦 Pulling Docker image..."
-            docker pull ${{ needs.docker.outputs.image-tag }}
+            docker pull "$IMAGE_TAG"
             
-            # Создаем .env файл с секретами
-            echo "⚙️ Creating environment for production..."
+            # Создаем .env файл с переданными секретами
+            echo "⚙️ Creating environment for $ENV_TYPE..."
             cat > .env << EOF
-            ENV=production
-            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
-            TELEGRAM_ADMIN_TELEGRAM_IDS=${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
-            MARZBAN_TOKEN=${{ secrets.MARZBAN_TOKEN }}
-            MARZBAN_API_URL=${{ secrets.MARZBAN_API_URL }}
+            ENV=$ENV_TYPE
+            TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
+            TELEGRAM_ADMIN_TELEGRAM_IDS=$TELEGRAM_ADMIN_IDS
+            MARZBAN_TOKEN=$MARZBAN_TOKEN
+            MARZBAN_API_URL=$MARZBAN_API_URL
             DB_PATH=/app/data/kurut.db
-            LOGGER_LEVEL=info
-            IMAGE_TAG=${{ needs.docker.outputs.image-tag }}
+            LOGGER_LEVEL=$LOG_LEVEL
+            IMAGE_TAG=$IMAGE_TAG
             EOF
             
-            # Подготовка БД: создаем директорию с правильными правами
+            # Подготовка БД
             echo "💾 Setting up database..."
             mkdir -p data
             sudo chown -R 1000:1000 data 2>/dev/null || chown -R 1000:1000 data
             chmod -R 755 data
             
-            # Резервное копирование базы данных
+            # Бэкап базы
             if [ -f data/kurut.db ]; then
               echo "📋 Backing up existing database..."
-              cp data/kurut.db data/kurut.db.backup.$(date +%Y%m%d_%H%M%S)
+              cp data/kurut.db "data/kurut.db.backup.$(date +%Y%m%d_%H%M%S)"
             fi
             
-            # Создаем SQLite файл с правильными правами
+            # Создаем файл БД с правами
             touch data/kurut.db
             sudo chown 1000:1000 data/kurut.db 2>/dev/null || chown 1000:1000 data/kurut.db
             chmod 666 data/kurut.db
             
-            # Выполняем миграции через отдельный контейнер
+            # Миграции (используем встроенные в образ)
             echo "🔄 Running migrations..."
             docker run --rm \
-              -v $(pwd)/data:/app/data:rw \
-              -v $(pwd)/migrations:/app/migrations:ro \
+              -v "$(pwd)/data:/app/data:rw" \
               --user 1000:1000 \
-              ${{ needs.docker.outputs.image-tag }} \
+              "$IMAGE_TAG" \
               goose -dir migrations sqlite3 /app/data/kurut.db up
             
             if [ $? -ne 0 ]; then
-              echo "❌ Migration failed! Checking permissions..."
+              echo "❌ Migration failed!"
+              echo "Data directory:"
               ls -la data/
               exit 1
             fi
             
             echo "✅ Migrations completed successfully"
             
-            # Обновляем и перезапускаем сервис
+            # Запуск приложения
             echo "🚀 Starting application..."
             docker-compose up -d --no-deps bot
             
-            # Ждем запуска и проверяем что приложение работает
+            # Проверка работы
             echo "⏳ Waiting for application to start..."
             sleep 15
             
-            # Проверяем что контейнер работает
             if ! docker-compose ps | grep kurut-bot | grep -q "Up"; then
               echo "❌ ERROR: Container is not running!"
               docker-compose logs bot
               exit 1
             fi
             
-            # Проверяем логи на ошибки
             if docker-compose logs --tail=20 bot | grep -i "error\|fatal\|failed"; then
               echo "❌ ERROR: Application has errors in logs!"
               docker-compose logs bot
@@ -392,7 +425,8 @@ jobs:
             docker-compose ps
             docker-compose logs --tail=10 bot
             
-            # Очистка старых образов
+            # Очистка
             docker image prune -f
             
-            echo "🎉 Production deployment completed!"
+            echo "🎉 $ENV_TYPE deployment completed!"
+            DEPLOY_SCRIPT
