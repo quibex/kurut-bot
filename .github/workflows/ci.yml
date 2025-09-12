@@ -168,16 +168,6 @@ jobs:
       name: staging
       url: https://staging.kurut.example.com
     steps:
-      - name: Upload deployment script
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          port: ${{ secrets.STAGING_PORT }}
-          source: "deploy.sh"
-          target: "/tmp/"
-          
       - name: Deploy to staging server
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -186,19 +176,106 @@ jobs:
           key: ${{ secrets.STAGING_SSH_KEY }}
           port: ${{ secrets.STAGING_PORT }}
           script: |
-            chmod +x /tmp/deploy.sh
-            /tmp/deploy.sh \
-              "${{ github.repository }}" \
-              "${{ secrets.GITHUB_TOKEN }}" \
-              "${{ github.actor }}" \
-              "${{ needs.docker.outputs.image-tag }}" \
-              "${{ secrets.STAGING_TELEGRAM_BOT_TOKEN }}" \
-              "${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}" \
-              "${{ secrets.MARZBAN_TOKEN }}" \
-              "${{ secrets.MARZBAN_API_URL }}" \
-              "staging" \
-              "/opt/kurut-bot-staging" \
-              "debug"
+            # Создаем рабочую директорию если не существует
+            sudo mkdir -p /opt/kurut-bot-staging || mkdir -p /opt/kurut-bot-staging
+            sudo chown $(whoami):$(whoami) /opt/kurut-bot-staging || chown $(whoami):$(whoami) /opt/kurut-bot-staging
+            cd /opt/kurut-bot-staging
+            
+            echo "🚀 Deploying to staging..."
+            
+            # Скачиваем файлы с репозитория
+            echo "📥 Downloading files..."
+            curl -o docker-compose.yml https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
+            
+            # Скачиваем миграции
+            rm -rf migrations
+            curl -L https://github.com/${{ github.repository }}/archive/main.tar.gz | tar -xz --strip=1 '*/migrations'
+            
+            # Авторизуемся в GitHub Container Registry
+            echo "🔐 Logging in to GHCR..."
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Обновляем образ
+            echo "📦 Pulling Docker image..."
+            docker pull ${{ needs.docker.outputs.image-tag }}
+            
+            # Создаем .env файл с секретами
+            echo "⚙️ Creating environment for staging..."
+            cat > .env << EOF
+            ENV=staging
+            TELEGRAM_BOT_TOKEN=${{ secrets.STAGING_TELEGRAM_BOT_TOKEN }}
+            TELEGRAM_ADMIN_TELEGRAM_IDS=${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
+            MARZBAN_TOKEN=${{ secrets.MARZBAN_TOKEN }}
+            MARZBAN_API_URL=${{ secrets.MARZBAN_API_URL }}
+            DB_PATH=/app/data/kurut.db
+            LOGGER_LEVEL=debug
+            IMAGE_TAG=${{ needs.docker.outputs.image-tag }}
+            EOF
+            
+            # Подготовка БД: создаем директорию с правильными правами
+            echo "💾 Setting up database..."
+            mkdir -p data
+            sudo chown -R 1000:1000 data 2>/dev/null || chown -R 1000:1000 data
+            chmod -R 755 data
+            
+            # Резервное копирование базы данных
+            if [ -f data/kurut.db ]; then
+              echo "📋 Backing up existing database..."
+              cp data/kurut.db data/kurut.db.backup.$(date +%Y%m%d_%H%M%S)
+            fi
+            
+            # Создаем SQLite файл с правильными правами
+            touch data/kurut.db
+            sudo chown 1000:1000 data/kurut.db 2>/dev/null || chown 1000:1000 data/kurut.db
+            chmod 666 data/kurut.db
+            
+            # Выполняем миграции через отдельный контейнер
+            echo "🔄 Running migrations..."
+            docker run --rm \
+              -v $(pwd)/data:/app/data:rw \
+              -v $(pwd)/migrations:/app/migrations:ro \
+              --user 1000:1000 \
+              ${{ needs.docker.outputs.image-tag }} \
+              goose -dir migrations sqlite3 /app/data/kurut.db up
+            
+            if [ $? -ne 0 ]; then
+              echo "❌ Migration failed! Checking permissions..."
+              ls -la data/
+              exit 1
+            fi
+            
+            echo "✅ Migrations completed successfully"
+            
+            # Обновляем и перезапускаем сервис
+            echo "🚀 Starting application..."
+            docker-compose up -d --no-deps bot
+            
+            # Ждем запуска и проверяем что приложение работает
+            echo "⏳ Waiting for application to start..."
+            sleep 15
+            
+            # Проверяем что контейнер работает
+            if ! docker-compose ps | grep kurut-bot | grep -q "Up"; then
+              echo "❌ ERROR: Container is not running!"
+              docker-compose logs bot
+              exit 1
+            fi
+            
+            # Проверяем логи на ошибки
+            if docker-compose logs --tail=20 bot | grep -i "error\|fatal\|failed"; then
+              echo "❌ ERROR: Application has errors in logs!"
+              docker-compose logs bot
+              exit 1
+            fi
+            
+            echo "✅ Application deployed and running successfully"
+            docker-compose ps
+            docker-compose logs --tail=10 bot
+            
+            # Очистка старых образов
+            docker image prune -f
+            
+            echo "🎉 Staging deployment completed!"
 
   deploy-production:
     name: Deploy to Production
@@ -211,17 +288,7 @@ jobs:
       name: production
       url: https://kurut.example.com
     steps:
-      - name: Upload deployment script
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.PRODUCTION_HOST }}
-          username: ${{ secrets.PRODUCTION_USER }}
-          key: ${{ secrets.PRODUCTION_SSH_KEY }}
-          port: ${{ secrets.PRODUCTION_PORT }}
-          source: "deploy.sh"
-          target: "/tmp/"
-          
-      - name: Deploy to server via SSH
+      - name: Deploy to production server
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
@@ -229,16 +296,103 @@ jobs:
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_PORT }}
           script: |
-            chmod +x /tmp/deploy.sh
-            /tmp/deploy.sh \
-              "${{ github.repository }}" \
-              "${{ secrets.GITHUB_TOKEN }}" \
-              "${{ github.actor }}" \
-              "${{ needs.docker.outputs.image-tag }}" \
-              "${{ secrets.TELEGRAM_BOT_TOKEN }}" \
-              "${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}" \
-              "${{ secrets.MARZBAN_TOKEN }}" \
-              "${{ secrets.MARZBAN_API_URL }}" \
-              "production" \
-              "/opt/kurut-bot" \
-              "info"
+            # Создаем рабочую директорию если не существует
+            sudo mkdir -p /opt/kurut-bot || mkdir -p /opt/kurut-bot
+            sudo chown $(whoami):$(whoami) /opt/kurut-bot || chown $(whoami):$(whoami) /opt/kurut-bot
+            cd /opt/kurut-bot
+            
+            echo "🚀 Deploying to production..."
+            
+            # Скачиваем файлы с репозитория
+            echo "📥 Downloading files..."
+            curl -o docker-compose.yml https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
+            
+            # Скачиваем миграции
+            rm -rf migrations
+            curl -L https://github.com/${{ github.repository }}/archive/main.tar.gz | tar -xz --strip=1 '*/migrations'
+            
+            # Авторизуемся в GitHub Container Registry
+            echo "🔐 Logging in to GHCR..."
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Обновляем образ
+            echo "📦 Pulling Docker image..."
+            docker pull ${{ needs.docker.outputs.image-tag }}
+            
+            # Создаем .env файл с секретами
+            echo "⚙️ Creating environment for production..."
+            cat > .env << EOF
+            ENV=production
+            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+            TELEGRAM_ADMIN_TELEGRAM_IDS=${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
+            MARZBAN_TOKEN=${{ secrets.MARZBAN_TOKEN }}
+            MARZBAN_API_URL=${{ secrets.MARZBAN_API_URL }}
+            DB_PATH=/app/data/kurut.db
+            LOGGER_LEVEL=info
+            IMAGE_TAG=${{ needs.docker.outputs.image-tag }}
+            EOF
+            
+            # Подготовка БД: создаем директорию с правильными правами
+            echo "💾 Setting up database..."
+            mkdir -p data
+            sudo chown -R 1000:1000 data 2>/dev/null || chown -R 1000:1000 data
+            chmod -R 755 data
+            
+            # Резервное копирование базы данных
+            if [ -f data/kurut.db ]; then
+              echo "📋 Backing up existing database..."
+              cp data/kurut.db data/kurut.db.backup.$(date +%Y%m%d_%H%M%S)
+            fi
+            
+            # Создаем SQLite файл с правильными правами
+            touch data/kurut.db
+            sudo chown 1000:1000 data/kurut.db 2>/dev/null || chown 1000:1000 data/kurut.db
+            chmod 666 data/kurut.db
+            
+            # Выполняем миграции через отдельный контейнер
+            echo "🔄 Running migrations..."
+            docker run --rm \
+              -v $(pwd)/data:/app/data:rw \
+              -v $(pwd)/migrations:/app/migrations:ro \
+              --user 1000:1000 \
+              ${{ needs.docker.outputs.image-tag }} \
+              goose -dir migrations sqlite3 /app/data/kurut.db up
+            
+            if [ $? -ne 0 ]; then
+              echo "❌ Migration failed! Checking permissions..."
+              ls -la data/
+              exit 1
+            fi
+            
+            echo "✅ Migrations completed successfully"
+            
+            # Обновляем и перезапускаем сервис
+            echo "🚀 Starting application..."
+            docker-compose up -d --no-deps bot
+            
+            # Ждем запуска и проверяем что приложение работает
+            echo "⏳ Waiting for application to start..."
+            sleep 15
+            
+            # Проверяем что контейнер работает
+            if ! docker-compose ps | grep kurut-bot | grep -q "Up"; then
+              echo "❌ ERROR: Container is not running!"
+              docker-compose logs bot
+              exit 1
+            fi
+            
+            # Проверяем логи на ошибки
+            if docker-compose logs --tail=20 bot | grep -i "error\|fatal\|failed"; then
+              echo "❌ ERROR: Application has errors in logs!"
+              docker-compose logs bot
+              exit 1
+            fi
+            
+            echo "✅ Application deployed and running successfully"
+            docker-compose ps
+            docker-compose logs --tail=10 bot
+            
+            # Очистка старых образов
+            docker image prune -f
+            
+            echo "🎉 Production deployment completed!"
