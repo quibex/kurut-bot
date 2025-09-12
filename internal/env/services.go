@@ -36,7 +36,7 @@ func newServices(ctx context.Context, clients *Clients, cfg *config.Config, logg
 	// Создаем реальные сервисы
 	userService := users.NewService(storageImpl)
 	tariffService := tariffs.NewService(storageImpl)
-	createSubService := createsubs.NewService(storageImpl, clients.MarzbanClient, time.Now)
+	createSubService := createsubs.NewService(storageImpl, clients.MarzbanClient, time.Now, cfg.MarzbanClient.APIURL)
 
 	// Создаем StateManager
 	stateManager := states.NewManager()

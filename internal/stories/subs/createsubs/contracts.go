@@ -17,5 +17,6 @@ type (
 
 	marzbanClient interface {
 		AddUser(ctx context.Context, request *marzban.UserCreate) (marzban.AddUserRes, error)
+		GetInbounds(ctx context.Context) (marzban.GetInboundsRes, error)
 	}
 )

@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+README.md
+.github/
+
+# Build artifacts
+bin/
+bot
+coverage.out
+*.tmp.out
+
+# Development files  
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+

@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  bot:
+    image: ${IMAGE_TAG:-kurut-bot:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kurut-bot
+    restart: unless-stopped
+    environment:
+      - ENV=${ENV:-production}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_ADMIN_TELEGRAM_IDS=${TELEGRAM_ADMIN_TELEGRAM_IDS}
+      - MARZBAN_TOKEN=${MARZBAN_TOKEN}
+      - MARZBAN_API_URL=${MARZBAN_API_URL}
+      - DB_PATH=${DB_PATH:-/app/data/kurut.db}
+      - LOGGER_LEVEL=${LOGGER_LEVEL:-info}
+    volumes:
+      - ./data:/app/data
+    networks:
+      - kurut-network
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep kurut-bot || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  kurut-network:
+    driver: bridge
+
+volumes:
+  bot-data:
+    driver: local
+

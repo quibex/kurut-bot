@@ -51,8 +51,15 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		telegramID,
 	)
 	if err != nil {
-		r.sendError(telegramID)
+		_ = r.sendError(telegramID)
 		return err
+	}
+
+	// ПРИОРИТЕТ: Проверяем команды первыми (отменяют любой флоу)
+	if update.Message != nil && update.Message.IsCommand() {
+		// Очищаем состояние при любой команде
+		r.stateManager.Clear(telegramID)
+		return r.handleCommandWithUser(update, user)
 	}
 
 	// Используем внутренний ID для состояния
@@ -73,8 +80,8 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		return r.createTariffHandler.Handle(update, state)
 	}
 
-	// Если нет активного состояния - обрабатываем команды
-	return r.handleCommandWithUser(update, user)
+	// Если нет активного состояния - обрабатываем как обычное сообщение
+	return r.sendHelp(extractChatID(update))
 }
 
 func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User) error {
@@ -92,7 +99,7 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 		)
 	case "create_tariff":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для создания тарифов"))
+			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для создания тарифов"))
 			return r.sendHelp(update.Message.Chat.ID)
 		}
 		return r.createTariffHandler.Start(
@@ -188,4 +195,26 @@ func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService user
 		adminChecker:        adminChecker,
 		createTariffHandler: createTariffHandler,
 	}
+}
+
+// SetupBotCommands устанавливает команды для меню бота
+func (r *Router) SetupBotCommands() error {
+	commands := []tgbotapi.BotCommand{
+		{
+			Command:     "start",
+			Description: "Начать работу с ботом",
+		},
+		{
+			Command:     "buy",
+			Description: "Купить подписку VPN",
+		},
+		{
+			Command:     "create_tariff",
+			Description: "Создать тариф (только для админов)",
+		},
+	}
+
+	setCommandsConfig := tgbotapi.NewSetMyCommands(commands...)
+	_, err := r.bot.Request(setCommandsConfig)
+	return err
 }

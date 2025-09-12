@@ -89,6 +89,14 @@ func startTelegramBot(ctx context.Context, env *environment.Env) error {
 		return fmt.Errorf("запуск telegram клиента: %w", err)
 	}
 
+	// Устанавливаем команды для меню бота
+	if err := env.Services.TelegramRouter.SetupBotCommands(); err != nil {
+		logger.Error("Failed to setup bot commands", slog.Any("error", err))
+		// Не возвращаем ошибку, т.к. это не критично
+	} else {
+		logger.Info("Bot commands set up successfully")
+	}
+
 	// Получаем канал обновлений
 	updates := env.Clients.TelegramBot.GetUpdates()
 

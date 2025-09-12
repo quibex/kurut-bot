@@ -39,7 +39,7 @@ func NewHandler(
 func (h *Handler) Start(chatID int64) error {
 	// Инициализируем данные флоу
 	flowData := &flows.CreateTariffFlowData{}
-	h.stateManager.SetCreateTariffState(chatID, states.AdminCreateTariffWaitName, flowData)
+	h.stateManager.SetState(chatID, states.AdminCreateTariffWaitName, flowData)
 
 	// Показываем форму ввода названия
 	return h.showNameInput(chatID)
@@ -112,7 +112,7 @@ func (h *Handler) handleNameInput(ctx context.Context, update *tgbotapi.Update) 
 	data.Name = name
 
 	// Переводим в состояние ввода цены
-	h.stateManager.SetCreateTariffState(chatID, states.AdminCreateTariffWaitPrice, data)
+	h.stateManager.SetState(chatID, states.AdminCreateTariffWaitPrice, data)
 
 	// Показываем форму ввода цены
 	return h.showPriceInput(chatID, name)
@@ -172,7 +172,7 @@ func (h *Handler) handlePriceInput(ctx context.Context, update *tgbotapi.Update)
 	data.Price = price
 
 	// Переводим в состояние ввода продолжительности
-	h.stateManager.SetCreateTariffState(chatID, states.AdminCreateTariffWaitDuration, data)
+	h.stateManager.SetState(chatID, states.AdminCreateTariffWaitDuration, data)
 
 	// Показываем форму ввода продолжительности
 	return h.showDurationInput(chatID, data.Name, price)
@@ -233,7 +233,7 @@ func (h *Handler) handleDurationInput(ctx context.Context, update *tgbotapi.Upda
 	data.DurationDays = duration
 
 	// Переводим в состояние подтверждения
-	h.stateManager.SetCreateTariffState(chatID, states.AdminCreateTariffWaitConfirmation, data)
+	h.stateManager.SetState(chatID, states.AdminCreateTariffWaitConfirmation, data)
 
 	// Показываем подтверждение
 	return h.showConfirmation(chatID, data)

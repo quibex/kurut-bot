@@ -50,7 +50,7 @@ func (h *Handler) Start(userID, chatID int64) error {
 	flowData := &flows.BuySubFlowData{
 		UserID: userID,
 	}
-	h.stateManager.SetBuySubState(chatID, states.UserBuySubWaitTariff, flowData)
+	h.stateManager.SetState(chatID, states.UserBuySubWaitTariff, flowData)
 
 	// Показываем тарифы
 	return h.showTariffs(chatID)
@@ -80,6 +80,9 @@ func (h *Handler) showTariffs(chatID int64) error {
 	}
 
 	if len(tariffs) == 0 {
+		// Очищаем состояние пользователя, чтобы он вышел из flow
+		h.stateManager.Clear(chatID)
+
 		msg := tgbotapi.NewMessage(chatID, "❌ К сожалению, активных тарифов сейчас нет")
 		_, err = h.bot.Send(msg)
 		return err
@@ -98,7 +101,14 @@ func (h *Handler) showTariffs(chatID int64) error {
 // handleTariffSelection обработка выбора тарифа
 func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Update) error {
 	if update.CallbackQuery == nil {
-		return h.sendError(update.Message.Chat.ID, "Пожалуйста, выберите тариф из меню")
+		chatID := update.Message.Chat.ID
+		// Проверяем есть ли активные тарифы, если нет - выходим из flow
+		tariffs, err := h.tariffService.GetActiveTariffs(ctx)
+		if err == nil && len(tariffs) == 0 {
+			h.stateManager.Clear(chatID)
+			return h.sendError(chatID, "❌ Активные тарифы отсутствуют")
+		}
+		return h.sendError(chatID, "Пожалуйста, выберите тариф из меню")
 	}
 
 	chatID := update.CallbackQuery.Message.Chat.ID
@@ -122,7 +132,7 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 	}
 
 	// Переводим в состояние ввода количества
-	h.stateManager.SetBuySubState(chatID, states.UserBuySubWaitQuantity, flowData)
+	h.stateManager.SetState(chatID, states.UserBuySubWaitQuantity, flowData)
 
 	// Отвечаем на callback query
 	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Тариф выбран")
@@ -205,7 +215,7 @@ func (h *Handler) handleQuantityInput(ctx context.Context, update *tgbotapi.Upda
 	data.TotalAmount = data.Price * float64(quantity)
 
 	// Переводим в состояние подтверждения
-	h.stateManager.SetBuySubState(chatID, states.UserBuySubWaitPayment, data)
+	h.stateManager.SetState(chatID, states.UserBuySubWaitPayment, data)
 
 	// Отвечаем на callback query
 	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, fmt.Sprintf("Выбрано: %d подписок", quantity))
@@ -522,7 +532,7 @@ func (h *Handler) SendConnectionInstructions(userID, chatID int64, subscriptions
 		messageText += fmt.Sprintf("🔗 *Подписка #%d (ID: %d):*\n", i+1, subscription.ID)
 
 		if subscription.MarzbanLink != "" {
-			messageText += fmt.Sprintf("```\n%s\n```\n\n", subscription.MarzbanLink)
+			messageText += fmt.Sprintf("`%s`\n\n", subscription.MarzbanLink)
 		} else {
 			messageText += "❌ Ссылка подключения не готова\n\n"
 		}

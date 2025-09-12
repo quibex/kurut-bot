@@ -114,9 +114,11 @@ docker-up:
 docker-down:
 	@docker-compose down -v
 
-.PHONY:  gen
-gen: install
-	go generate ./...
+# ОТКЛЮЧЕНО: Генерация отключена чтобы сохранить исправления для Marzban API
+.PHONY:  gen-disabled
+gen-disabled: install
+	@echo "Генерация отключена! Включите обратно в pkg/marzban/gen.go если нужно"
+	# go generate ./...
 
 .PHONY: pre
 pre:

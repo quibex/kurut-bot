@@ -45,15 +45,6 @@ func (m *Manager) SetState(chatID int64, state State, data any) {
 	}
 }
 
-// GetStateData получает данные состояния пользователя
-func (m *Manager) GetStateData(chatID int64) (any, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	data, exists := m.userData[chatID]
-	return data, exists
-}
-
 // Clear очищает состояние пользователя
 func (m *Manager) Clear(chatID int64) {
 	m.mu.Lock()
@@ -81,16 +72,6 @@ func (m *Manager) GetBuySubData(chatID int64) (*flows.BuySubFlowData, error) {
 	return flowData, nil
 }
 
-// SetBuySubState устанавливает состояние и данные флоу покупки
-func (m *Manager) SetBuySubState(tgUserID int64, state State, data *flows.BuySubFlowData) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.userStates[tgUserID] = state
-	m.userData[tgUserID] = data
-	return nil
-}
-
 // GetCreateTariffData получает данные флоу создания тарифа
 func (m *Manager) GetCreateTariffData(chatID int64) (*flows.CreateTariffFlowData, error) {
 	m.mu.RLock()
@@ -107,14 +88,4 @@ func (m *Manager) GetCreateTariffData(chatID int64) (*flows.CreateTariffFlowData
 	}
 
 	return flowData, nil
-}
-
-// SetCreateTariffState устанавливает состояние и данные флоу создания тарифа
-func (m *Manager) SetCreateTariffState(tgUserID int64, state State, data *flows.CreateTariffFlowData) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.userStates[tgUserID] = state
-	m.userData[tgUserID] = data
-	return nil
 }

@@ -17,6 +17,7 @@ type subscriptionRow struct {
 	UserID        int64      `db:"user_id"`
 	TariffID      int64      `db:"tariff_id"`
 	MarzbanUserID string     `db:"marzban_user_id"`
+	MarzbanLink   string     `db:"marzban_link"`
 	Status        string     `db:"status"`
 	ActivatedAt   *time.Time `db:"activated_at"`
 	ExpiresAt     *time.Time `db:"expires_at"`
@@ -30,7 +31,7 @@ func (s subscriptionRow) ToModel() *subs.Subscription {
 		UserID:        s.UserID,
 		TariffID:      s.TariffID,
 		MarzbanUserID: s.MarzbanUserID,
-		MarzbanLink:   "", // TODO: добавить поле в БД если нужно
+		MarzbanLink:   s.MarzbanLink,
 		Status:        subs.Status(s.Status),
 		ActivatedAt:   s.ActivatedAt,
 		ExpiresAt:     s.ExpiresAt,
@@ -46,7 +47,7 @@ func (s *storageImpl) BulkInsertSubscriptions(ctx context.Context, subscriptions
 
 	query := s.stmpBuilder().
 		Insert(subscriptionsTable).
-		Columns(fields(subscriptionRow{}))
+		Columns("user_id", "tariff_id", "marzban_user_id", "marzban_link", "status", "activated_at", "expires_at", "created_at", "updated_at")
 
 	now := s.now()
 	for _, subscription := range subscriptions {
@@ -54,6 +55,7 @@ func (s *storageImpl) BulkInsertSubscriptions(ctx context.Context, subscriptions
 			subscription.UserID,
 			subscription.TariffID,
 			subscription.MarzbanUserID,
+			subscription.MarzbanLink,
 			string(subscription.Status),
 			subscription.ActivatedAt,
 			subscription.ExpiresAt,

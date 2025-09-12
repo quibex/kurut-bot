@@ -21,7 +21,7 @@ type (
 	stateManager interface {
 		Clear(chatID int64)
 		GetBuySubData(chatID int64) (*flows.BuySubFlowData, error)
-		SetBuySubState(chatID int64, state states.State, data *flows.BuySubFlowData) error
+		SetState(chatID int64, state states.State, data any)
 	}
 
 	tariffService interface {

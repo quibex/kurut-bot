@@ -4,6 +4,7 @@ CREATE TABLE subscriptions (
     user_id INTEGER NOT NULL,
     tariff_id INTEGER NOT NULL,
     marzban_user_id TEXT NOT NULL,
+    marzban_link TEXT NOT NULL,
     status TEXT NOT NULL,
     activated_at TIMESTAMP,
     expires_at TIMESTAMP,
