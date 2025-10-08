@@ -8,14 +8,8 @@ services:
       dockerfile: Dockerfile
     container_name: kurut-bot
     restart: unless-stopped
-    environment:
-      - ENV=${ENV:-production}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_ADMIN_TELEGRAM_IDS=${TELEGRAM_ADMIN_TELEGRAM_IDS}
-      - MARZBAN_TOKEN=${MARZBAN_TOKEN}
-      - MARZBAN_API_URL=${MARZBAN_API_URL}
-      - DB_PATH=${DB_PATH:-/app/data/kurut.db}
-      - LOGGER_LEVEL=${LOGGER_LEVEL:-info}
+    env_file:
+      - .env
     volumes:
       - ./data:/app/data
     networks:
