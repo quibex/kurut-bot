@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"kurut-bot/internal/config"
+	"kurut-bot/internal/infra/yookassa"
 	"kurut-bot/internal/storage"
+	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/subs/createsubs"
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/stories/users"
@@ -23,7 +25,7 @@ type Services struct {
 	CreateTariffHandler *createtariff.Handler
 }
 
-func newServices(ctx context.Context, clients *Clients, cfg *config.Config, logger *slog.Logger) (*Services, error) {
+func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger *slog.Logger) (*Services, error) {
 	var s Services
 
 	// Инициализируем telegram сервисы
@@ -44,9 +46,14 @@ func newServices(ctx context.Context, clients *Clients, cfg *config.Config, logg
 	// Создаем AdminChecker
 	adminChecker := telegram.NewAdminChecker(&cfg.Telegram)
 
-	// Создаем Mock-сервисы для buySubHandler (временно)
-	// mockSubscriptionService := buysub.NewMockSubscriptionService()
-	mockPaymentService := buysub.NewMockPaymentService()
+	// Создаем YooKassa client
+	yookassaClient, err := yookassa.NewClient(cfg.YooKassa.ShopID, cfg.YooKassa.SecretKey, cfg.YooKassa.ReturnURL, logger)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create yookassa client")
+	}
+
+	// Создаем Payment service
+	paymentService := payment.NewService(storageImpl, yookassaClient, cfg.YooKassa.ReturnURL, logger)
 
 	// Создаем buySubHandler - наш клиент уже реализует botApi интерфейс
 	buySubHandler := buysub.NewHandler(
@@ -54,7 +61,7 @@ func newServices(ctx context.Context, clients *Clients, cfg *config.Config, logg
 		stateManager,
 		tariffService,
 		createSubService,
-		mockPaymentService,
+		paymentService,
 		logger,
 	)
 

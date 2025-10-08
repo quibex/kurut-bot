@@ -19,41 +19,41 @@ const (
 var paymentRowFields = fields(paymentRow{})
 
 type paymentRow struct {
-	ID                    int64      `db:"id"`
-	UserID              int64      `db:"user_id"`
-	Amount                float64    `db:"amount"`
-	Status                string     `db:"status"`
-	CardlinkTransactionID *string    `db:"cardlink_transaction_id"`
-	PaymentURL            *string    `db:"payment_url"`
-	ProcessedAt           *time.Time `db:"processed_at"`
-	CreatedAt             time.Time  `db:"created_at"`
-	UpdatedAt             time.Time  `db:"updated_at"`
+	ID          int64      `db:"id"`
+	UserID      int64      `db:"user_id"`
+	Amount      float64    `db:"amount"`
+	Status      string     `db:"status"`
+	YooKassaID  *string    `db:"yookassa_id"`
+	PaymentURL  *string    `db:"payment_url"`
+	ProcessedAt *time.Time `db:"processed_at"`
+	CreatedAt   time.Time  `db:"created_at"`
+	UpdatedAt   time.Time  `db:"updated_at"`
 }
 
 func (p paymentRow) ToModel() *payment.Payment {
 	return &payment.Payment{
-		ID:                    p.ID,
-		UserID:              p.UserID,
-		Amount:                p.Amount,
-		Status:                payment.Status(p.Status),
-		CardlinkTransactionID: p.CardlinkTransactionID,
-		PaymentURL:            p.PaymentURL,
-		ProcessedAt:           p.ProcessedAt,
-		CreatedAt:             p.CreatedAt,
-		UpdatedAt:             p.UpdatedAt,
+		ID:          p.ID,
+		UserID:      p.UserID,
+		Amount:      p.Amount,
+		Status:      payment.Status(p.Status),
+		YooKassaID:  p.YooKassaID,
+		PaymentURL:  p.PaymentURL,
+		ProcessedAt: p.ProcessedAt,
+		CreatedAt:   p.CreatedAt,
+		UpdatedAt:   p.UpdatedAt,
 	}
 }
 
 func (s *storageImpl) CreatePayment(ctx context.Context, paymentEntity payment.Payment) (*payment.Payment, error) {
 	params := map[string]interface{}{
-		"user_id":              paymentEntity.UserID,
-		"amount":                  paymentEntity.Amount,
-		"status":                  string(paymentEntity.Status),
-		"cardlink_transaction_id": paymentEntity.CardlinkTransactionID,
-		"payment_url":             paymentEntity.PaymentURL,
-		"processed_at":            paymentEntity.ProcessedAt,
-		"created_at":              s.now(),
-		"updated_at":              s.now(),
+		"user_id":      paymentEntity.UserID,
+		"amount":       paymentEntity.Amount,
+		"status":       string(paymentEntity.Status),
+		"yookassa_id":  paymentEntity.YooKassaID,
+		"payment_url":  paymentEntity.PaymentURL,
+		"processed_at": paymentEntity.ProcessedAt,
+		"created_at":   s.now(),
+		"updated_at":   s.now(),
 	}
 
 	q, args, err := s.stmpBuilder().
@@ -86,8 +86,8 @@ func (s *storageImpl) GetPayment(ctx context.Context, criteria payment.GetCriter
 	if criteria.ID != nil {
 		query = query.Where(sq.Eq{"id": *criteria.ID})
 	}
-	if criteria.CardlinkTransactionID != nil {
-		query = query.Where(sq.Eq{"cardlink_transaction_id": *criteria.CardlinkTransactionID})
+	if criteria.YooKassaID != nil {
+		query = query.Where(sq.Eq{"yookassa_id": *criteria.YooKassaID})
 	}
 
 	q, args, err := query.ToSql()
@@ -98,7 +98,7 @@ func (s *storageImpl) GetPayment(ctx context.Context, criteria payment.GetCriter
 	row := s.db.QueryRowContext(ctx, q, args...)
 
 	var p paymentRow
-	err = row.Scan(&p.ID, &p.UserID, &p.Amount, &p.Status, &p.CardlinkTransactionID,
+	err = row.Scan(&p.ID, &p.UserID, &p.Amount, &p.Status, &p.YooKassaID,
 		&p.PaymentURL, &p.ProcessedAt, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -115,20 +115,21 @@ func (s *storageImpl) UpdatePayment(ctx context.Context, criteria payment.GetCri
 		Update(paymentsTable).
 		Set("updated_at", s.now())
 
-	// Добавляем условия для обновления
 	if criteria.ID != nil {
 		query = query.Where(sq.Eq{"id": *criteria.ID})
 	}
-	if criteria.CardlinkTransactionID != nil {
-		query = query.Where(sq.Eq{"cardlink_transaction_id": *criteria.CardlinkTransactionID})
+	if criteria.YooKassaID != nil {
+		query = query.Where(sq.Eq{"yookassa_id": *criteria.YooKassaID})
 	}
 
-	// Добавляем параметры для обновления
 	if params.Status != nil {
 		query = query.Set("status", string(*params.Status))
 	}
-	if params.CardlinkTransactionID != nil {
-		query = query.Set("cardlink_transaction_id", *params.CardlinkTransactionID)
+	if params.YooKassaID != nil {
+		query = query.Set("yookassa_id", *params.YooKassaID)
+	}
+	if params.PaymentURL != nil {
+		query = query.Set("payment_url", *params.PaymentURL)
 	}
 	if params.ProcessedAt != nil {
 		query = query.Set("processed_at", *params.ProcessedAt)
@@ -182,7 +183,7 @@ func (s *storageImpl) ListPayments(ctx context.Context, criteria payment.ListCri
 	var result []*payment.Payment
 	for rows.Next() {
 		var p paymentRow
-		err = rows.Scan(&p.ID, &p.UserID, &p.Amount, &p.Status, &p.CardlinkTransactionID,
+		err = rows.Scan(&p.ID, &p.UserID, &p.Amount, &p.Status, &p.YooKassaID,
 			&p.PaymentURL, &p.ProcessedAt, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("rows.Scan: %w", err)
@@ -202,9 +203,6 @@ func (s *storageImpl) DeletePayment(ctx context.Context, criteria payment.Delete
 
 	if criteria.ID != nil {
 		query = query.Where(sq.Eq{"id": *criteria.ID})
-	}
-	if criteria.CardlinkTransactionID != nil {
-		query = query.Where(sq.Eq{"cardlink_transaction_id": *criteria.CardlinkTransactionID})
 	}
 
 	q, args, err := query.ToSql()
@@ -290,5 +288,19 @@ func (s *storageImpl) DeletePaymentSubscriptions(ctx context.Context, paymentID 
 		return fmt.Errorf("db.ExecContext: %w", err)
 	}
 
+	return nil
+}
+
+// LinkPaymentToSubscriptions creates links between payment and multiple subscriptions
+func (s *storageImpl) LinkPaymentToSubscriptions(ctx context.Context, paymentID int64, subscriptionIDs []int64) error {
+	for _, subscriptionID := range subscriptionIDs {
+		req := payment.CreatePaymentSubscriptionRequest{
+			PaymentID:      paymentID,
+			SubscriptionID: subscriptionID,
+		}
+		if err := s.CreatePaymentSubscription(ctx, req); err != nil {
+			return fmt.Errorf("failed to link payment %d to subscription %d: %w", paymentID, subscriptionID, err)
+		}
+	}
 	return nil
 }

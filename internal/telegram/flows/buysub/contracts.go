@@ -34,8 +34,6 @@ type (
 
 	paymentService interface {
 		CreatePayment(ctx context.Context, paymentEntity payment.Payment) (*payment.Payment, error)
-		LinkPaymentToSubscriptions(ctx context.Context, paymentID int64, subscriptionIDs []int64) error
-		ProcessPaymentSuccess(ctx context.Context, paymentID int64, cardlinkTransactionID string) error
-		GetPaymentByID(ctx context.Context, paymentID int64) (*payment.Payment, error)
+		CheckPaymentStatus(ctx context.Context, paymentID int64) (*payment.Payment, error)
 	}
 )

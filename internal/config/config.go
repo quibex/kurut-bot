@@ -12,7 +12,8 @@ type Config struct {
 	ShutdownDuration time.Duration           `env:"SHUTDOWN_DURATION,default=30s"`
 	DB               SQLiteConfig            `env:",prefix=DB_"`
 	Telegram         TelegramConfig          `env:",prefix=TELEGRAM_"`
-	MarzbanClient     MarzbanConfig           `env:",prefix=MARZBAN_"`
+	MarzbanClient    MarzbanConfig           `env:",prefix=MARZBAN_"`
+	YooKassa         YooKassaConfig          `env:",prefix=YOOKASSA_"`
 	Metrics          struct {
 		Collector struct {
 			Timeout time.Duration `env:"COLLECTOR_TIMEOUT,default=10s"`
@@ -27,8 +28,14 @@ type TelegramConfig struct {
 }
 
 type MarzbanConfig struct {
-	Token      string           `env:"TOKEN,required"`
-	APIURL     string           `env:"API_URL,required"`
+	Token  string `env:"TOKEN,required"`
+	APIURL string `env:"API_URL,required"`
+}
+
+type YooKassaConfig struct {
+	ShopID    string `env:"SHOP_ID,required"`
+	SecretKey string `env:"SECRET_KEY,required"`
+	ReturnURL string `env:"RETURN_URL,default=https://example.com/payment/return"`
 }
 
 type HTTPClientConfig struct {
