@@ -112,3 +112,45 @@ func (s *storageImpl) GetSubscription(ctx context.Context, criteria subs.GetCrit
 	return sub.ToModel(), nil
 }
 
+func (s *storageImpl) ListSubscriptions(ctx context.Context, criteria subs.ListCriteria) ([]*subs.Subscription, error) {
+	query := s.stmpBuilder().
+		Select(subscriptionRowFields).
+		From(subscriptionsTable)
+
+	if len(criteria.UserIDs) > 0 {
+		query = query.Where(sq.Eq{"user_id": criteria.UserIDs})
+	}
+	if len(criteria.TariffIDs) > 0 {
+		query = query.Where(sq.Eq{"tariff_id": criteria.TariffIDs})
+	}
+	if len(criteria.Status) > 0 {
+		query = query.Where(sq.Eq{"status": criteria.Status})
+	}
+
+	if criteria.Limit > 0 {
+		query = query.Limit(uint64(criteria.Limit))
+	}
+	if criteria.Offset > 0 {
+		query = query.Offset(uint64(criteria.Offset))
+	}
+
+	query = query.OrderBy("created_at DESC")
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var rows []subscriptionRow
+	err = s.db.SelectContext(ctx, &rows, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("db.SelectContext: %w", err)
+	}
+
+	var subscriptions []*subs.Subscription
+	for _, row := range rows {
+		subscriptions = append(subscriptions, row.ToModel())
+	}
+
+	return subscriptions, nil
+}

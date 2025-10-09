@@ -18,6 +18,10 @@ func NewService(storage Storage) *Service {
 	}
 }
 
+func (s *Service) GetTariff(ctx context.Context, criteria GetCriteria) (*Tariff, error) {
+	return s.storage.GetTariff(ctx, criteria)
+}
+
 func (s *Service) CreateTariff(ctx context.Context, tariff Tariff) (*Tariff, error) {
 	// Если создаем пробный тариф (price = 0), деактивируем все старые пробные
 	if tariff.Price == 0 {

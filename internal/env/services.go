@@ -9,10 +9,12 @@ import (
 	"kurut-bot/internal/infra/yookassa"
 	"kurut-bot/internal/storage"
 	"kurut-bot/internal/stories/payment"
+	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/subs/createsubs"
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/stories/users"
 	"kurut-bot/internal/telegram"
+	"kurut-bot/internal/telegram/cmds"
 	"kurut-bot/internal/telegram/flows/buysub"
 	"kurut-bot/internal/telegram/flows/createtariff"
 	"kurut-bot/internal/telegram/flows/disabletariff"
@@ -41,6 +43,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	// Создаем реальные сервисы
 	userService := users.NewService(storageImpl)
 	tariffService := tariffs.NewService(storageImpl)
+	subsService := subs.NewService(storageImpl)
 	createSubService := createsubs.NewService(storageImpl, clients.MarzbanClient, time.Now, cfg.MarzbanClient.APIURL)
 
 	// Создаем StateManager
@@ -102,6 +105,13 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
+	// Создаем mySubsCommand
+	mySubsCommand := cmds.NewMySubsCommand(
+		clients.TelegramBot.GetBotAPI(),
+		subsService,
+		tariffService,
+	)
+
 	// Создаем роутер
 	s.TelegramRouter = telegram.NewRouter(
 		clients.TelegramBot.GetBotAPI(),
@@ -113,6 +123,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		disableTariffHandler,
 		enableTariffHandler,
 		startTrialHandler,
+		mySubsCommand,
 	)
 
 	return &s, nil

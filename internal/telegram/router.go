@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"kurut-bot/internal/stories/users"
+	"kurut-bot/internal/telegram/cmds"
 	"kurut-bot/internal/telegram/flows/buysub"
 	"kurut-bot/internal/telegram/flows/createtariff"
 	"kurut-bot/internal/telegram/flows/disabletariff"
@@ -27,6 +28,7 @@ type Router struct {
 	disableTariffHandler *disabletariff.Handler
 	enableTariffHandler  *enabletariff.Handler
 	startTrialHandler    *starttrial.Handler
+	mySubsCommand        *cmds.MySubsCommand
 }
 
 type stateManager interface {
@@ -149,6 +151,9 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 		return r.enableTariffHandler.Start(
 			update.Message.Chat.ID,
 		)
+	case "my_subs":
+		ctx := context.Background()
+		return r.mySubsCommand.Execute(ctx, user, update.Message.Chat.ID)
 	default:
 		return r.sendHelp(update.Message.Chat.ID)
 	}
@@ -203,7 +208,8 @@ func (r *Router) sendHelp(chatID int64) error {
 		return nil // Не можем отправить сообщение
 	}
 	text := "Доступные команды:\n\n" +
-		"/buy — Купить ключ доступа"
+		"/buy — Купить ключ доступа\n" +
+		"/my_subs — Мои активные подписки"
 	if r.adminChecker.IsAdmin(chatID) {
 		text += "\n\nКоманды для администратора:\n" +
 			"/create_tariff — Создать тариф\n" +
@@ -260,7 +266,7 @@ func (r *Router) handleGlobalCancelWithInternalID(update *tgbotapi.Update) error
 }
 
 // NewRouter создает новый роутер с зависимостями
-func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler) *Router {
+func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler, mySubsCommand *cmds.MySubsCommand) *Router {
 	return &Router{
 		bot:                  bot,
 		stateManager:         stateManager,
@@ -271,6 +277,7 @@ func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService user
 		disableTariffHandler: disableTariffHandler,
 		enableTariffHandler:  enableTariffHandler,
 		startTrialHandler:    startTrialHandler,
+		mySubsCommand:        mySubsCommand,
 	}
 }
 
@@ -279,8 +286,16 @@ func (r *Router) SetupBotCommands() error {
 	// Устанавливаем только клиентские команды в панель по умолчанию
 	commands := []tgbotapi.BotCommand{
 		{
+			Command:     "start",
+			Description: "Начать работу с ботом",
+		},
+		{
 			Command:     "buy",
 			Description: "Купить ключ доступа",
+		},
+		{
+			Command:     "my_subs",
+			Description: "Мои активные подписки",
 		},
 	}
 
@@ -293,8 +308,16 @@ func (r *Router) SetupBotCommands() error {
 func (r *Router) setupAdminCommands(chatID int64) {
 	commands := []tgbotapi.BotCommand{
 		{
+			Command:     "start",
+			Description: "Начать работу с ботом",
+		},
+		{
 			Command:     "buy",
 			Description: "Купить ключ доступа",
+		},
+		{
+			Command:     "my_subs",
+			Description: "Мои активные подписки",
 		},
 		{
 			Command:     "create_tariff",
