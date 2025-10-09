@@ -34,3 +34,15 @@ type CreateTariffFlowData struct {
 	DurationDays   int
 	TrafficLimitGB *int // опционально
 }
+
+// RenewSubFlowData - data for renew sub
+type RenewSubFlowData struct {
+	UserID         int64
+	SubscriptionID int64
+	TariffID       int64
+	TariffName     string
+	DurationDays   int
+	Price          float64
+	PaymentID      *int64
+	PaymentURL     *string
+}

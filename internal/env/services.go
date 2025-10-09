@@ -19,8 +19,10 @@ import (
 	"kurut-bot/internal/telegram/flows/createtariff"
 	"kurut-bot/internal/telegram/flows/disabletariff"
 	"kurut-bot/internal/telegram/flows/enabletariff"
+	"kurut-bot/internal/telegram/flows/renewsub"
 	"kurut-bot/internal/telegram/flows/starttrial"
 	"kurut-bot/internal/telegram/states"
+	"kurut-bot/internal/worker"
 
 	"github.com/pkg/errors"
 )
@@ -28,6 +30,7 @@ import (
 type Services struct {
 	TelegramRouter      *telegram.Router
 	CreateTariffHandler *createtariff.Handler
+	WorkerService       *worker.Service
 }
 
 func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger *slog.Logger) (*Services, error) {
@@ -112,6 +115,16 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		tariffService,
 	)
 
+	// Создаем renewSubHandler
+	renewSubHandler := renewsub.NewHandler(
+		clients.TelegramBot,
+		stateManager,
+		subsService,
+		tariffService,
+		paymentService,
+		logger,
+	)
+
 	// Создаем роутер
 	s.TelegramRouter = telegram.NewRouter(
 		clients.TelegramBot.GetBotAPI(),
@@ -123,7 +136,16 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		disableTariffHandler,
 		enableTariffHandler,
 		startTrialHandler,
+		renewSubHandler,
 		mySubsCommand,
+	)
+
+	// Создаем Worker service
+	s.WorkerService = worker.NewService(
+		storageImpl,
+		clients.TelegramBot,
+		tariffService,
+		logger,
 	)
 
 	return &s, nil

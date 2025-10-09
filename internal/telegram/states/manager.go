@@ -89,3 +89,21 @@ func (m *Manager) GetCreateTariffData(chatID int64) (*flows.CreateTariffFlowData
 
 	return flowData, nil
 }
+
+// GetRenewSubData получает данные флоу продления подписки
+func (m *Manager) GetRenewSubData(chatID int64) (*flows.RenewSubFlowData, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	data, exists := m.userData[chatID]
+	if !exists {
+		return nil, fmt.Errorf("no data for chat %d", chatID)
+	}
+
+	flowData, ok := data.(*flows.RenewSubFlowData)
+	if !ok {
+		return nil, fmt.Errorf("invalid data type for chat %d", chatID)
+	}
+
+	return flowData, nil
+}

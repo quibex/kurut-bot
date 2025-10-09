@@ -41,6 +41,12 @@ func main() {
 		return
 	}
 
+	// Запускаем worker service
+	if err := env.Services.WorkerService.Start(); err != nil {
+		logger.Error("Failed to start worker service", slog.Any("error", err))
+		return
+	}
+
 	// Wait for interrupt signal to gracefully shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -53,6 +59,11 @@ func main() {
 	// Create context with timeout for graceful shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), env.Config.ShutdownDuration)
 	defer cancel()
+
+	// Stop worker service
+	if env.Services.WorkerService != nil {
+		env.Services.WorkerService.Stop()
+	}
 
 	// Shutdown servers
 	if env.Servers.HTTP.Observability != nil {

@@ -47,3 +47,10 @@ const (
 const (
 	AdminEnableTariffWaitSelection State = "aet_wt_selection"
 )
+
+// user renew sub states
+const (
+	UserRenewSubWaitSelection State = "urs_wt_selection"
+	UserRenewSubWaitTariff    State = "urs_wt_tariff"
+	UserRenewSubWaitPayment   State = "urs_wt_payment"
+)

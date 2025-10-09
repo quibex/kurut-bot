@@ -58,7 +58,7 @@ func (c *MySubsCommand) Execute(ctx context.Context, user *users.User, chatID in
 	var text strings.Builder
 	text.WriteString("📋 Ваши активные подписки:\n\n")
 
-	for i, sub := range subscriptions {
+	for _, sub := range subscriptions {
 		tariff, err := c.tariffSvc.GetTariff(ctx, tariffs.GetCriteria{
 			ID: lo.ToPtr(sub.TariffID),
 		})
@@ -66,7 +66,7 @@ func (c *MySubsCommand) Execute(ctx context.Context, user *users.User, chatID in
 			continue
 		}
 
-		text.WriteString(fmt.Sprintf("🔹 Подписка #%d\n", i+1))
+		text.WriteString(fmt.Sprintf("🔹 Подписка #%d\n", sub.ID))
 		text.WriteString(fmt.Sprintf("📦 Тариф: %s\n", tariff.Name))
 
 		if tariff.TrafficLimitGB != nil {
@@ -78,7 +78,7 @@ func (c *MySubsCommand) Execute(ctx context.Context, user *users.User, chatID in
 		if sub.ExpiresAt != nil {
 			daysLeft := int(time.Until(*sub.ExpiresAt).Hours() / 24)
 			if daysLeft > 0 {
-				text.WriteString(fmt.Sprintf("⏱ Осталось дней: %d\n", daysLeft))
+				text.WriteString(fmt.Sprintf("⏳ Осталось дней: %d\n", daysLeft))
 				text.WriteString(fmt.Sprintf("📅 Действует до: %s\n", sub.ExpiresAt.Format("02.01.2006")))
 			} else {
 				text.WriteString("⚠️ Подписка истекает сегодня\n")
@@ -92,7 +92,7 @@ func (c *MySubsCommand) Execute(ctx context.Context, user *users.User, chatID in
 		text.WriteString("\n")
 	}
 
-	text.WriteString("💡 Для продления подписки используйте /buy")
+	text.WriteString("💡 Для продления подписки используйте /renew")
 
 	msg := tgbotapi.NewMessage(chatID, text.String())
 	msg.ParseMode = "Markdown"

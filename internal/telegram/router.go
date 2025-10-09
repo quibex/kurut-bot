@@ -10,6 +10,7 @@ import (
 	"kurut-bot/internal/telegram/flows/createtariff"
 	"kurut-bot/internal/telegram/flows/disabletariff"
 	"kurut-bot/internal/telegram/flows/enabletariff"
+	"kurut-bot/internal/telegram/flows/renewsub"
 	"kurut-bot/internal/telegram/flows/starttrial"
 	"kurut-bot/internal/telegram/states"
 
@@ -28,6 +29,7 @@ type Router struct {
 	disableTariffHandler *disabletariff.Handler
 	enableTariffHandler  *enabletariff.Handler
 	startTrialHandler    *starttrial.Handler
+	renewSubHandler      *renewsub.Handler
 	mySubsCommand        *cmds.MySubsCommand
 }
 
@@ -87,6 +89,8 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 			return r.handleStartTrial(update, user)
 		case "view_tariffs":
 			return r.buySubHandler.Start(user.ID, extractChatID(update))
+		case "my_subscriptions":
+			return r.mySubsCommand.Execute(ctx, user, extractChatID(update))
 		}
 	}
 
@@ -108,6 +112,11 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 	// Проверяем состояние флоу восстановления тарифа
 	if strings.HasPrefix(string(state), "aet_") {
 		return r.enableTariffHandler.Handle(update, state)
+	}
+
+	// Проверяем состояние флоу продления подписки
+	if strings.HasPrefix(string(state), "urs_") {
+		return r.renewSubHandler.Handle(update, state)
 	}
 
 	// Если нет активного состояния - обрабатываем как обычное сообщение
@@ -154,6 +163,8 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 	case "my_subs":
 		ctx := context.Background()
 		return r.mySubsCommand.Execute(ctx, user, update.Message.Chat.ID)
+	case "renew":
+		return r.renewSubHandler.Start(user.ID, update.Message.Chat.ID)
 	default:
 		return r.sendHelp(update.Message.Chat.ID)
 	}
@@ -209,6 +220,7 @@ func (r *Router) sendHelp(chatID int64) error {
 	}
 	text := "Доступные команды:\n\n" +
 		"/buy — Купить ключ доступа\n" +
+		"/renew — Продлить подписку\n" +
 		"/my_subs — Мои активные подписки"
 	if r.adminChecker.IsAdmin(chatID) {
 		text += "\n\nКоманды для администратора:\n" +
@@ -266,7 +278,7 @@ func (r *Router) handleGlobalCancelWithInternalID(update *tgbotapi.Update) error
 }
 
 // NewRouter создает новый роутер с зависимостями
-func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler, mySubsCommand *cmds.MySubsCommand) *Router {
+func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler, renewSubHandler *renewsub.Handler, mySubsCommand *cmds.MySubsCommand) *Router {
 	return &Router{
 		bot:                  bot,
 		stateManager:         stateManager,
@@ -277,6 +289,7 @@ func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService user
 		disableTariffHandler: disableTariffHandler,
 		enableTariffHandler:  enableTariffHandler,
 		startTrialHandler:    startTrialHandler,
+		renewSubHandler:      renewSubHandler,
 		mySubsCommand:        mySubsCommand,
 	}
 }
@@ -292,6 +305,10 @@ func (r *Router) SetupBotCommands() error {
 		{
 			Command:     "buy",
 			Description: "Купить ключ доступа",
+		},
+		{
+			Command:     "renew",
+			Description: "Продлить подписку",
 		},
 		{
 			Command:     "my_subs",
