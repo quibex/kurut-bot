@@ -275,7 +275,7 @@ jobs:
             docker-compose down || true  # игнорируем ошибки если контейнеров нет
             
             echo "🚀 Starting application..."
-            docker-compose up -d bot
+            docker-compose up -d
             
             # Проверка работы
             echo "⏳ Waiting for application to start..."
@@ -421,7 +421,7 @@ jobs:
             docker-compose down || true  # игнорируем ошибки если контейнеров нет
             
             echo "🚀 Starting application..."
-            docker-compose up -d bot
+            docker-compose up -d
             
             # Проверка работы
             echo "⏳ Waiting for application to start..."
