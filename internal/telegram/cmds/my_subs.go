@@ -69,6 +69,10 @@ func (c *MySubsCommand) Execute(ctx context.Context, user *users.User, chatID in
 		text.WriteString(fmt.Sprintf("🔹 Подписка #%d\n", sub.ID))
 		text.WriteString(fmt.Sprintf("📦 Тариф: %s\n", tariff.Name))
 
+		if sub.ClientName != nil && *sub.ClientName != "" {
+			text.WriteString(fmt.Sprintf("👤 Клиент: %s\n", *sub.ClientName))
+		}
+
 		if tariff.TrafficLimitGB != nil {
 			text.WriteString(fmt.Sprintf("📊 Трафик: %d ГБ\n", *tariff.TrafficLimitGB))
 		} else {

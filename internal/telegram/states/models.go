@@ -21,8 +21,9 @@ const (
 
 // admin create sub states
 const (
-	AdminCreateSubWaitUser   State = "acs_wt_user"
-	AdminCreateSubWaitTariff State = "acs_wt_tariff"
+	AdminCreateSubWaitClientName State = "acs_wt_client_name"
+	AdminCreateSubWaitTariff     State = "acs_wt_tariff"
+	AdminCreateSubWaitPayment    State = "acs_wt_payment"
 )
 
 // admin disable sub states

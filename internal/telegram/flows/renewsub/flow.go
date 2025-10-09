@@ -159,6 +159,17 @@ func (h *Handler) handleSubscriptionSelection(ctx context.Context, update *tgbot
 
 	flowData.SubscriptionID = subID
 
+	// Получаем информацию о подписке, чтобы проверить, есть ли client_name
+	subscription, err := h.subscriptionService.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{subID}})
+	if err != nil {
+		return h.sendError(chatID, "Ошибка получения данных подписки")
+	}
+
+	// Сохраняем client_name если он есть
+	if subscription != nil && subscription.ClientName != nil {
+		flowData.ClientName = subscription.ClientName
+	}
+
 	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Выбираем тариф...")
 	_, err = h.bot.Request(callbackConfig)
 	if err != nil {
@@ -334,25 +345,55 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	data.PaymentID = &paymentObj.ID
 	data.PaymentURL = paymentObj.PaymentURL
 
-	paymentMsg := fmt.Sprintf(
-		"💳 *Платеж создан!*\n\n"+
-			"📋 Платеж #%d\n"+
-			"🔄 Продление на: %s\n"+
-			"💰 Сумма: %.2f ₽\n\n"+
-			"🔗 Перейдите по ссылке для оплаты.\n"+
-			"После оплаты вернитесь сюда и нажмите «Оплатил».",
-		paymentObj.ID, formatDuration(data.DurationDays), data.Price)
+	// Проверяем, является ли это клиентской подпиской
+	isClientSubscription := data.ClientName != nil && *data.ClientName != ""
 
-	paymentButtonText := fmt.Sprintf("💳 Оплатить %.2f ₽", data.Price)
-	paymentButton := tgbotapi.NewInlineKeyboardButtonURL(paymentButtonText, *paymentObj.PaymentURL)
-	completeButton := tgbotapi.NewInlineKeyboardButtonData("✅ Оплатил", "payment_completed")
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", "cancel_renewal")
+	var paymentMsg string
+	var keyboard tgbotapi.InlineKeyboardMarkup
 
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(paymentButton),
-		tgbotapi.NewInlineKeyboardRow(completeButton),
-		tgbotapi.NewInlineKeyboardRow(cancelButton),
-	)
+	if isClientSubscription {
+		// Для клиентских подписок показываем ссылку в тексте без кнопки оплаты
+		paymentMsg = fmt.Sprintf(
+			"💳 *Платеж создан!*\n\n"+
+				"📋 Платеж #%d\n"+
+				"👤 Клиент: %s\n"+
+				"🔄 Продление на: %s\n"+
+				"💰 Сумма: %.2f ₽\n\n"+
+				"🔗 *Ссылка на оплату:*\n"+
+				"%s\n\n"+
+				"Отправьте эту ссылку клиенту.\n"+
+				"После оплаты нажмите «Проверить оплату».",
+			paymentObj.ID, *data.ClientName, formatDuration(data.DurationDays), data.Price, *paymentObj.PaymentURL)
+
+		checkButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить оплату", "payment_completed")
+		cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", "cancel_renewal")
+
+		keyboard = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(checkButton),
+			tgbotapi.NewInlineKeyboardRow(cancelButton),
+		)
+	} else {
+		// Для обычных подписок оставляем кнопку оплаты
+		paymentMsg = fmt.Sprintf(
+			"💳 *Платеж создан!*\n\n"+
+				"📋 Платеж #%d\n"+
+				"🔄 Продление на: %s\n"+
+				"💰 Сумма: %.2f ₽\n\n"+
+				"🔗 Перейдите по ссылке для оплаты.\n"+
+				"После оплаты вернитесь сюда и нажмите «Оплатил».",
+			paymentObj.ID, formatDuration(data.DurationDays), data.Price)
+
+		paymentButtonText := fmt.Sprintf("💳 Оплатить %.2f ₽", data.Price)
+		paymentButton := tgbotapi.NewInlineKeyboardButtonURL(paymentButtonText, *paymentObj.PaymentURL)
+		completeButton := tgbotapi.NewInlineKeyboardButtonData("✅ Оплатил", "payment_completed")
+		cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", "cancel_renewal")
+
+		keyboard = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(paymentButton),
+			tgbotapi.NewInlineKeyboardRow(completeButton),
+			tgbotapi.NewInlineKeyboardRow(cancelButton),
+		)
+	}
 
 	msg := tgbotapi.NewMessage(chatID, paymentMsg)
 	msg.ParseMode = "Markdown"

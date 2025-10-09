@@ -22,6 +22,7 @@ type subscriptionRow struct {
 	MarzbanUserID string     `db:"marzban_user_id"`
 	MarzbanLink   string     `db:"marzban_link"`
 	Status        string     `db:"status"`
+	ClientName    *string    `db:"client_name"`
 	ActivatedAt   *time.Time `db:"activated_at"`
 	ExpiresAt     *time.Time `db:"expires_at"`
 	CreatedAt     time.Time  `db:"created_at"`
@@ -36,6 +37,7 @@ func (s subscriptionRow) ToModel() *subs.Subscription {
 		MarzbanUserID: s.MarzbanUserID,
 		MarzbanLink:   s.MarzbanLink,
 		Status:        subs.Status(s.Status),
+		ClientName:    s.ClientName,
 		ActivatedAt:   s.ActivatedAt,
 		ExpiresAt:     s.ExpiresAt,
 		CreatedAt:     s.CreatedAt,
@@ -52,6 +54,7 @@ func (s *storageImpl) CreateSubscription(ctx context.Context, subscription subs.
 		"marzban_user_id": subscription.MarzbanUserID,
 		"marzban_link":    subscription.MarzbanLink,
 		"status":          string(subscription.Status),
+		"client_name":     subscription.ClientName,
 		"activated_at":    subscription.ActivatedAt,
 		"expires_at":      subscription.ExpiresAt,
 		"created_at":      now,

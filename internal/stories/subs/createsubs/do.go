@@ -120,6 +120,7 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 		MarzbanUserID: marzbanUserID,
 		MarzbanLink:   subscriptionURL,
 		Status:        subs.StatusActive,
+		ClientName:    req.ClientName,
 		ActivatedAt:   &now,
 		ExpiresAt:     &expiresAt,
 	}

@@ -16,6 +16,7 @@ import (
 	"kurut-bot/internal/telegram"
 	"kurut-bot/internal/telegram/cmds"
 	"kurut-bot/internal/telegram/flows/buysub"
+	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
 	"kurut-bot/internal/telegram/flows/disabletariff"
 	"kurut-bot/internal/telegram/flows/enabletariff"
@@ -66,6 +67,16 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 
 	// Создаем buySubHandler - наш клиент уже реализует botApi интерфейс
 	buySubHandler := buysub.NewHandler(
+		clients.TelegramBot,
+		stateManager,
+		tariffService,
+		createSubService,
+		paymentService,
+		logger,
+	)
+
+	// Создаем createSubForClientHandler
+	createSubForClientHandler := createsubforclient.NewHandler(
 		clients.TelegramBot,
 		stateManager,
 		tariffService,
@@ -132,6 +143,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		userService,
 		adminChecker,
 		buySubHandler,
+		createSubForClientHandler,
 		createTariffHandler,
 		disableTariffHandler,
 		enableTariffHandler,

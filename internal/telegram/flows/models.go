@@ -17,6 +17,18 @@ type CreateSubFlowData struct {
 	TariffName string
 }
 
+// CreateSubForClientFlowData - data for admin creating sub for client
+type CreateSubForClientFlowData struct {
+	AdminUserID int64
+	ClientName  string
+	TariffID    int64
+	TariffName  string
+	Price       float64
+	TotalAmount float64
+	PaymentID   *int64
+	PaymentURL  *string
+}
+
 // DisableSubFlowData - data for disable sub
 type DisableSubFlowData struct {
 	UserName string
@@ -45,4 +57,5 @@ type RenewSubFlowData struct {
 	Price          float64
 	PaymentID      *int64
 	PaymentURL     *string
+	ClientName     *string // Имя клиента, если это клиентская подписка
 }

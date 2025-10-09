@@ -7,6 +7,7 @@ import (
 	"kurut-bot/internal/stories/users"
 	"kurut-bot/internal/telegram/cmds"
 	"kurut-bot/internal/telegram/flows/buysub"
+	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
 	"kurut-bot/internal/telegram/flows/disabletariff"
 	"kurut-bot/internal/telegram/flows/enabletariff"
@@ -24,13 +25,14 @@ type Router struct {
 	adminChecker adminChecker
 
 	// Handler для флоу покупки подписки
-	buySubHandler        *buysub.Handler
-	createTariffHandler  *createtariff.Handler
-	disableTariffHandler *disabletariff.Handler
-	enableTariffHandler  *enabletariff.Handler
-	startTrialHandler    *starttrial.Handler
-	renewSubHandler      *renewsub.Handler
-	mySubsCommand        *cmds.MySubsCommand
+	buySubHandler             *buysub.Handler
+	createSubForClientHandler *createsubforclient.Handler
+	createTariffHandler       *createtariff.Handler
+	disableTariffHandler      *disabletariff.Handler
+	enableTariffHandler       *enabletariff.Handler
+	startTrialHandler         *starttrial.Handler
+	renewSubHandler           *renewsub.Handler
+	mySubsCommand             *cmds.MySubsCommand
 }
 
 type stateManager interface {
@@ -99,6 +101,11 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		return r.buySubHandler.Handle(update, state)
 	}
 
+	// Проверяем состояние флоу создания подписки для клиента
+	if strings.HasPrefix(string(state), "acs_") {
+		return r.createSubForClientHandler.Handle(update, state)
+	}
+
 	// Проверяем состояние флоу создания тарифа
 	if strings.HasPrefix(string(state), "act_") {
 		return r.createTariffHandler.Handle(update, state)
@@ -133,6 +140,15 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 		return r.sendWelcome(update.Message.Chat.ID)
 	case "buy":
 		return r.buySubHandler.Start(
+			user.ID,
+			update.Message.Chat.ID,
+		)
+	case "create_sub":
+		if !r.adminChecker.IsAdmin(user.TelegramID) {
+			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для создания подписок клиентам"))
+			return r.sendHelp(update.Message.Chat.ID)
+		}
+		return r.createSubForClientHandler.Start(
 			user.ID,
 			update.Message.Chat.ID,
 		)
@@ -189,6 +205,7 @@ func (r *Router) sendWelcome(chatID int64) error {
 
 	if r.adminChecker.IsAdmin(chatID) {
 		text += "\n\nКоманды для администратора:\n" +
+			"/create_sub — Создать подписку для клиента\n" +
 			"/create_tariff — Создать тариф\n" +
 			"/disable_tariff — Архивировать тариф\n" +
 			"/enable_tariff — Восстановить тариф из архива"
@@ -224,6 +241,7 @@ func (r *Router) sendHelp(chatID int64) error {
 		"/my_subs — Мои активные подписки"
 	if r.adminChecker.IsAdmin(chatID) {
 		text += "\n\nКоманды для администратора:\n" +
+			"/create_sub — Создать подписку для клиента\n" +
 			"/create_tariff — Создать тариф\n" +
 			"/disable_tariff — Архивировать тариф\n" +
 			"/enable_tariff — Восстановить тариф из архива"
@@ -278,19 +296,20 @@ func (r *Router) handleGlobalCancelWithInternalID(update *tgbotapi.Update) error
 }
 
 // NewRouter создает новый роутер с зависимостями
-func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler, renewSubHandler *renewsub.Handler, mySubsCommand *cmds.MySubsCommand) *Router {
+func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createSubForClientHandler *createsubforclient.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler, renewSubHandler *renewsub.Handler, mySubsCommand *cmds.MySubsCommand) *Router {
 	return &Router{
-		bot:                  bot,
-		stateManager:         stateManager,
-		userService:          userService,
-		buySubHandler:        buySubHandler,
-		adminChecker:         adminChecker,
-		createTariffHandler:  createTariffHandler,
-		disableTariffHandler: disableTariffHandler,
-		enableTariffHandler:  enableTariffHandler,
-		startTrialHandler:    startTrialHandler,
-		renewSubHandler:      renewSubHandler,
-		mySubsCommand:        mySubsCommand,
+		bot:                       bot,
+		stateManager:              stateManager,
+		userService:               userService,
+		buySubHandler:             buySubHandler,
+		adminChecker:              adminChecker,
+		createSubForClientHandler: createSubForClientHandler,
+		createTariffHandler:       createTariffHandler,
+		disableTariffHandler:      disableTariffHandler,
+		enableTariffHandler:       enableTariffHandler,
+		startTrialHandler:         startTrialHandler,
+		renewSubHandler:           renewSubHandler,
+		mySubsCommand:             mySubsCommand,
 	}
 }
 
@@ -335,6 +354,10 @@ func (r *Router) setupAdminCommands(chatID int64) {
 		{
 			Command:     "my_subs",
 			Description: "Мои активные подписки",
+		},
+		{
+			Command:     "create_sub",
+			Description: "Создать подписку для клиента",
 		},
 		{
 			Command:     "create_tariff",

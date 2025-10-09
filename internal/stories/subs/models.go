@@ -18,6 +18,7 @@ type Subscription struct {
 	MarzbanUserID string
 	MarzbanLink   string
 	Status        Status
+	ClientName    *string
 	ActivatedAt   *time.Time
 	ExpiresAt     *time.Time
 	CreatedAt     time.Time
@@ -56,7 +57,8 @@ type UpdateParams struct {
 
 // Запрос для создания подписки
 type CreateSubscriptionRequest struct {
-	UserID    int64
-	TariffID  int64
-	PaymentID *int64
+	UserID     int64
+	TariffID   int64
+	PaymentID  *int64
+	ClientName *string
 }
