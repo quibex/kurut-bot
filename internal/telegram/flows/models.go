@@ -6,7 +6,6 @@ type BuySubFlowData struct {
 	TariffID    int64
 	TariffName  string
 	Price       float64
-	QuantitySub int
 	TotalAmount float64
 	PaymentID   *int64
 	PaymentURL  *string
@@ -14,9 +13,8 @@ type BuySubFlowData struct {
 
 // CreateSubFlowData - data for create sub
 type CreateSubFlowData struct {
-	UserName    string
-	TariffName  string
-	QuantitySub int
+	UserName   string
+	TariffName string
 }
 
 // DisableSubFlowData - data for disable sub
@@ -31,8 +29,8 @@ type EnableSubFlowData struct {
 
 // CreateTariffFlowData - data for create tariff
 type CreateTariffFlowData struct {
-	Name            string
-	Price           float64
-	DurationDays    int
-	TrafficLimitGB  *int // опционально
+	Name           string
+	Price          float64
+	DurationDays   int
+	TrafficLimitGB *int // опционально
 }

@@ -29,7 +29,7 @@ type (
 	}
 
 	subscriptionService interface {
-		CreateSubscriptions(ctx context.Context, req *subs.CreateSubscriptionsRequest) ([]subs.Subscription, error)
+		CreateSubscription(ctx context.Context, req *subs.CreateSubscriptionRequest) (*subs.Subscription, error)
 	}
 
 	paymentService interface {

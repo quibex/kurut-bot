@@ -2,10 +2,13 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
 	"kurut-bot/internal/stories/subs"
+
+	sq "github.com/Masterminds/squirrel"
 )
 
 const subscriptionsTable = "subscriptions"
@@ -40,28 +43,56 @@ func (s subscriptionRow) ToModel() *subs.Subscription {
 	}
 }
 
-func (s *storageImpl) BulkInsertSubscriptions(ctx context.Context, subscriptions []subs.Subscription) ([]subs.Subscription, error) {
-	if len(subscriptions) == 0 {
-		return []subs.Subscription{}, nil
+func (s *storageImpl) CreateSubscription(ctx context.Context, subscription subs.Subscription) (*subs.Subscription, error) {
+	now := s.now()
+
+	params := map[string]interface{}{
+		"user_id":         subscription.UserID,
+		"tariff_id":       subscription.TariffID,
+		"marzban_user_id": subscription.MarzbanUserID,
+		"marzban_link":    subscription.MarzbanLink,
+		"status":          string(subscription.Status),
+		"activated_at":    subscription.ActivatedAt,
+		"expires_at":      subscription.ExpiresAt,
+		"created_at":      now,
+		"updated_at":      now,
 	}
 
-	query := s.stmpBuilder().
+	q, args, err := s.stmpBuilder().
 		Insert(subscriptionsTable).
-		Columns("user_id", "tariff_id", "marzban_user_id", "marzban_link", "status", "activated_at", "expires_at", "created_at", "updated_at")
+		SetMap(params).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
 
-	now := s.now()
-	for _, subscription := range subscriptions {
-		query = query.Values(
-			subscription.UserID,
-			subscription.TariffID,
-			subscription.MarzbanUserID,
-			subscription.MarzbanLink,
-			string(subscription.Status),
-			subscription.ActivatedAt,
-			subscription.ExpiresAt,
-			now,
-			now,
-		)
+	result, err := s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("db.ExecContext: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("result.LastInsertId: %w", err)
+	}
+
+	return s.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{id}})
+}
+
+func (s *storageImpl) GetSubscription(ctx context.Context, criteria subs.GetCriteria) (*subs.Subscription, error) {
+	query := s.stmpBuilder().
+		Select(subscriptionRowFields).
+		From(subscriptionsTable).
+		Limit(1)
+
+	if len(criteria.IDs) > 0 {
+		query = query.Where(sq.Eq{"id": criteria.IDs})
+	}
+	if len(criteria.UserIDs) > 0 {
+		query = query.Where(sq.Eq{"user_id": criteria.UserIDs})
+	}
+	if len(criteria.MarzbanUserIDs) > 0 {
+		query = query.Where(sq.Eq{"marzban_user_id": criteria.MarzbanUserIDs})
 	}
 
 	q, args, err := query.ToSql()
@@ -69,161 +100,15 @@ func (s *storageImpl) BulkInsertSubscriptions(ctx context.Context, subscriptions
 		return nil, fmt.Errorf("build sql query: %w", err)
 	}
 
-	// Добавляем RETURNING чтобы получить созданные записи
-	q += " RETURNING " + subscriptionRowFields
-
-	var collection []subscriptionRow
-	err = s.db.SelectContext(ctx, &collection, q, args...)
+	var sub subscriptionRow
+	err = s.db.GetContext(ctx, &sub, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("db.SelectContext: %w", err)
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("db.GetContext: %w", err)
 	}
 
-	result := make([]subs.Subscription, 0, len(collection))
-	for _, sub := range collection {
-		result = append(result, *sub.ToModel())
-	}
-
-	return result, nil
+	return sub.ToModel(), nil
 }
 
-// func (s *storageImpl) GetSubscription(ctx context.Context, criteria subs.GetCriteria) (*subs.Subscription, error) {
-// 	query := s.stmpBuilder().
-// 		Select(subscriptionRowFields).
-// 		From(subscriptionsTable).
-// 		Limit(1)
-
-// 	if len(criteria.IDs) > 0 {
-// 		query = query.Where(sq.Eq{"id": criteria.IDs})
-// 	}
-// 	if len(criteria.UserIDs) > 0 {
-// 		query = query.Where(sq.Eq{"user_id": criteria.UserIDs})
-// 	}
-// 	if len(criteria.MarzbanUserIDs) > 0 {
-// 		query = query.Where(sq.Eq{"": *criteria.ID})
-// 	}
-
-// 	q, args, err := query.ToSql()
-// 	if err != nil {
-// 		return nil, fmt.Errorf("build sql query: %w", err)
-// 	}
-
-// 	var sub subscriptionRow
-// 	err = s.db.GetContext(ctx, &sub, q, args...)
-// 	if err != nil {
-// 		if err == sql.ErrNoRows {
-// 			return nil, nil
-// 		}
-// 		return nil, fmt.Errorf("db.GetContext: %w", err)
-// 	}
-
-// 	return sub.ToModel(), nil
-// }
-
-// func (s *storageImpl) UpdateSubscription(ctx context.Context, criteria subs.GetCriteria, params subs.UpdateParams) (*subs.Subscription, error) {
-// 	query := s.stmpBuilder().
-// 		Update(subscriptionsTable).
-// 		Set("updated_at", s.now())
-
-// 	// Добавляем условия для обновления
-// 	if criteria.ID != nil {
-// 		query = query.Where(sq.Eq{"id": *criteria.ID})
-// 	}
-// 	if criteria.UserID != nil {
-// 		query = query.Where(sq.Eq{"user_id": *criteria.UserID})
-// 	}
-// 	if criteria.MarzbanUserID != nil {
-// 		query = query.Where(sq.Eq{"marzban_user_id": *criteria.MarzbanUserID})
-// 	}
-
-// 	// Добавляем параметры для обновления
-// 	if params.Status != nil {
-// 		query = query.Set("status", string(*params.Status))
-// 	}
-// 	if params.ActivatedAt != nil {
-// 		query = query.Set("activated_at", *params.ActivatedAt)
-// 	}
-// 	if params.ExpiresAt != nil {
-// 		query = query.Set("expires_at", *params.ExpiresAt)
-// 	}
-
-// 	q, args, err := query.ToSql()
-// 	if err != nil {
-// 		return nil, fmt.Errorf("build sql query: %w", err)
-// 	}
-
-// 	_, err = s.db.ExecContext(ctx, q, args...)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("db.ExecContext: %w", err)
-// 	}
-
-// 	return s.GetSubscription(ctx, criteria)
-// }
-
-// func (s *storageImpl) ListSubscriptions(ctx context.Context, criteria subs.ListCriteria) ([]*subs.Subscription, error) {
-// 	query := s.stmpBuilder().
-// 		Select(subscriptionRowFields).
-// 		From(subscriptionsTable)
-
-// 	if criteria.UserID != nil {
-// 		query = query.Where(sq.Eq{"user_id": *criteria.UserID})
-// 	}
-// 	if criteria.TariffID != nil {
-// 		query = query.Where(sq.Eq{"tariff_id": *criteria.TariffID})
-// 	}
-// 	if criteria.Status != nil {
-// 		query = query.Where(sq.Eq{"status": string(*criteria.Status)})
-// 	}
-
-// 	if criteria.Limit > 0 {
-// 		query = query.Limit(uint64(criteria.Limit))
-// 	}
-// 	if criteria.Offset > 0 {
-// 		query = query.Offset(uint64(criteria.Offset))
-// 	}
-
-// 	query = query.OrderBy("created_at DESC")
-
-// 	q, args, err := query.ToSql()
-// 	if err != nil {
-// 		return nil, fmt.Errorf("build sql query: %w", err)
-// 	}
-
-// 	var collection []subscriptionRow
-// 	err = s.db.SelectContext(ctx, &collection, q, args...)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("db.SelectContext: %w", err)
-// 	}
-
-// 	result := make([]*subs.Subscription, 0, len(collection))
-// 	for _, sub := range collection {
-// 		result = append(result, sub.ToModel())
-// 	}
-
-// 	return result, nil
-// }
-
-// func (s *storageImpl) DeleteSubscription(ctx context.Context, criteria subs.DeleteCriteria) error {
-// 	query := s.stmpBuilder().Delete(subscriptionsTable)
-
-// 	if criteria.ID != nil {
-// 		query = query.Where(sq.Eq{"id": *criteria.ID})
-// 	}
-// 	if criteria.UserID != nil {
-// 		query = query.Where(sq.Eq{"user_id": *criteria.UserID})
-// 	}
-// 	if criteria.MarzbanUserID != nil {
-// 		query = query.Where(sq.Eq{"marzban_user_id": *criteria.MarzbanUserID})
-// 	}
-
-// 	q, args, err := query.ToSql()
-// 	if err != nil {
-// 		return fmt.Errorf("build sql query: %w", err)
-// 	}
-
-// 	_, err = s.db.ExecContext(ctx, q, args...)
-// 	if err != nil {
-// 		return fmt.Errorf("db.ExecContext: %w", err)
-// 	}
-
-// 	return nil
-// }

@@ -21,7 +21,7 @@ type tariffRow struct {
 	DurationDays   int       `db:"duration_days"`
 	Price          float64   `db:"price"`
 	TrafficLimitGB *int      `db:"traffic_limit_gb"`
-	IsActive     bool      `db:"is_active"`
+	IsActive       bool      `db:"is_active"`
 	CreatedAt      time.Time `db:"created_at"`
 	UpdatedAt      time.Time `db:"updated_at"`
 }
@@ -33,7 +33,7 @@ func (t tariffRow) ToModel() *tariffs.Tariff {
 		DurationDays:   t.DurationDays,
 		Price:          t.Price,
 		TrafficLimitGB: t.TrafficLimitGB,
-		IsActive:     t.IsActive,
+		IsActive:       t.IsActive,
 		CreatedAt:      t.CreatedAt,
 		UpdatedAt:      t.UpdatedAt,
 	}
@@ -45,7 +45,7 @@ func (s *storageImpl) CreateTariff(ctx context.Context, tariff tariffs.Tariff) (
 		"duration_days":    tariff.DurationDays,
 		"price":            tariff.Price,
 		"traffic_limit_gb": tariff.TrafficLimitGB,
-		"is_active":      tariff.IsActive,
+		"is_active":        tariff.IsActive,
 		"created_at":       s.now(),
 		"updated_at":       s.now(),
 	}

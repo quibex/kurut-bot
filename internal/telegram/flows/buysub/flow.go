@@ -88,7 +88,7 @@ func (h *Handler) showTariffs(chatID int64) error {
 	// Создаем клавиатуру с тарифами
 	keyboard := h.createTariffsKeyboard(tariffs)
 
-	msg := tgbotapi.NewMessage(chatID, "📱 Выберите тариф:")
+	msg := tgbotapi.NewMessage(chatID, "📅 Выберите тариф:")
 	msg.ReplyMarkup = keyboard
 
 	_, err = h.bot.Send(msg)
@@ -127,15 +127,11 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 		return h.sendError(chatID, "Ошибка получения данных флоу")
 	}
 
-	// Обновляем данные о тарифе и устанавливаем количество = 1
+	// Обновляем данные о тарифе
 	flowData.TariffID = tariffData.ID
 	flowData.TariffName = tariffData.Name
 	flowData.Price = tariffData.Price
-	flowData.QuantitySub = 1
 	flowData.TotalAmount = tariffData.Price
-
-	// Переводим в состояние ожидания оплаты
-	h.stateManager.SetState(chatID, states.UserBuySubWaitPayment, flowData)
 
 	// Отвечаем на callback query
 	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Создаём заказ...")
@@ -143,6 +139,14 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 	if err != nil {
 		return err
 	}
+
+	// Если тариф бесплатный - сразу создаем подписку без оплаты
+	if tariffData.Price == 0 {
+		return h.createFreeSubscription(ctx, chatID, flowData)
+	}
+
+	// Переводим в состояние ожидания оплаты
+	h.stateManager.SetState(chatID, states.UserBuySubWaitPayment, flowData)
 
 	// Сразу создаём платёж и показываем ссылку на оплату
 	return h.createPaymentAndShow(ctx, chatID, flowData)
@@ -201,7 +205,7 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	paymentMsg := fmt.Sprintf(
 		"💳 *Заказ создан!*\n\n"+
 			"📋 Заказ #%d\n"+
-			"📱 Тариф: %s\n"+
+			"📅 Тариф: %s\n"+
 			"💰 Сумма: %.2f ₽\n\n"+
 			"🔗 Перейдите по ссылке для оплаты.\n"+
 			"После оплаты вернитесь сюда и нажмите «Оплатил».",
@@ -266,7 +270,8 @@ func (h *Handler) createTariffsKeyboard(tariffs []*tariffs.Tariff) tgbotapi.Inli
 	var rows [][]tgbotapi.InlineKeyboardButton
 
 	for _, t := range tariffs {
-		text := fmt.Sprintf("📱 %s - %.2f ₽ (%d дней)", t.Name, t.Price, t.DurationDays)
+		durationText := formatDuration(t.DurationDays)
+		text := fmt.Sprintf("📅 %s - %.2f ₽ (%s)", t.Name, t.Price, durationText)
 		callbackData := fmt.Sprintf("tariff:%d:%.2f:%s:%d", t.ID, t.Price, t.Name, t.DurationDays)
 		button := tgbotapi.NewInlineKeyboardButtonData(text, callbackData)
 		rows = append(rows, []tgbotapi.InlineKeyboardButton{button})
@@ -278,6 +283,28 @@ func (h *Handler) createTariffsKeyboard(tariffs []*tariffs.Tariff) tgbotapi.Inli
 	})
 
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
+
+// formatDuration форматирует длительность в удобный формат (дни/месяцы/годы)
+func formatDuration(days int) string {
+	if days >= 365 {
+		years := days / 365
+		if years == 1 {
+			return "1 год"
+		}
+		return fmt.Sprintf("%d лет", years)
+	}
+	if days >= 30 {
+		months := days / 30
+		if months == 1 {
+			return "1 месяц"
+		}
+		return fmt.Sprintf("%d мес", months)
+	}
+	if days == 1 {
+		return "1 день"
+	}
+	return fmt.Sprintf("%d дней", days)
 }
 
 // handlePaymentCompleted обрабатывает нажатие кнопки "Оплатил"
@@ -356,22 +383,21 @@ func (h *Handler) sendPaymentCheckError(chatID int64, data *flows.BuySubFlowData
 
 // handleSuccessfulPayment обрабатывает успешный платеж и создает подписки
 func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, data *flows.BuySubFlowData, paymentID int64) error {
-	// Создаем подписки после успешной оплаты
-	subReq := &subs.CreateSubscriptionsRequest{
+	// Создаем подписку после успешной оплаты
+	subReq := &subs.CreateSubscriptionRequest{
 		UserID:    data.UserID,
 		TariffID:  data.TariffID,
-		Quantity:  data.QuantitySub,
 		PaymentID: &paymentID,
 	}
 
-	subscriptions, err := h.subscriptionService.CreateSubscriptions(ctx, subReq)
+	subscription, err := h.subscriptionService.CreateSubscription(ctx, subReq)
 	if err != nil {
-		h.logger.Error("Failed to create subscriptions after payment", "error", err, "paymentID", paymentID)
-		return h.sendError(chatID, "❌ Ошибка создания подписок")
+		h.logger.Error("Failed to create subscription after payment", "error", err, "paymentID", paymentID)
+		return h.sendError(chatID, "❌ Ошибка создания подписки")
 	}
 
 	// Отправляем инструкции по подключению
-	err = h.SendConnectionInstructions(data.UserID, chatID, subscriptions)
+	err = h.SendConnectionInstructions(chatID, subscription)
 	if err != nil {
 		return h.sendError(chatID, "❌ Ошибка отправки инструкций")
 	}
@@ -444,41 +470,36 @@ func extractChatID(update *tgbotapi.Update) int64 {
 }
 
 // SendConnectionInstructions отправляет инструкции по подключению после успешной оплаты
-func (h *Handler) SendConnectionInstructions(userID, chatID int64, subscriptions []subs.Subscription) error {
-	if len(subscriptions) == 0 {
-		return fmt.Errorf("no subscriptions provided")
+func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Subscription) error {
+	messageText := "✅ *Оплата прошла успешно\\!*\n\n" +
+		"🎉 Ваша подписка активирована\\!\n\n" +
+		"🔗 *Ссылка подключения:*\n"
+
+	if subscription.MarzbanLink != "" {
+		messageText += fmt.Sprintf("`%s`\n\n", subscription.MarzbanLink)
+	} else {
+		messageText += "❌ Ссылка подключения не готова\n\n"
 	}
 
-	// Создаем базовое сообщение
-	messageText := fmt.Sprintf(
-		"✅ *Оплата прошла успешно!*\n\n"+
-			"🎉 Ваши подписки активированы:\n"+
-			"🔢 Количество: *%d*\n\n",
-		len(subscriptions))
+	messageText += "📋 *Инструкция по подключению:*\n\n"
+	messageText += "📱 *1\\. Скачайте приложение v2RayTun:*\n"
+	messageText += "• Android: [Google Play](https://play.google.com/store/apps/details?id=com.v2raytun.android)\n"
+	messageText += "• iOS: [App Store](https://apps.apple.com/us/app/v2raytun/id6476628951)\n\n"
+	messageText += "📋 *2\\. Настройте подключение:*\n"
+	messageText += "• Скопируйте ссылку подключения выше\n"
+	messageText += "• Откройте v2RayTun\n"
+	messageText += "• Добавьте конфигурацию через \\\"Импорт из буфера\\\"\n\n"
+	messageText += "⚠️ *Если v2RayTun не работает, используйте Happ:*\n"
+	messageText += "• Android: [Google Play](https://play.google.com/store/apps/details?id=com.happproxy)\n"
+	messageText += "• iOS: [App Store](https://apps.apple.com/us/app/happ\\-proxy\\-utility/id6504287215)\n\n"
+	messageText += "❓ Проблемы с подключением? Обратитесь в поддержку: /support"
 
-	// Для каждой подписки выводим MarzbanLink в моношрифте
-	for i, subscription := range subscriptions {
-		messageText += fmt.Sprintf("🔗 *Подписка #%d (ID: %d):*\n", i+1, subscription.ID)
-
-		if subscription.MarzbanLink != "" {
-			messageText += fmt.Sprintf("`%s`\n\n", subscription.MarzbanLink)
-		} else {
-			messageText += "❌ Ссылка подключения не готова\n\n"
-		}
-	}
-
-	messageText += "📋 *Инструкция:*\n"
-	messageText += "1. Скопируйте ссылку подключения выше\n"
-	messageText += "2. Откройте приложение (V2RayNG, Shadowrocket и т.д.)\n"
-	messageText += "3. Добавьте конфигурацию через \"Импорт из буфера\"\n\n"
-	messageText += "❓ Если у вас возникли проблемы с подключением, обратитесь в поддержку: /support"
-
-	// Создаем упрощенную клавиатуру
 	keyboard := h.createConnectionKeyboard()
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "MarkdownV2"
 	msg.ReplyMarkup = keyboard
+	msg.DisableWebPagePreview = true
 
 	_, err := h.bot.Send(msg)
 	return err
@@ -494,4 +515,31 @@ func (h *Handler) createConnectionKeyboard() tgbotapi.InlineKeyboardMarkup {
 			tgbotapi.NewInlineKeyboardButtonData("🏠 Главное меню", "cancel"),
 		),
 	)
+}
+
+// createFreeSubscription создает бесплатную подписку без оплаты
+func (h *Handler) createFreeSubscription(ctx context.Context, chatID int64, data *flows.BuySubFlowData) error {
+	// Создаем подписку без платежа
+	subReq := &subs.CreateSubscriptionRequest{
+		UserID:    data.UserID,
+		TariffID:  data.TariffID,
+		PaymentID: nil, // Без платежа для бесплатного тарифа
+	}
+
+	subscription, err := h.subscriptionService.CreateSubscription(ctx, subReq)
+	if err != nil {
+		h.logger.Error("Failed to create free subscription", "error", err)
+		return h.sendError(chatID, "❌ Ошибка создания подписки")
+	}
+
+	// Отправляем инструкции по подключению
+	err = h.SendConnectionInstructions(chatID, subscription)
+	if err != nil {
+		return h.sendError(chatID, "❌ Ошибка отправки инструкций")
+	}
+
+	// Очищаем состояние флоу
+	h.stateManager.Clear(chatID)
+
+	return nil
 }

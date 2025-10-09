@@ -10,8 +10,7 @@ import (
 
 type (
 	storage interface {
-		BulkInsertSubscriptions(ctx context.Context, subscriptions []subs.Subscription) ([]subs.Subscription, error)
-
+		CreateSubscription(ctx context.Context, subscription subs.Subscription) (*subs.Subscription, error)
 		GetTariff(ctx context.Context, criteria tariffs.GetCriteria) (*tariffs.Tariff, error)
 	}
 

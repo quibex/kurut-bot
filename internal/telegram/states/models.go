@@ -37,3 +37,13 @@ const (
 	AdminCreateTariffWaitDuration     State = "act_wt_duration"
 	AdminCreateTariffWaitConfirmation State = "act_wt_confirmation"
 )
+
+// admin disable tariff states
+const (
+	AdminDisableTariffWaitSelection State = "adt_wt_selection"
+)
+
+// admin enable tariff states
+const (
+	AdminEnableTariffWaitSelection State = "aet_wt_selection"
+)

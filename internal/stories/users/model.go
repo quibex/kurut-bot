@@ -5,6 +5,7 @@ import "time"
 type User struct {
 	ID         int64
 	TelegramID int64
+	UsedTrial  bool
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
@@ -25,4 +26,9 @@ type DeleteCriteria struct {
 type ListCriteria struct {
 	Limit  int
 	Offset int
+}
+
+// Параметры для обновления пользователя
+type UpdateParams struct {
+	UsedTrial *bool
 }

@@ -40,11 +40,11 @@ type DeleteCriteria struct {
 
 // Критерии для списка подписок
 type ListCriteria struct {
-	UserIDs  []int64
+	UserIDs   []int64
 	TariffIDs []int64
-	Status []Status
-	Limit    int
-	Offset   int
+	Status    []Status
+	Limit     int
+	Offset    int
 }
 
 // Параметры для обновления подписки
@@ -54,10 +54,9 @@ type UpdateParams struct {
 	ExpiresAt   *time.Time
 }
 
-// Запрос для создания множественных подписок
-type CreateSubscriptionsRequest struct {
+// Запрос для создания подписки
+type CreateSubscriptionRequest struct {
 	UserID    int64
 	TariffID  int64
-	Quantity  int
 	PaymentID *int64
 }

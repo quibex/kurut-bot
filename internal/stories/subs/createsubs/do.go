@@ -11,7 +11,6 @@ import (
 	"kurut-bot/pkg/marzban"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
 )
 
 type Service struct {
@@ -30,7 +29,7 @@ func NewService(storage storage, marzbanClient marzbanClient, now func() time.Ti
 	}
 }
 
-func (s *Service) CreateSubscriptions(ctx context.Context, req *subs.CreateSubscriptionsRequest) ([]subs.Subscription, error) {
+func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscriptionRequest) (*subs.Subscription, error) {
 	// Get tariff information
 	tariff, err := s.storage.GetTariff(ctx, tariffs.GetCriteria{ID: &req.TariffID})
 	if err != nil {
@@ -50,107 +49,87 @@ func (s *Service) CreateSubscriptions(ctx context.Context, req *subs.CreateSubsc
 		return nil, errors.Errorf("failed to get VLESS inbounds: %v", err)
 	}
 
-	// Create users in Marzban first (one by one, no bulk API available)
-	type createdUser struct {
-		username        string
-		subscriptionURL string
-	}
-	createdUsers := make([]createdUser, 0, req.Quantity)
+	// Create user in Marzban
+	marzbanUserID := fmt.Sprintf("user_%d_%d", req.UserID, now.Unix())
 
-	for i := 0; i < req.Quantity; i++ {
-		marzbanUserID := fmt.Sprintf("user_%d_%d", req.UserID, now.Unix())
-
-		// Create user in Marzban
-		userCreate := &marzban.UserCreate{
-			Username: marzbanUserID,
-		}
-
-		// Set up proxies - at least one protocol is required
-		proxies := marzban.OptUserCreateProxies{}
-		proxySettings := make(marzban.UserCreateProxies)
-		proxySettings["vless"] = marzban.ProxySettings{} // Enable vless protocol
-		proxies.SetTo(proxySettings)
-		userCreate.Proxies = proxies
-
-		// Set up inbounds for protocols using dynamic inbound discovery
-		inbounds := marzban.OptUserCreateInbounds{}
-		inboundSettings := make(marzban.UserCreateInbounds)
-		inboundSettings["vless"] = vlessInbounds // Use dynamically discovered VLESS inbounds
-		inbounds.SetTo(inboundSettings)
-		userCreate.Inbounds = inbounds
-
-		// Set expire time (Unix timestamp)
-		expire := marzban.OptNilInt{}
-		expire.SetTo(int(expiresAt.Unix()))
-		userCreate.Expire = expire
-
-		// Set data limit if specified in tariff
-		if tariff.TrafficLimitGB != nil {
-			dataLimit := marzban.OptInt{}
-			dataLimit.SetTo(int(*tariff.TrafficLimitGB * 1024 * 1024 * 1024)) // Convert GB to bytes
-			userCreate.DataLimit = dataLimit
-		}
-
-		// Set status to active
-		status := marzban.OptUserStatusCreate{}
-		status.SetTo(marzban.UserStatusCreateActive)
-		userCreate.Status = status
-
-		// Create user in Marzban
-		addUserRes, err := s.marzbanClient.AddUser(ctx, userCreate)
-		if err != nil {
-			return nil, errors.Errorf("failed to create user %s in Marzban: %v", marzbanUserID, err)
-		}
-
-		// Check if user creation was successful
-		switch res := addUserRes.(type) {
-		case *marzban.UserResponse:
-			// User created successfully, extract subscription URL
-			subscriptionURL := ""
-			if res.GetSubscriptionURL().Set {
-				rawURL := res.GetSubscriptionURL().Value
-				// Формируем полную ссылку
-				subscriptionURL = s.buildFullSubscriptionURL(rawURL)
-			}
-
-			// Store both username and subscription URL for later use
-			createdUsers = append(createdUsers, createdUser{
-				username:        marzbanUserID,
-				subscriptionURL: subscriptionURL,
-			})
-		case *marzban.HTTPException:
-			return nil, errors.Errorf("Marzban API error for user %s: %s", marzbanUserID, res.GetDetail())
-		case *marzban.Conflict:
-			return nil, errors.Errorf("Marzban conflict error for user %s (user may already exist)", marzbanUserID)
-		case *marzban.HTTPValidationError:
-			return nil, errors.Errorf("Marzban validation error for user %s: invalid request", marzbanUserID)
-		case *marzban.UnauthorizedHeaders:
-			return nil, errors.Errorf("Marzban authorization error for user %s: check API token", marzbanUserID)
-		default:
-			return nil, errors.Errorf("unexpected response from Marzban AddUser for user %s: %T", marzbanUserID, addUserRes)
-		}
+	userCreate := &marzban.UserCreate{
+		Username: marzbanUserID,
 	}
 
-	// All users created successfully in Marzban, now create subscriptions in database
-	subscriptions := lo.Map(createdUsers, func(user createdUser, _ int) subs.Subscription {
-		return subs.Subscription{
-			UserID:        req.UserID,
-			TariffID:      req.TariffID,
-			MarzbanUserID: user.username,
-			MarzbanLink:   user.subscriptionURL,
-			Status:        subs.StatusActive,
-			ActivatedAt:   &now,
-			ExpiresAt:     &expiresAt,
-		}
-	})
+	// Set up proxies
+	proxies := marzban.OptUserCreateProxies{}
+	proxySettings := make(marzban.UserCreateProxies)
+	proxySettings["vless"] = marzban.ProxySettings{}
+	proxies.SetTo(proxySettings)
+	userCreate.Proxies = proxies
 
-	// Create subscriptions in database
-	subscriptions, err = s.storage.BulkInsertSubscriptions(ctx, subscriptions)
+	// Set up inbounds
+	inbounds := marzban.OptUserCreateInbounds{}
+	inboundSettings := make(marzban.UserCreateInbounds)
+	inboundSettings["vless"] = vlessInbounds
+	inbounds.SetTo(inboundSettings)
+	userCreate.Inbounds = inbounds
+
+	// Set expire time
+	expire := marzban.OptNilInt{}
+	expire.SetTo(int(expiresAt.Unix()))
+	userCreate.Expire = expire
+
+	// Set data limit if specified
+	if tariff.TrafficLimitGB != nil {
+		dataLimit := marzban.OptInt{}
+		dataLimit.SetTo(int(*tariff.TrafficLimitGB * 1024 * 1024 * 1024))
+		userCreate.DataLimit = dataLimit
+	}
+
+	// Set status to active
+	status := marzban.OptUserStatusCreate{}
+	status.SetTo(marzban.UserStatusCreateActive)
+	userCreate.Status = status
+
+	// Create user in Marzban
+	addUserRes, err := s.marzbanClient.AddUser(ctx, userCreate)
 	if err != nil {
-		return nil, errors.Errorf("failed to create subscriptions in database: %v", err)
+		return nil, errors.Errorf("failed to create user in Marzban: %v", err)
 	}
 
-	return subscriptions, nil
+	// Extract subscription URL
+	var subscriptionURL string
+	switch res := addUserRes.(type) {
+	case *marzban.UserResponse:
+		if res.GetSubscriptionURL().Set {
+			rawURL := res.GetSubscriptionURL().Value
+			subscriptionURL = s.buildFullSubscriptionURL(rawURL)
+		}
+	case *marzban.HTTPException:
+		return nil, errors.Errorf("Marzban API error: %s", res.GetDetail())
+	case *marzban.Conflict:
+		return nil, errors.Errorf("Marzban conflict error (user may already exist)")
+	case *marzban.HTTPValidationError:
+		return nil, errors.Errorf("Marzban validation error: invalid request")
+	case *marzban.UnauthorizedHeaders:
+		return nil, errors.Errorf("Marzban authorization error: check API token")
+	default:
+		return nil, errors.Errorf("unexpected response from Marzban AddUser: %T", addUserRes)
+	}
+
+	// Create subscription in database
+	subscription := subs.Subscription{
+		UserID:        req.UserID,
+		TariffID:      req.TariffID,
+		MarzbanUserID: marzbanUserID,
+		MarzbanLink:   subscriptionURL,
+		Status:        subs.StatusActive,
+		ActivatedAt:   &now,
+		ExpiresAt:     &expiresAt,
+	}
+
+	created, err := s.storage.CreateSubscription(ctx, subscription)
+	if err != nil {
+		return nil, errors.Errorf("failed to create subscription in database: %v", err)
+	}
+
+	return created, nil
 }
 
 // buildFullSubscriptionURL формирует полную ссылку подписки

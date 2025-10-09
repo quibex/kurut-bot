@@ -18,6 +18,7 @@ var userRowFields = fields(userRow{})
 type userRow struct {
 	ID         int64     `db:"id"`
 	TelegramID int64     `db:"telegram_id"`
+	UsedTrial  bool      `db:"used_trial"`
 	CreatedAt  time.Time `db:"created_at"`
 	UpdatedAt  time.Time `db:"updated_at"`
 }
@@ -26,6 +27,7 @@ func (u userRow) ToModel() *users.User {
 	return &users.User{
 		ID:         u.ID,
 		TelegramID: u.TelegramID,
+		UsedTrial:  u.UsedTrial,
 		CreatedAt:  u.CreatedAt,
 		UpdatedAt:  u.UpdatedAt,
 	}
@@ -80,7 +82,7 @@ func (s *storageImpl) GetUser(ctx context.Context, criteria users.GetCriteria) (
 	row := s.db.QueryRowContext(ctx, q, args...)
 
 	var u userRow
-	err = row.Scan(&u.ID, &u.TelegramID, &u.CreatedAt, &u.UpdatedAt)
+	err = row.Scan(&u.ID, &u.TelegramID, &u.UsedTrial, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -91,36 +93,36 @@ func (s *storageImpl) GetUser(ctx context.Context, criteria users.GetCriteria) (
 	return u.ToModel(), nil
 }
 
-// func (s *storageImpl) UpdateUser(ctx context.Context, criteria users.GetCriteria, params users.UpdateParams) (*users.User, error) {
-// 	query := s.stmpBuilder().
-// 		Update(usersTable).
-// 		Set("updated_at", s.now())
+func (s *storageImpl) UpdateUser(ctx context.Context, criteria users.GetCriteria, params users.UpdateParams) (*users.User, error) {
+	query := s.stmpBuilder().
+		Update(usersTable).
+		Set("updated_at", s.now())
 
-// 	// Добавляем условия для обновления
-// 	if criteria.ID != nil {
-// 		query = query.Where(sq.Eq{"id": *criteria.ID})
-// 	}
-// 	if criteria.TelegramID != nil {
-// 		query = query.Where(sq.Eq{"telegram_id": *criteria.TelegramID})
-// 	}
+	// Добавляем условия для обновления
+	if criteria.ID != nil {
+		query = query.Where(sq.Eq{"id": *criteria.ID})
+	}
+	if criteria.TelegramID != nil {
+		query = query.Where(sq.Eq{"telegram_id": *criteria.TelegramID})
+	}
 
-// 	// Добавляем параметры для обновления
-// 	if params.Username != nil {
-// 		query = query.Set("username", *params.Username)
-// 	}
+	// Добавляем параметры для обновления
+	if params.UsedTrial != nil {
+		query = query.Set("used_trial", *params.UsedTrial)
+	}
 
-// 	q, args, err := query.ToSql()
-// 	if err != nil {
-// 		return nil, fmt.Errorf("build sql query: %w", err)
-// 	}
+	q, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
 
-// 	_, err = s.db.ExecContext(ctx, q, args...)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("db.ExecContext: %w", err)
-// 	}
+	_, err = s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("db.ExecContext: %w", err)
+	}
 
-// 	return s.GetUser(ctx, criteria)
-// }
+	return s.GetUser(ctx, criteria)
+}
 
 func (s *storageImpl) ListUsers(ctx context.Context, criteria users.ListCriteria) ([]*users.User, error) {
 	query := s.stmpBuilder().
@@ -150,7 +152,7 @@ func (s *storageImpl) ListUsers(ctx context.Context, criteria users.ListCriteria
 	var result []*users.User
 	for rows.Next() {
 		var u userRow
-		err = rows.Scan(&u.ID, &u.TelegramID, &u.CreatedAt, &u.UpdatedAt)
+		err = rows.Scan(&u.ID, &u.TelegramID, &u.UsedTrial, &u.CreatedAt, &u.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("rows.Scan: %w", err)
 		}

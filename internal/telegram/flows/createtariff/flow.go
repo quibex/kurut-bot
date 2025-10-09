@@ -121,7 +121,7 @@ func (h *Handler) handleNameInput(ctx context.Context, update *tgbotapi.Update) 
 func (h *Handler) showPriceInput(chatID int64, tariffName string) error {
 	messageText := fmt.Sprintf("📝 *Создание тарифа: %s*\n\n"+
 		"💰 Введите цену тарифа в рублях:\n\n"+
-		"• От 1 до 10000 рублей\n"+
+		"• От 0 до 10000 рублей (0 = бесплатный)\n"+
 		"• Можно с копейками (например: 199.99)",
 		tariffName)
 
@@ -155,8 +155,8 @@ func (h *Handler) handlePriceInput(ctx context.Context, update *tgbotapi.Update)
 	}
 
 	// Валидация цены
-	if price < 1 {
-		return h.sendError(chatID, "❌ Цена должна быть больше 0")
+	if price < 0 {
+		return h.sendError(chatID, "❌ Цена не может быть отрицательной")
 	}
 	if price > 10000 {
 		return h.sendError(chatID, "❌ Цена слишком большая (максимум 10000 рублей)")
@@ -241,7 +241,7 @@ func (h *Handler) handleDurationInput(ctx context.Context, update *tgbotapi.Upda
 
 func (h *Handler) showConfirmation(chatID int64, data *flows.CreateTariffFlowData) error {
 	messageText := fmt.Sprintf("📋 *Подтверждение создания тарифа*\n\n"+
-		"📱 **Название:** %s\n"+
+		"📅 **Название:** %s\n"+
 		"💰 **Цена:** %.2f ₽\n"+
 		"⏰ **Продолжительность:** %d дней\n\n"+
 		"✅ Все данные корректны?",
@@ -308,12 +308,10 @@ func (h *Handler) createTariffAndFinish(ctx context.Context, update *tgbotapi.Up
 
 	// Отправляем сообщение об успешном создании
 	successMsg := fmt.Sprintf("✅ *Тариф создан успешно!*\n\n"+
-		"🆔 **ID:** %d\n"+
-		"📱 **Название:** %s\n"+
+		"📅 **Название:** %s\n"+
 		"💰 **Цена:** %.2f ₽\n"+
 		"⏰ **Продолжительность:** %d дней\n"+
 		"📅 **Создан:** %s",
-		createdTariff.ID,
 		createdTariff.Name,
 		createdTariff.Price,
 		createdTariff.DurationDays,

@@ -43,3 +43,17 @@ func (s *Service) GetOrCreateUserByTelegramID(ctx context.Context, telegramID in
 
 	return createdUser, nil
 }
+
+// MarkTrialAsUsed отмечает что пользователь использовал пробный период
+func (s *Service) MarkTrialAsUsed(ctx context.Context, userID int64) error {
+	_, err := s.storage.UpdateUser(ctx, GetCriteria{
+		ID: &userID,
+	}, UpdateParams{
+		UsedTrial: boolPtr(true),
+	})
+	return err
+}
+
+func boolPtr(b bool) *bool {
+	return &b
+}
