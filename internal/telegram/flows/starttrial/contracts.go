@@ -25,3 +25,7 @@ type subscriptionService interface {
 type userService interface {
 	MarkTrialAsUsed(ctx context.Context, userID int64) error
 }
+
+type localizer interface {
+	Get(lang, key string, params map[string]interface{}) string
+}

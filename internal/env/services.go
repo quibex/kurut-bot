@@ -7,6 +7,7 @@ import (
 
 	"kurut-bot/internal/config"
 	"kurut-bot/internal/infra/yookassa"
+	"kurut-bot/internal/localization"
 	"kurut-bot/internal/storage"
 	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/subs"
@@ -44,6 +45,12 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	// Создаем реальный storage
 	storageImpl := storage.New(clients.SQLiteDB.DB)
 
+	// Создаем localization service
+	l10nService, err := localization.NewService()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create localization service")
+	}
+
 	// Создаем реальные сервисы
 	userService := users.NewService(storageImpl)
 	tariffService := tariffs.NewService(storageImpl)
@@ -72,6 +79,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		tariffService,
 		createSubService,
 		paymentService,
+		l10nService,
 		logger,
 	)
 
@@ -116,6 +124,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		tariffService,
 		createSubService,
 		userService,
+		l10nService,
 		logger,
 	)
 
@@ -124,6 +133,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		clients.TelegramBot.GetBotAPI(),
 		subsService,
 		tariffService,
+		l10nService,
 	)
 
 	// Создаем renewSubHandler
@@ -133,6 +143,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		subsService,
 		tariffService,
 		paymentService,
+		l10nService,
 		logger,
 	)
 
@@ -150,6 +161,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		startTrialHandler,
 		renewSubHandler,
 		mySubsCommand,
+		l10nService,
 	)
 
 	// Создаем Worker service

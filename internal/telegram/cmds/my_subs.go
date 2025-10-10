@@ -18,6 +18,7 @@ type MySubsCommand struct {
 	bot             *tgbotapi.BotAPI
 	subscriptionSvc SubscriptionService
 	tariffSvc       TariffService
+	l10n            Localizer
 }
 
 type SubscriptionService interface {
@@ -28,11 +29,16 @@ type TariffService interface {
 	GetTariff(ctx context.Context, criteria tariffs.GetCriteria) (*tariffs.Tariff, error)
 }
 
-func NewMySubsCommand(bot *tgbotapi.BotAPI, subscriptionSvc SubscriptionService, tariffSvc TariffService) *MySubsCommand {
+type Localizer interface {
+	Get(lang, key string, params map[string]interface{}) string
+}
+
+func NewMySubsCommand(bot *tgbotapi.BotAPI, subscriptionSvc SubscriptionService, tariffSvc TariffService, l10n Localizer) *MySubsCommand {
 	return &MySubsCommand{
 		bot:             bot,
 		subscriptionSvc: subscriptionSvc,
 		tariffSvc:       tariffSvc,
+		l10n:            l10n,
 	}
 }
 
@@ -44,19 +50,19 @@ func (c *MySubsCommand) Execute(ctx context.Context, user *users.User, chatID in
 		Limit:   50,
 	})
 	if err != nil {
-		msg := tgbotapi.NewMessage(chatID, "❌ Ошибка при получении подписок. Попробуйте позже.")
+		msg := tgbotapi.NewMessage(chatID, c.l10n.Get(user.Language, "my_subs.error_loading", nil))
 		_, _ = c.bot.Send(msg)
 		return fmt.Errorf("list subscriptions: %w", err)
 	}
 
 	if len(subscriptions) == 0 {
-		msg := tgbotapi.NewMessage(chatID, "📭 У вас пока нет активных подписок.\n\nИспользуйте /buy для покупки подписки.")
+		msg := tgbotapi.NewMessage(chatID, c.l10n.Get(user.Language, "my_subs.no_subscriptions", nil))
 		_, _ = c.bot.Send(msg)
 		return nil
 	}
 
 	var text strings.Builder
-	text.WriteString("📋 Ваши активные подписки:\n\n")
+	text.WriteString(c.l10n.Get(user.Language, "my_subs.title", nil) + "\n\n")
 
 	for _, sub := range subscriptions {
 		tariff, err := c.tariffSvc.GetTariff(ctx, tariffs.GetCriteria{
@@ -66,37 +72,50 @@ func (c *MySubsCommand) Execute(ctx context.Context, user *users.User, chatID in
 			continue
 		}
 
-		text.WriteString(fmt.Sprintf("🔹 Подписка #%d\n", sub.ID))
-		text.WriteString(fmt.Sprintf("📦 Тариф: %s\n", tariff.Name))
+		text.WriteString(c.l10n.Get(user.Language, "my_subs.subscription_id", map[string]interface{}{
+			"id": sub.ID,
+		}) + "\n")
+
+		text.WriteString(c.l10n.Get(user.Language, "my_subs.tariff", map[string]interface{}{
+			"name": tariff.Name,
+		}) + "\n")
 
 		if sub.ClientName != nil && *sub.ClientName != "" {
-			text.WriteString(fmt.Sprintf("👤 Клиент: %s\n", *sub.ClientName))
+			text.WriteString(c.l10n.Get(user.Language, "my_subs.client", map[string]interface{}{
+				"name": *sub.ClientName,
+			}) + "\n")
 		}
 
 		if tariff.TrafficLimitGB != nil {
-			text.WriteString(fmt.Sprintf("📊 Трафик: %d ГБ\n", *tariff.TrafficLimitGB))
+			text.WriteString(c.l10n.Get(user.Language, "my_subs.traffic_limit", map[string]interface{}{
+				"gb": *tariff.TrafficLimitGB,
+			}) + "\n")
 		} else {
-			text.WriteString("📊 Трафик: безлимитный\n")
+			text.WriteString(c.l10n.Get(user.Language, "my_subs.traffic_unlimited", nil) + "\n")
 		}
 
 		if sub.ExpiresAt != nil {
 			daysLeft := int(time.Until(*sub.ExpiresAt).Hours() / 24)
 			if daysLeft > 0 {
-				text.WriteString(fmt.Sprintf("⏳ Осталось дней: %d\n", daysLeft))
-				text.WriteString(fmt.Sprintf("📅 Действует до: %s\n", sub.ExpiresAt.Format("02.01.2006")))
+				text.WriteString(c.l10n.Get(user.Language, "my_subs.days_left", map[string]interface{}{
+					"days": daysLeft,
+				}) + "\n")
+				text.WriteString(c.l10n.Get(user.Language, "my_subs.expires_at", map[string]interface{}{
+					"date": sub.ExpiresAt.Format("02.01.2006"),
+				}) + "\n")
 			} else {
-				text.WriteString("⚠️ Подписка истекает сегодня\n")
+				text.WriteString(c.l10n.Get(user.Language, "my_subs.expires_today", nil) + "\n")
 			}
 		}
 
 		if sub.MarzbanLink != "" {
-			text.WriteString(fmt.Sprintf("\n🔗 Ваш ключ:\n`%s`\n", sub.MarzbanLink))
+			text.WriteString("\n" + c.l10n.Get(user.Language, "my_subs.your_key", nil) + "\n`" + sub.MarzbanLink + "`\n")
 		}
 
 		text.WriteString("\n")
 	}
 
-	text.WriteString("💡 Для продления подписки используйте /renew")
+	text.WriteString("\n💡 " + c.l10n.Get(user.Language, "my_subs.renew_note", nil))
 
 	msg := tgbotapi.NewMessage(chatID, text.String())
 	msg.ParseMode = "Markdown"

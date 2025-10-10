@@ -6,6 +6,7 @@ type User struct {
 	ID         int64
 	TelegramID int64
 	UsedTrial  bool
+	Language   string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
@@ -31,4 +32,5 @@ type ListCriteria struct {
 // Параметры для обновления пользователя
 type UpdateParams struct {
 	UsedTrial *bool
+	Language  *string
 }

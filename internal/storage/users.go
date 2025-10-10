@@ -19,6 +19,7 @@ type userRow struct {
 	ID         int64     `db:"id"`
 	TelegramID int64     `db:"telegram_id"`
 	UsedTrial  bool      `db:"used_trial"`
+	Language   string    `db:"language"`
 	CreatedAt  time.Time `db:"created_at"`
 	UpdatedAt  time.Time `db:"updated_at"`
 }
@@ -28,6 +29,7 @@ func (u userRow) ToModel() *users.User {
 		ID:         u.ID,
 		TelegramID: u.TelegramID,
 		UsedTrial:  u.UsedTrial,
+		Language:   u.Language,
 		CreatedAt:  u.CreatedAt,
 		UpdatedAt:  u.UpdatedAt,
 	}
@@ -36,6 +38,7 @@ func (u userRow) ToModel() *users.User {
 func (s *storageImpl) CreateUser(ctx context.Context, user users.User) (*users.User, error) {
 	params := map[string]interface{}{
 		"telegram_id": user.TelegramID,
+		"language":    user.Language,
 		"created_at":  s.now(),
 		"updated_at":  s.now(),
 	}
@@ -82,7 +85,7 @@ func (s *storageImpl) GetUser(ctx context.Context, criteria users.GetCriteria) (
 	row := s.db.QueryRowContext(ctx, q, args...)
 
 	var u userRow
-	err = row.Scan(&u.ID, &u.TelegramID, &u.UsedTrial, &u.CreatedAt, &u.UpdatedAt)
+	err = row.Scan(&u.ID, &u.TelegramID, &u.UsedTrial, &u.Language, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -109,6 +112,9 @@ func (s *storageImpl) UpdateUser(ctx context.Context, criteria users.GetCriteria
 	// Добавляем параметры для обновления
 	if params.UsedTrial != nil {
 		query = query.Set("used_trial", *params.UsedTrial)
+	}
+	if params.Language != nil {
+		query = query.Set("language", *params.Language)
 	}
 
 	q, args, err := query.ToSql()
@@ -152,7 +158,7 @@ func (s *storageImpl) ListUsers(ctx context.Context, criteria users.ListCriteria
 	var result []*users.User
 	for rows.Next() {
 		var u userRow
-		err = rows.Scan(&u.ID, &u.TelegramID, &u.UsedTrial, &u.CreatedAt, &u.UpdatedAt)
+		err = rows.Scan(&u.ID, &u.TelegramID, &u.UsedTrial, &u.Language, &u.CreatedAt, &u.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("rows.Scan: %w", err)
 		}

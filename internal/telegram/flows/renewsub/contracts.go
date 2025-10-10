@@ -40,4 +40,8 @@ type (
 		CheckPaymentStatus(ctx context.Context, paymentID int64) (*payment.Payment, error)
 		LinkPaymentToSubscriptions(ctx context.Context, paymentID int64, subscriptionIDs []int64) error
 	}
+
+	localizer interface {
+		Get(lang, key string, params map[string]interface{}) string
+	}
 )

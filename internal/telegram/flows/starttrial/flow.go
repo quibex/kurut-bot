@@ -17,6 +17,7 @@ type Handler struct {
 	tariffService       tariffService
 	subscriptionService subscriptionService
 	userService         userService
+	l10n                localizer
 	logger              *slog.Logger
 }
 
@@ -25,6 +26,7 @@ func NewHandler(
 	ts tariffService,
 	ss subscriptionService,
 	us userService,
+	l10n localizer,
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
@@ -32,6 +34,7 @@ func NewHandler(
 		tariffService:       ts,
 		subscriptionService: ss,
 		userService:         us,
+		l10n:                l10n,
 		logger:              logger,
 	}
 }
@@ -39,8 +42,7 @@ func NewHandler(
 func (h *Handler) Start(ctx context.Context, user *users.User, chatID int64) error {
 	// Проверяем, использовал ли пользователь пробный период
 	if user.UsedTrial {
-		msg := tgbotapi.NewMessage(chatID, "❌ Вы уже использовали пробный период.\n\n"+
-			"Используйте /buy чтобы выбрать платный тариф.")
+		msg := tgbotapi.NewMessage(chatID, h.l10n.Get(user.Language, "trial.already_used", nil))
 		_, err := h.bot.Send(msg)
 		return err
 	}
@@ -48,11 +50,11 @@ func (h *Handler) Start(ctx context.Context, user *users.User, chatID int64) err
 	// Получаем пробный тариф (бесплатный)
 	trialTariff, err := h.tariffService.GetTrialTariff(ctx)
 	if err != nil {
-		return h.sendError(chatID, "❌ Ошибка получения тарифов")
+		return h.sendError(chatID, user.Language, h.l10n.Get(user.Language, "trial.error_getting_tariffs", nil))
 	}
 
 	if trialTariff == nil {
-		return h.sendError(chatID, "❌ Пробный период временно недоступен")
+		return h.sendError(chatID, user.Language, h.l10n.Get(user.Language, "trial.unavailable", nil))
 	}
 
 	// Создаем подписку
@@ -65,7 +67,7 @@ func (h *Handler) Start(ctx context.Context, user *users.User, chatID int64) err
 	subscription, err := h.subscriptionService.CreateSubscription(ctx, subReq)
 	if err != nil {
 		h.logger.Error("Failed to create trial subscription", "error", err)
-		return h.sendError(chatID, "❌ Ошибка создания пробной подписки")
+		return h.sendError(chatID, user.Language, h.l10n.Get(user.Language, "trial.error_creating", nil))
 	}
 
 	// Отмечаем что пользователь использовал пробный период
@@ -76,41 +78,30 @@ func (h *Handler) Start(ctx context.Context, user *users.User, chatID int64) err
 	}
 
 	// Отправляем инструкции
-	return h.sendConnectionInstructions(chatID, subscription, trialTariff.Name, trialTariff.DurationDays)
+	return h.sendConnectionInstructions(chatID, subscription, trialTariff.Name, trialTariff.DurationDays, user.Language)
 }
 
-func (h *Handler) sendConnectionInstructions(chatID int64, subscription *subs.Subscription, tariffName string, durationDays int) error {
-	messageText := fmt.Sprintf(
-		"🎉 *Пробный период активирован\\!*\n\n"+
-			"📅 Тариф: %s \\(%d дней\\)\n\n"+
-			"🔗 *Ссылка подключения:*\n",
-		escapeMarkdownV2(tariffName), durationDays)
+func (h *Handler) sendConnectionInstructions(chatID int64, subscription *subs.Subscription, tariffName string, durationDays int, lang string) error {
+	messageText := h.l10n.Get(lang, "subscription.success_trial", map[string]interface{}{
+		"tariff_name": escapeMarkdownV2(tariffName),
+		"duration":    durationDays,
+	}) + "\n\n"
 
 	if subscription.MarzbanLink != "" {
 		messageText += fmt.Sprintf("`%s`\n\n", subscription.MarzbanLink)
 	} else {
-		messageText += "❌ Ссылка подключения не готова\n\n"
+		messageText += h.l10n.Get(lang, "subscription.link_not_ready", nil) + "\n\n"
 	}
 
-	messageText += "📋 *Инструкция по подключению:*\n\n"
-	messageText += "📱 *1\\. Скачайте приложение v2RayTun:*\n"
-	messageText += "• Android: [Google Play](https://play.google.com/store/apps/details?id=com.v2raytun.android)\n"
-	messageText += "• iOS: [App Store](https://apps.apple.com/us/app/v2raytun/id6476628951)\n\n"
-	messageText += "📋 *2\\. Настройте подключение:*\n"
-	messageText += "• Скопируйте ссылку подключения выше\n"
-	messageText += "• Откройте v2RayTun\n"
-	messageText += "• Добавьте конфигурацию через \\\"Импорт из буфера\\\"\n\n"
-	messageText += "⚠️ *Если v2RayTun не работает, используйте Happ:*\n"
-	messageText += "• Android: [Google Play](https://play.google.com/store/apps/details?id=com.happproxy)\n"
-	messageText += "• iOS: [App Store](https://apps.apple.com/us/app/happ\\-proxy\\-utility/id6504287215)\n\n"
-	messageText += "💡 После окончания пробного периода используйте /buy для покупки платного тарифа"
+	messageText += h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n"
+	messageText += h.l10n.Get(lang, "subscription.trial_note", nil)
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("💳 Посмотреть тарифы", "view_tariffs"),
+			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.view_tariffs", nil), "view_tariffs"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🏠 Главное меню", "main_menu"),
+			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "main_menu"),
 		),
 	)
 
@@ -132,7 +123,7 @@ func escapeMarkdownV2(text string) string {
 	return result
 }
 
-func (h *Handler) sendError(chatID int64, message string) error {
+func (h *Handler) sendError(chatID int64, lang, message string) error {
 	msg := tgbotapi.NewMessage(chatID, message)
 	_, err := h.bot.Send(msg)
 	return err

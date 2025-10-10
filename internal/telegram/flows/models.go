@@ -9,6 +9,7 @@ type BuySubFlowData struct {
 	TotalAmount float64
 	PaymentID   *int64
 	PaymentURL  *string
+	Language    string
 }
 
 // CreateSubFlowData - data for create sub
@@ -58,4 +59,5 @@ type RenewSubFlowData struct {
 	PaymentID      *int64
 	PaymentURL     *string
 	ClientName     *string // Имя клиента, если это клиентская подписка
+	Language       string
 }

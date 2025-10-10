@@ -34,6 +34,7 @@ func (s *Service) GetOrCreateUserByTelegramID(ctx context.Context, telegramID in
 	// Если пользователь не найден, создаем нового
 	newUser := User{
 		TelegramID: telegramID,
+		Language:   "ru",
 	}
 
 	createdUser, err := s.storage.CreateUser(ctx, newUser)
@@ -54,6 +55,20 @@ func (s *Service) MarkTrialAsUsed(ctx context.Context, userID int64) error {
 	return err
 }
 
+// SetLanguage устанавливает язык пользователя
+func (s *Service) SetLanguage(ctx context.Context, telegramID int64, language string) error {
+	_, err := s.storage.UpdateUser(ctx, GetCriteria{
+		TelegramID: &telegramID,
+	}, UpdateParams{
+		Language: stringPtr(language),
+	})
+	return err
+}
+
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+func stringPtr(s string) *string {
+	return &s
 }
