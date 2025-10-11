@@ -32,9 +32,6 @@ services:
       - "8888:8080"
     environment:
       DOZZLE_NO_ANALYTICS: "true"
-      DOZZLE_AUTH_PROVIDER: "simple"
-      DOZZLE_USERNAME: "admin"
-      DOZZLE_PASSWORD: "kurut2025secure"
       DOZZLE_LEVEL: "info"
     networks:
       - kurut-network
