@@ -92,7 +92,11 @@ func (h *Handler) showSubscriptions(chatID, userID int64, lang string) error {
 		return err
 	}
 
-	keyboard := h.createSubscriptionsKeyboard(subscriptions, lang)
+	keyboard, err := h.createSubscriptionsKeyboard(ctx, subscriptions, lang)
+	if err != nil {
+		return fmt.Errorf("create subscriptions keyboard: %w", err)
+	}
+
 	msg := tgbotapi.NewMessage(chatID, h.l10n.Get(lang, "renew.choose_subscription", nil))
 	msg.ReplyMarkup = keyboard
 
@@ -101,7 +105,7 @@ func (h *Handler) showSubscriptions(chatID, userID int64, lang string) error {
 }
 
 // createSubscriptionsKeyboard creates keyboard with subscriptions
-func (h *Handler) createSubscriptionsKeyboard(subscriptions []*subs.Subscription, lang string) tgbotapi.InlineKeyboardMarkup {
+func (h *Handler) createSubscriptionsKeyboard(ctx context.Context, subscriptions []*subs.Subscription, lang string) (tgbotapi.InlineKeyboardMarkup, error) {
 	var rows [][]tgbotapi.InlineKeyboardButton
 
 	for _, sub := range subscriptions {
@@ -116,9 +120,22 @@ func (h *Handler) createSubscriptionsKeyboard(subscriptions []*subs.Subscription
 			statusEmoji = "🔴"
 		}
 
+		// Get tariff name
+		tariff, err := h.tariffService.GetTariff(ctx, tariffs.GetCriteria{ID: &sub.TariffID})
+		if err != nil {
+			h.logger.Warn("Failed to get tariff", "error", err, "tariff_id", sub.TariffID)
+			continue
+		}
+
+		tariffName := tariff.Name
+		if tariffName == "" {
+			tariffName = fmt.Sprintf("Tariff #%d", sub.TariffID)
+		}
+
 		text := h.l10n.Get(lang, "renew.subscription_button", map[string]interface{}{
-			"id":         sub.ID,
-			"expires_at": expiresText,
+			"id":          sub.ID,
+			"tariff_name": tariffName,
+			"expires_at":  expiresText,
 		})
 		text = fmt.Sprintf("%s %s", statusEmoji, text)
 		callbackData := fmt.Sprintf("renew_sub:%d", sub.ID)
@@ -130,7 +147,7 @@ func (h *Handler) createSubscriptionsKeyboard(subscriptions []*subs.Subscription
 		tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.cancel", nil), "cancel"),
 	})
 
-	return tgbotapi.NewInlineKeyboardMarkup(rows...)
+	return tgbotapi.NewInlineKeyboardMarkup(rows...), nil
 }
 
 // handleSubscriptionSelection handles subscription selection
