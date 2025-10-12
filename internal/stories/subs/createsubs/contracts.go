@@ -12,6 +12,7 @@ type (
 	storage interface {
 		CreateSubscription(ctx context.Context, subscription subs.Subscription) (*subs.Subscription, error)
 		GetTariff(ctx context.Context, criteria tariffs.GetCriteria) (*tariffs.Tariff, error)
+		LinkPaymentToSubscriptions(ctx context.Context, paymentID int64, subscriptionIDs []int64) error
 	}
 
 	marzbanClient interface {

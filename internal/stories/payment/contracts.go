@@ -15,6 +15,7 @@ type (
 		ListPayments(ctx context.Context, criteria ListCriteria) ([]*Payment, error)
 		DeletePayment(ctx context.Context, criteria DeleteCriteria) error
 		LinkPaymentToSubscriptions(ctx context.Context, paymentID int64, subscriptionIDs []int64) error
+		ListOrphanedPayments(ctx context.Context) ([]*Payment, error)
 	}
 
 	// YooKassaClient provides YooKassa API operations

@@ -411,7 +411,15 @@ func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, dat
 	subscription, err := h.subscriptionService.CreateSubscription(ctx, subReq)
 	if err != nil {
 		h.logger.Error("Failed to create subscription after payment", "error", err, "paymentID", paymentID)
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "subscription.error_creating", nil))
+		// Send reassuring message that the system will retry automatically
+		msg := tgbotapi.NewMessage(chatID, h.l10n.Get(data.Language, "subscription.error_creating_will_retry", nil))
+		_, sendErr := h.bot.Send(msg)
+		if sendErr != nil {
+			h.logger.Error("Failed to send retry message", "error", sendErr)
+		}
+		// Clear state since payment is processed and worker will handle retry
+		h.stateManager.Clear(chatID)
+		return nil
 	}
 
 	// Отправляем инструкции по подключению

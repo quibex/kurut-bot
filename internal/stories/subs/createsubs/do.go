@@ -130,6 +130,14 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 		return nil, errors.Errorf("failed to create subscription in database: %v", err)
 	}
 
+	// Link payment to subscription if payment ID is provided
+	if req.PaymentID != nil {
+		err = s.storage.LinkPaymentToSubscriptions(ctx, *req.PaymentID, []int64{created.ID})
+		if err != nil {
+			return nil, errors.Errorf("failed to link payment to subscription: %v", err)
+		}
+	}
+
 	return created, nil
 }
 

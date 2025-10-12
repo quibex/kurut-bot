@@ -176,6 +176,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		storageImpl,
 		clients.TelegramBot,
 		tariffService,
+		createSubService,
+		l10nService,
 		logger,
 	)
 

@@ -304,3 +304,38 @@ func (s *storageImpl) LinkPaymentToSubscriptions(ctx context.Context, paymentID 
 	}
 	return nil
 }
+
+// ListOrphanedPayments returns approved payments that have no linked subscriptions
+func (s *storageImpl) ListOrphanedPayments(ctx context.Context) ([]*payment.Payment, error) {
+	query := `
+		SELECT ` + paymentRowFields + `
+		FROM ` + paymentsTable + ` p
+		LEFT JOIN ` + paymentSubscriptionsTable + ` ps ON p.id = ps.payment_id
+		WHERE p.status = ?
+		AND ps.payment_id IS NULL
+		ORDER BY p.created_at ASC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, string(payment.StatusApproved))
+	if err != nil {
+		return nil, fmt.Errorf("db.QueryContext: %w", err)
+	}
+	defer rows.Close()
+
+	var result []*payment.Payment
+	for rows.Next() {
+		var p paymentRow
+		err = rows.Scan(&p.ID, &p.UserID, &p.Amount, &p.Status, &p.YooKassaID,
+			&p.PaymentURL, &p.ProcessedAt, &p.CreatedAt, &p.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("rows.Scan: %w", err)
+		}
+		result = append(result, p.ToModel())
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows.Err: %w", err)
+	}
+
+	return result, nil
+}
