@@ -136,6 +136,12 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		l10nService,
 	)
 
+	// Создаем statsCommand
+	statsCommand := cmds.NewStatsCommand(
+		clients.TelegramBot.GetBotAPI(),
+		storageImpl,
+	)
+
 	// Создаем renewSubHandler
 	renewSubHandler := renewsub.NewHandler(
 		clients.TelegramBot,
@@ -161,6 +167,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		startTrialHandler,
 		renewSubHandler,
 		mySubsCommand,
+		statsCommand,
 		l10nService,
 	)
 

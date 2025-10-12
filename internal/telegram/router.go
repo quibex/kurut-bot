@@ -34,6 +34,7 @@ type Router struct {
 	startTrialHandler         *starttrial.Handler
 	renewSubHandler           *renewsub.Handler
 	mySubsCommand             *cmds.MySubsCommand
+	statsCommand              *cmds.StatsCommand
 }
 
 type stateManager interface {
@@ -194,6 +195,13 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 		return r.mySubsCommand.Execute(ctx, user, update.Message.Chat.ID)
 	case "renew":
 		return r.renewSubHandler.Start(user.ID, update.Message.Chat.ID, user.Language)
+	case "stats":
+		if !r.adminChecker.IsAdmin(user.TelegramID) {
+			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для просмотра статистики"))
+			return r.sendHelp(update.Message.Chat.ID, user.Language)
+		}
+		ctx := context.Background()
+		return r.statsCommand.Execute(ctx, update.Message.Chat.ID)
 	default:
 		return r.sendHelp(update.Message.Chat.ID, user.Language)
 	}
@@ -229,7 +237,8 @@ func (r *Router) sendWelcome(chatID int64, user *users.User) error {
 			"/create_sub — Создать подписку для клиента\n" +
 			"/create_tariff — Создать тариф\n" +
 			"/disable_tariff — Архивировать тариф\n" +
-			"/enable_tariff — Восстановить тариф из архива"
+			"/enable_tariff — Восстановить тариф из архива\n" +
+			"/stats — Просмотр статистики"
 	}
 
 	// Добавляем "Выберите действие:" в самый конец
@@ -265,7 +274,8 @@ func (r *Router) sendHelp(chatID int64, lang string) error {
 			"/create_sub — Создать подписку для клиента\n" +
 			"/create_tariff — Создать тариф\n" +
 			"/disable_tariff — Архивировать тариф\n" +
-			"/enable_tariff — Восстановить тариф из архива"
+			"/enable_tariff — Восстановить тариф из архива\n" +
+			"/stats — Просмотр статистики"
 	}
 	msg := tgbotapi.NewMessage(chatID, text)
 	_, err := r.bot.Send(msg)
@@ -364,7 +374,7 @@ func (r *Router) handleLanguageSelection(ctx context.Context, update *tgbotapi.U
 }
 
 // NewRouter создает новый роутер с зависимостями
-func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createSubForClientHandler *createsubforclient.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler, renewSubHandler *renewsub.Handler, mySubsCommand *cmds.MySubsCommand, l10n localizer) *Router {
+func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createSubForClientHandler *createsubforclient.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler, renewSubHandler *renewsub.Handler, mySubsCommand *cmds.MySubsCommand, statsCommand *cmds.StatsCommand, l10n localizer) *Router {
 	return &Router{
 		bot:                       bot,
 		stateManager:              stateManager,
@@ -378,6 +388,7 @@ func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService user
 		startTrialHandler:         startTrialHandler,
 		renewSubHandler:           renewSubHandler,
 		mySubsCommand:             mySubsCommand,
+		statsCommand:              statsCommand,
 		l10n:                      l10n,
 	}
 }
@@ -447,6 +458,10 @@ func (r *Router) setupAdminCommands(chatID int64) {
 		{
 			Command:     "enable_tariff",
 			Description: "Восстановить тариф",
+		},
+		{
+			Command:     "stats",
+			Description: "Просмотр статистики",
 		},
 	}
 
