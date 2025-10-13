@@ -24,7 +24,10 @@ import (
 	"kurut-bot/internal/telegram/flows/renewsub"
 	"kurut-bot/internal/telegram/flows/starttrial"
 	"kurut-bot/internal/telegram/states"
-	"kurut-bot/internal/worker"
+	"kurut-bot/internal/workers"
+	"kurut-bot/internal/workers/expiration"
+	"kurut-bot/internal/workers/notification"
+	retrysubscription "kurut-bot/internal/workers/retry-subscription"
 
 	"github.com/pkg/errors"
 )
@@ -32,7 +35,7 @@ import (
 type Services struct {
 	TelegramRouter      *telegram.Router
 	CreateTariffHandler *createtariff.Handler
-	WorkerService       *worker.Service
+	WorkerManager       *workers.Manager
 }
 
 func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger *slog.Logger) (*Services, error) {
@@ -171,14 +174,33 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		l10nService,
 	)
 
-	// Создаем Worker service
-	s.WorkerService = worker.NewService(
+	// Создаем воркеры
+	retrySubWorker := retrysubscription.NewWorker(
+		storageImpl,
+		createSubService,
+		clients.TelegramBot,
+		l10nService,
+		logger,
+	)
+
+	expirationWorker := expiration.NewWorker(
+		storageImpl,
+		logger,
+	)
+
+	notificationWorker := notification.NewWorker(
 		storageImpl,
 		clients.TelegramBot,
 		tariffService,
-		createSubService,
-		l10nService,
 		logger,
+	)
+
+	// Создаем менеджер воркеров
+	s.WorkerManager = workers.NewManager(
+		logger,
+		retrySubWorker,
+		expirationWorker,
+		notificationWorker,
 	)
 
 	return &s, nil

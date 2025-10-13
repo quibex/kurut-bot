@@ -41,9 +41,9 @@ func main() {
 		return
 	}
 
-	// Запускаем worker service
-	if err := env.Services.WorkerService.Start(); err != nil {
-		logger.Error("Failed to start worker service", slog.Any("error", err))
+	// Запускаем worker manager
+	if err := env.Services.WorkerManager.Start(); err != nil {
+		logger.Error("Failed to start worker manager", slog.Any("error", err))
 		return
 	}
 
@@ -60,9 +60,9 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), env.Config.ShutdownDuration)
 	defer cancel()
 
-	// Stop worker service
-	if env.Services.WorkerService != nil {
-		env.Services.WorkerService.Stop()
+	// Stop worker manager
+	if env.Services.WorkerManager != nil {
+		env.Services.WorkerManager.Stop()
 	}
 
 	// Shutdown servers

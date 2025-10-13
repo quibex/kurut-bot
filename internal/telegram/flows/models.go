@@ -60,4 +60,5 @@ type RenewSubFlowData struct {
 	PaymentURL     *string
 	ClientName     *string // Имя клиента, если это клиентская подписка
 	Language       string
+	Page           int // Current page for subscription list
 }

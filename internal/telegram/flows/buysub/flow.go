@@ -497,15 +497,15 @@ func extractChatID(update *tgbotapi.Update) int64 {
 
 // SendConnectionInstructions отправляет инструкции по подключению после успешной оплаты
 func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Subscription, lang string) error {
-	messageText := h.l10n.Get(lang, "subscription.success_paid", nil) + "\n\n"
+	messageText := h.l10n.Get(lang, "subscription.success_paid", nil)
 
 	if subscription.MarzbanLink != "" {
-		messageText += fmt.Sprintf("`%s`\n\n", subscription.MarzbanLink)
+		messageText += "\n`" + subscription.MarzbanLink + "`"
 	} else {
-		messageText += h.l10n.Get(lang, "subscription.link_not_ready", nil) + "\n\n"
+		messageText += "\n\n" + h.l10n.Get(lang, "subscription.link_not_ready", nil)
 	}
 
-	messageText += h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n"
+	messageText += "\n\n" + h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n"
 	messageText += h.l10n.Get(lang, "subscription.support_note", nil)
 
 	keyboard := h.createConnectionKeyboard(lang)

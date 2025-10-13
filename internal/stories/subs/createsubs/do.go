@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"math/rand"
 
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
@@ -50,7 +51,7 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 	}
 
 	// Create user in Marzban
-	marzbanUserID := fmt.Sprintf("user_%d_%d", req.UserID, now.Unix())
+	marzbanUserID := fmt.Sprintf("user_%d_%d_%d", req.UserID, now.Unix(), rand.Intn(1000000))
 
 	userCreate := &marzban.UserCreate{
 		Username: marzbanUserID,

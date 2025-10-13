@@ -51,10 +51,11 @@ func (h *Handler) Start(userID, chatID int64, lang string) error {
 	flowData := &flows.RenewSubFlowData{
 		UserID:   userID,
 		Language: lang,
+		Page:     0,
 	}
 	h.stateManager.SetState(chatID, states.UserRenewSubWaitSelection, flowData)
 
-	return h.showSubscriptions(chatID, userID, lang)
+	return h.showSubscriptions(chatID, userID, lang, 0)
 }
 
 // Handle processes the current state
@@ -74,7 +75,7 @@ func (h *Handler) Handle(update *tgbotapi.Update, state states.State) error {
 }
 
 // showSubscriptions shows user's active and expired subscriptions
-func (h *Handler) showSubscriptions(chatID, userID int64, lang string) error {
+func (h *Handler) showSubscriptions(chatID, userID int64, lang string, page int) error {
 	ctx := context.Background()
 
 	subscriptions, err := h.subscriptionService.ListSubscriptions(ctx, subs.ListCriteria{
@@ -92,7 +93,7 @@ func (h *Handler) showSubscriptions(chatID, userID int64, lang string) error {
 		return err
 	}
 
-	keyboard, err := h.createSubscriptionsKeyboard(ctx, subscriptions, lang)
+	keyboard, err := h.createSubscriptionsKeyboard(ctx, subscriptions, lang, page)
 	if err != nil {
 		return fmt.Errorf("create subscriptions keyboard: %w", err)
 	}
@@ -105,10 +106,28 @@ func (h *Handler) showSubscriptions(chatID, userID int64, lang string) error {
 }
 
 // createSubscriptionsKeyboard creates keyboard with subscriptions
-func (h *Handler) createSubscriptionsKeyboard(ctx context.Context, subscriptions []*subs.Subscription, lang string) (tgbotapi.InlineKeyboardMarkup, error) {
+func (h *Handler) createSubscriptionsKeyboard(ctx context.Context, subscriptions []*subs.Subscription, lang string, page int) (tgbotapi.InlineKeyboardMarkup, error) {
+	const pageSize = 5
 	var rows [][]tgbotapi.InlineKeyboardButton
 
-	for _, sub := range subscriptions {
+	// Calculate pagination
+	totalPages := (len(subscriptions) + pageSize - 1) / pageSize
+	if page < 0 {
+		page = 0
+	}
+	if page >= totalPages {
+		page = totalPages - 1
+	}
+
+	startIdx := page * pageSize
+	endIdx := startIdx + pageSize
+	if endIdx > len(subscriptions) {
+		endIdx = len(subscriptions)
+	}
+
+	// Show subscriptions for current page
+	for i := startIdx; i < endIdx; i++ {
+		sub := subscriptions[i]
 		expiresText := "неизвестно"
 		statusEmoji := "🔑"
 
@@ -117,7 +136,7 @@ func (h *Handler) createSubscriptionsKeyboard(ctx context.Context, subscriptions
 		}
 
 		if sub.Status == subs.StatusExpired {
-			statusEmoji = "🔴"
+			statusEmoji = "❌"
 		}
 
 		// Get tariff name
@@ -143,6 +162,19 @@ func (h *Handler) createSubscriptionsKeyboard(ctx context.Context, subscriptions
 		rows = append(rows, []tgbotapi.InlineKeyboardButton{button})
 	}
 
+	// Add navigation buttons if needed
+	if totalPages > 1 {
+		var navButtons []tgbotapi.InlineKeyboardButton
+		if page > 0 {
+			navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData("⬅️", fmt.Sprintf("renew_page:%d", page-1)))
+		}
+		navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("%d/%d", page+1, totalPages), "renew_noop"))
+		if page < totalPages-1 {
+			navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData("➡️", fmt.Sprintf("renew_page:%d", page+1)))
+		}
+		rows = append(rows, navButtons)
+	}
+
 	rows = append(rows, []tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.cancel", nil), "cancel"),
 	})
@@ -164,11 +196,40 @@ func (h *Handler) handleSubscriptionSelection(ctx context.Context, update *tgbot
 		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "flows.use_buttons", nil))
 	}
 
-	if update.CallbackQuery.Data == "cancel" {
+	callbackData := update.CallbackQuery.Data
+
+	if callbackData == "cancel" {
 		return h.handleCancel(ctx, update)
 	}
 
-	if !strings.HasPrefix(update.CallbackQuery.Data, "renew_sub:") {
+	// Handle pagination
+	if strings.HasPrefix(callbackData, "renew_page:") {
+		parts := strings.Split(callbackData, ":")
+		if len(parts) != 2 {
+			return nil
+		}
+		page, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return nil
+		}
+		flowData.Page = page
+		h.stateManager.SetState(chatID, states.UserRenewSubWaitSelection, flowData)
+
+		// Delete old message
+		deleteMsg := tgbotapi.NewDeleteMessage(chatID, update.CallbackQuery.Message.MessageID)
+		_, _ = h.bot.Request(deleteMsg)
+
+		return h.showSubscriptions(chatID, flowData.UserID, flowData.Language, page)
+	}
+
+	// Handle noop (page indicator button)
+	if callbackData == "renew_noop" {
+		callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+		_, _ = h.bot.Request(callbackConfig)
+		return nil
+	}
+
+	if !strings.HasPrefix(callbackData, "renew_sub:") {
 		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "renew.invalid_subscription", nil))
 	}
 

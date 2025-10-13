@@ -62,13 +62,15 @@ func (c *Client) GetUpdates() <-chan tgbotapi.Update {
 	return c.updates
 }
 
-// SendMessage отправляет сообщение с rate limiting
+// SendMessage отправляет сообщение с rate limiting и MarkdownV2 форматированием
 func (c *Client) SendMessage(chatID int64, text string) error {
 	if err := c.limiter.Wait(c.ctx); err != nil {
 		return fmt.Errorf("rate limiting: %w", err)
 	}
 
 	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "MarkdownV2"
+	msg.DisableWebPagePreview = true
 	_, err := c.api.Send(msg)
 	if err != nil {
 		c.logger.Error("ошибка отправки сообщения",

@@ -2,7 +2,6 @@ package starttrial
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strings"
 
@@ -85,15 +84,15 @@ func (h *Handler) sendConnectionInstructions(chatID int64, subscription *subs.Su
 	messageText := h.l10n.Get(lang, "subscription.success_trial", map[string]interface{}{
 		"tariff_name": escapeMarkdownV2(tariffName),
 		"duration":    durationDays,
-	}) + "\n\n"
+	})
 
 	if subscription.MarzbanLink != "" {
-		messageText += fmt.Sprintf("`%s`\n\n", subscription.MarzbanLink)
+		messageText += "\n`" + subscription.MarzbanLink + "`"
 	} else {
-		messageText += h.l10n.Get(lang, "subscription.link_not_ready", nil) + "\n\n"
+		messageText += "\n\n" + h.l10n.Get(lang, "subscription.link_not_ready", nil)
 	}
 
-	messageText += h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n"
+	messageText += "\n\n" + h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n"
 	messageText += h.l10n.Get(lang, "subscription.trial_note", nil)
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(

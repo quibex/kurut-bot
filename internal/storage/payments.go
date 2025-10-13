@@ -305,6 +305,19 @@ func (s *storageImpl) LinkPaymentToSubscriptions(ctx context.Context, paymentID 
 	return nil
 }
 
+// IsSubscriptionLinkedToPayment checks if a subscription is linked to any payment
+func (s *storageImpl) IsSubscriptionLinkedToPayment(ctx context.Context, subscriptionID int64) (bool, error) {
+	query := `SELECT COUNT(*) FROM ` + paymentSubscriptionsTable + ` WHERE subscription_id = ?`
+
+	var count int
+	err := s.db.QueryRowContext(ctx, query, subscriptionID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("check subscription link: %w", err)
+	}
+
+	return count > 0, nil
+}
+
 // ListOrphanedPayments returns approved payments that have no linked subscriptions
 func (s *storageImpl) ListOrphanedPayments(ctx context.Context) ([]*payment.Payment, error) {
 	query := `
