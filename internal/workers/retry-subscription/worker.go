@@ -79,6 +79,10 @@ func (w *Worker) run(ctx context.Context) error {
 		return fmt.Errorf("list orphaned payments: %w", err)
 	}
 
+	if len(orphanedPayments) == 0 {
+		return nil
+	}
+
 	w.logger.Info("Found orphaned payments", "count", len(orphanedPayments))
 
 	for _, payment := range orphanedPayments {

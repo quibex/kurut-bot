@@ -118,14 +118,28 @@ func (h *Handler) showTariffs(chatID int64) error {
 		return err
 	}
 
+	// Получаем данные флоу
+	flowData, _ := h.stateManager.GetCreateSubForClientData(chatID)
+
 	// Создаем клавиатуру с тарифами
 	keyboard := h.createTariffsKeyboard(tariffs)
 
 	msg := tgbotapi.NewMessage(chatID, "📅 Выберите тариф:")
 	msg.ReplyMarkup = keyboard
 
-	_, err = h.bot.Send(msg)
-	return err
+	// Отправляем сообщение и сохраняем его ID
+	sentMsg, err := h.bot.Send(msg)
+	if err != nil {
+		return err
+	}
+
+	// Сохраняем MessageID
+	if flowData != nil {
+		flowData.MessageID = &sentMsg.MessageID
+		h.stateManager.SetState(chatID, states.AdminCreateSubWaitTariff, flowData)
+	}
+
+	return nil
 }
 
 // handleTariffSelection обработка выбора тарифа
@@ -250,13 +264,25 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 		tgbotapi.NewInlineKeyboardRow(cancelButton),
 	)
 
-	msg := tgbotapi.NewMessage(chatID, paymentMsg)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = keyboard
-
-	_, err = h.bot.Send(msg)
-	if err != nil {
-		return err
+	// Редактируем существующее сообщение, если MessageID есть
+	if data.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, paymentMsg)
+		editMsg.ParseMode = "Markdown"
+		editMsg.ReplyMarkup = &keyboard
+		_, err = h.bot.Send(editMsg)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Fallback: отправляем новое сообщение
+		msg := tgbotapi.NewMessage(chatID, paymentMsg)
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = keyboard
+		sentMsg, err := h.bot.Send(msg)
+		if err != nil {
+			return err
+		}
+		data.MessageID = &sentMsg.MessageID
 	}
 
 	// Сохраняем обновленное состояние с данными платежа
@@ -376,9 +402,8 @@ func (h *Handler) handlePaymentCompleted(ctx context.Context, update *tgbotapi.U
 
 // sendPaymentPendingMessage отправляет сообщение о том, что платеж еще обрабатывается
 func (h *Handler) sendPaymentPendingMessage(chatID int64, data *flows.CreateSubForClientFlowData) error {
-	msg := tgbotapi.NewMessage(chatID,
-		"⏳ Платеж еще обрабатывается.\n"+
-			"Пожалуйста, подождите немного и попробуйте еще раз.")
+	messageText := "⏳ Платеж еще обрабатывается.\n" +
+		"Пожалуйста, подождите немного и попробуйте еще раз."
 
 	checkButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить еще раз", "payment_completed")
 	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", "cancel_purchase")
@@ -388,15 +413,26 @@ func (h *Handler) sendPaymentPendingMessage(chatID int64, data *flows.CreateSubF
 		tgbotapi.NewInlineKeyboardRow(cancelButton),
 	)
 
+	// Редактируем существующее сообщение, если MessageID есть
+	if data.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, messageText)
+		editMsg.ReplyMarkup = &keyboard
+		_, err := h.bot.Send(editMsg)
+		return err
+	}
+
+	// Fallback: отправляем новое сообщение
+	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ReplyMarkup = keyboard
-	_, err := h.bot.Send(msg)
+	sentMsg, err := h.bot.Send(msg)
+	if err == nil {
+		data.MessageID = &sentMsg.MessageID
+	}
 	return err
 }
 
 // sendPaymentCheckError отправляет сообщение об ошибке проверки с возможностью повторить
 func (h *Handler) sendPaymentCheckError(chatID int64, data *flows.CreateSubForClientFlowData, errorMsg string) error {
-	msg := tgbotapi.NewMessage(chatID, errorMsg)
-
 	retryButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Попробовать еще раз", "payment_completed")
 	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", "cancel_purchase")
 
@@ -405,8 +441,21 @@ func (h *Handler) sendPaymentCheckError(chatID int64, data *flows.CreateSubForCl
 		tgbotapi.NewInlineKeyboardRow(cancelButton),
 	)
 
+	// Редактируем существующее сообщение, если MessageID есть
+	if data.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, errorMsg)
+		editMsg.ReplyMarkup = &keyboard
+		_, err := h.bot.Send(editMsg)
+		return err
+	}
+
+	// Fallback: отправляем новое сообщение
+	msg := tgbotapi.NewMessage(chatID, errorMsg)
 	msg.ReplyMarkup = keyboard
-	_, err := h.bot.Send(msg)
+	sentMsg, err := h.bot.Send(msg)
+	if err == nil {
+		data.MessageID = &sentMsg.MessageID
+	}
 	return err
 }
 
@@ -428,7 +477,7 @@ func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, dat
 	}
 
 	// Отправляем ключ администратору
-	err = h.SendConnectionKey(chatID, subscription, data.ClientName)
+	err = h.SendConnectionKey(chatID, subscription, data.ClientName, data.MessageID)
 	if err != nil {
 		return h.sendError(chatID, "❌ Ошибка отправки ключа")
 	}
@@ -501,7 +550,7 @@ func extractChatID(update *tgbotapi.Update) int64 {
 }
 
 // SendConnectionKey отправляет ключ подключения администратору
-func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscription, clientName string) error {
+func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscription, clientName string, messageID *int) error {
 	messageText := fmt.Sprintf(
 		"✅ *Подписка создана успешно!*\n\n"+
 			"👤 Клиент: *%s*\n"+
@@ -511,9 +560,18 @@ func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscriptio
 			"📋 Отправьте этот ключ клиенту для подключения.",
 		clientName, subscription.ID, subscription.MarzbanLink)
 
+	// Редактируем существующее сообщение, если MessageID есть
+	if messageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, messageText)
+		editMsg.ParseMode = "Markdown"
+		editMsg.ReplyMarkup = nil // Убираем кнопки
+		_, err := h.bot.Send(editMsg)
+		return err
+	}
+
+	// Fallback: отправляем новое сообщение
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "Markdown"
-
 	_, err := h.bot.Send(msg)
 	return err
 }
@@ -536,7 +594,7 @@ func (h *Handler) createFreeSubscription(ctx context.Context, chatID int64, data
 	}
 
 	// Отправляем ключ администратору
-	err = h.SendConnectionKey(chatID, subscription, data.ClientName)
+	err = h.SendConnectionKey(chatID, subscription, data.ClientName, data.MessageID)
 	if err != nil {
 		return h.sendError(chatID, "❌ Ошибка отправки ключа")
 	}

@@ -125,3 +125,21 @@ func (m *Manager) GetCreateSubForClientData(chatID int64) (*flows.CreateSubForCl
 
 	return flowData, nil
 }
+
+// GetWelcomeData получает данные стартового флоу
+func (m *Manager) GetWelcomeData(chatID int64) (*flows.WelcomeFlowData, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	data, exists := m.userData[chatID]
+	if !exists {
+		return nil, fmt.Errorf("no data for chat %d", chatID)
+	}
+
+	flowData, ok := data.(*flows.WelcomeFlowData)
+	if !ok {
+		return nil, fmt.Errorf("invalid data type for chat %d", chatID)
+	}
+
+	return flowData, nil
+}

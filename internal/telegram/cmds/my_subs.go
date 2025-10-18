@@ -3,6 +3,7 @@ package cmds
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,7 +43,31 @@ func NewMySubsCommand(bot *tgbotapi.BotAPI, subscriptionSvc SubscriptionService,
 	}
 }
 
+const pageSize = 2
+
 func (c *MySubsCommand) Execute(ctx context.Context, user *users.User, chatID int64) error {
+	return c.showPage(ctx, user, chatID, 0, 0, false)
+}
+
+func (c *MySubsCommand) HandleCallback(ctx context.Context, user *users.User, chatID int64, messageID int, callbackData string) error {
+	if !strings.HasPrefix(callbackData, "my_subs_page:") {
+		return fmt.Errorf("invalid callback data")
+	}
+
+	parts := strings.Split(callbackData, ":")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid callback format")
+	}
+
+	page, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return fmt.Errorf("invalid page number: %w", err)
+	}
+
+	return c.showPage(ctx, user, chatID, page, messageID, true)
+}
+
+func (c *MySubsCommand) showPage(ctx context.Context, user *users.User, chatID int64, page, messageID int, isEdit bool) error {
 	activeStatus := []subs.Status{subs.StatusActive}
 	subscriptions, err := c.subscriptionSvc.ListSubscriptions(ctx, subs.ListCriteria{
 		UserIDs: []int64{user.ID},
@@ -61,10 +86,27 @@ func (c *MySubsCommand) Execute(ctx context.Context, user *users.User, chatID in
 		return nil
 	}
 
+	// Calculate pagination
+	totalPages := (len(subscriptions) + pageSize - 1) / pageSize
+	if page < 0 {
+		page = 0
+	}
+	if page >= totalPages {
+		page = totalPages - 1
+	}
+
+	startIdx := page * pageSize
+	endIdx := startIdx + pageSize
+	if endIdx > len(subscriptions) {
+		endIdx = len(subscriptions)
+	}
+
 	var text strings.Builder
 	text.WriteString(c.l10n.Get(user.Language, "my_subs.title", nil) + "\n\n")
 
-	for _, sub := range subscriptions {
+	// Show only subscriptions for current page
+	for i := startIdx; i < endIdx; i++ {
+		sub := subscriptions[i]
 		tariff, err := c.tariffSvc.GetTariff(ctx, tariffs.GetCriteria{
 			ID: lo.ToPtr(sub.TariffID),
 		})
@@ -117,8 +159,42 @@ func (c *MySubsCommand) Execute(ctx context.Context, user *users.User, chatID in
 
 	text.WriteString("\n💡 " + c.l10n.Get(user.Language, "my_subs.renew_note", nil))
 
+	// Add navigation buttons if needed
+	keyboard := c.createNavigationKeyboard(user.Language, page, totalPages)
+
+	if isEdit {
+		editMsg := tgbotapi.NewEditMessageText(chatID, messageID, text.String())
+		editMsg.ParseMode = "Markdown"
+		if keyboard != nil {
+			editMsg.ReplyMarkup = keyboard
+		}
+		_, err = c.bot.Send(editMsg)
+		return err
+	}
+
 	msg := tgbotapi.NewMessage(chatID, text.String())
 	msg.ParseMode = "Markdown"
+	if keyboard != nil {
+		msg.ReplyMarkup = keyboard
+	}
 	_, err = c.bot.Send(msg)
 	return err
+}
+
+func (c *MySubsCommand) createNavigationKeyboard(lang string, page, totalPages int) *tgbotapi.InlineKeyboardMarkup {
+	if totalPages <= 1 {
+		return nil
+	}
+
+	var navButtons []tgbotapi.InlineKeyboardButton
+	if page > 0 {
+		navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData("⬅️", fmt.Sprintf("my_subs_page:%d", page-1)))
+	}
+	navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("%d/%d", page+1, totalPages), "my_subs_noop"))
+	if page < totalPages-1 {
+		navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData("➡️", fmt.Sprintf("my_subs_page:%d", page+1)))
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(navButtons)
+	return &keyboard
 }

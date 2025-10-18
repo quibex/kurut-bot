@@ -10,6 +10,7 @@ type BuySubFlowData struct {
 	PaymentID   *int64
 	PaymentURL  *string
 	Language    string
+	MessageID   *int // ID сообщения для бесшовного редактирования
 }
 
 // CreateSubFlowData - data for create sub
@@ -28,6 +29,7 @@ type CreateSubForClientFlowData struct {
 	TotalAmount float64
 	PaymentID   *int64
 	PaymentURL  *string
+	MessageID   *int // ID сообщения для бесшовного редактирования
 }
 
 // DisableSubFlowData - data for disable sub
@@ -60,5 +62,12 @@ type RenewSubFlowData struct {
 	PaymentURL     *string
 	ClientName     *string // Имя клиента, если это клиентская подписка
 	Language       string
-	Page           int // Current page for subscription list
+	Page           int  // Current page for subscription list
+	MessageID      *int // ID сообщения для бесшовного редактирования
+}
+
+// WelcomeFlowData - data for welcome/start flow
+type WelcomeFlowData struct {
+	MessageID int
+	Language  string
 }

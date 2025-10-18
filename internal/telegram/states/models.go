@@ -3,8 +3,9 @@ package states
 type State string
 
 const (
-	StateNone State = "none"
-	StateDone State = "done"
+	StateNone    State = "none"
+	StateDone    State = "done"
+	StateWelcome State = "welcome" // Состояние приветствия с сохраненным MessageID
 )
 
 // ubs -> user buy sub

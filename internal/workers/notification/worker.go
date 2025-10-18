@@ -179,3 +179,5 @@ func (w *Worker) formatNotificationMessage(sub *subs.Subscription, tariff *tarif
 		daysText, expiresAtText, tariffName)
 }
 
+
+

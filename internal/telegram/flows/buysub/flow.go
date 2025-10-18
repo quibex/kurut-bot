@@ -47,11 +47,12 @@ func NewHandler(
 }
 
 // Start начинает flow покупки подписки
-func (h *Handler) Start(userID, chatID int64, lang string) error {
+func (h *Handler) Start(userID, chatID int64, lang string, messageID *int) error {
 	// Инициализируем данные флоу с внутренним ID пользователя
 	flowData := &flows.BuySubFlowData{
-		UserID:   userID,
-		Language: lang,
+		UserID:    userID,
+		Language:  lang,
+		MessageID: messageID,
 	}
 	h.stateManager.SetState(chatID, states.UserBuySubWaitTariff, flowData)
 
@@ -95,8 +96,20 @@ func (h *Handler) showTariffs(chatID int64, lang string) error {
 	msg := tgbotapi.NewMessage(chatID, h.l10n.Get(lang, "tariffs.choose", nil))
 	msg.ReplyMarkup = keyboard
 
-	_, err = h.bot.Send(msg)
-	return err
+	// Отправляем сообщение и сохраняем его ID
+	sentMsg, err := h.bot.Send(msg)
+	if err != nil {
+		return err
+	}
+
+	// Получаем текущие данные флоу и обновляем MessageID
+	flowData, _ := h.stateManager.GetBuySubData(chatID)
+	if flowData != nil {
+		flowData.MessageID = &sentMsg.MessageID
+		h.stateManager.SetState(chatID, states.UserBuySubWaitTariff, flowData)
+	}
+
+	return nil
 }
 
 // handleTariffSelection обработка выбора тарифа
@@ -238,13 +251,25 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 		tgbotapi.NewInlineKeyboardRow(cancelButton),
 	)
 
-	msg := tgbotapi.NewMessage(chatID, paymentMsg)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = keyboard
-
-	_, err = h.bot.Send(msg)
-	if err != nil {
-		return err
+	// Редактируем существующее сообщение, если MessageID есть
+	if data.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, paymentMsg)
+		editMsg.ParseMode = "Markdown"
+		editMsg.ReplyMarkup = &keyboard
+		_, err = h.bot.Send(editMsg)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Fallback: отправляем новое сообщение, если MessageID нет
+		msg := tgbotapi.NewMessage(chatID, paymentMsg)
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = keyboard
+		sentMsg, err := h.bot.Send(msg)
+		if err != nil {
+			return err
+		}
+		data.MessageID = &sentMsg.MessageID
 	}
 
 	// Сохраняем обновленное состояние с данными платежа
@@ -367,7 +392,7 @@ func (h *Handler) handlePaymentCompleted(ctx context.Context, update *tgbotapi.U
 
 // sendPaymentPendingMessage отправляет сообщение о том, что платеж еще обрабатывается
 func (h *Handler) sendPaymentPendingMessage(chatID int64, data *flows.BuySubFlowData) error {
-	msg := tgbotapi.NewMessage(chatID, h.l10n.Get(data.Language, "payment.pending", nil))
+	messageText := h.l10n.Get(data.Language, "payment.pending", nil)
 
 	checkButton := tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(data.Language, "buttons.check_again", nil), "payment_completed")
 	cancelButton := tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(data.Language, "buttons.cancel_purchase", nil), "cancel_purchase")
@@ -377,15 +402,26 @@ func (h *Handler) sendPaymentPendingMessage(chatID int64, data *flows.BuySubFlow
 		tgbotapi.NewInlineKeyboardRow(cancelButton),
 	)
 
+	// Редактируем существующее сообщение, если MessageID есть
+	if data.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, messageText)
+		editMsg.ReplyMarkup = &keyboard
+		_, err := h.bot.Send(editMsg)
+		return err
+	}
+
+	// Fallback: отправляем новое сообщение
+	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ReplyMarkup = keyboard
-	_, err := h.bot.Send(msg)
+	sentMsg, err := h.bot.Send(msg)
+	if err == nil {
+		data.MessageID = &sentMsg.MessageID
+	}
 	return err
 }
 
 // sendPaymentCheckError отправляет сообщение об ошибке проверки с возможностью повторить
 func (h *Handler) sendPaymentCheckError(chatID int64, data *flows.BuySubFlowData, errorMsg string) error {
-	msg := tgbotapi.NewMessage(chatID, errorMsg)
-
 	retryButton := tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(data.Language, "buttons.retry", nil), "payment_completed")
 	cancelButton := tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(data.Language, "buttons.cancel_purchase", nil), "cancel_purchase")
 
@@ -394,8 +430,21 @@ func (h *Handler) sendPaymentCheckError(chatID int64, data *flows.BuySubFlowData
 		tgbotapi.NewInlineKeyboardRow(cancelButton),
 	)
 
+	// Редактируем существующее сообщение, если MessageID есть
+	if data.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, errorMsg)
+		editMsg.ReplyMarkup = &keyboard
+		_, err := h.bot.Send(editMsg)
+		return err
+	}
+
+	// Fallback: отправляем новое сообщение
+	msg := tgbotapi.NewMessage(chatID, errorMsg)
 	msg.ReplyMarkup = keyboard
-	_, err := h.bot.Send(msg)
+	sentMsg, err := h.bot.Send(msg)
+	if err == nil {
+		data.MessageID = &sentMsg.MessageID
+	}
 	return err
 }
 
@@ -412,10 +461,23 @@ func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, dat
 	if err != nil {
 		h.logger.Error("Failed to create subscription after payment", "error", err, "paymentID", paymentID)
 		// Send reassuring message that the system will retry automatically
-		msg := tgbotapi.NewMessage(chatID, h.l10n.Get(data.Language, "subscription.error_creating_will_retry", nil))
-		_, sendErr := h.bot.Send(msg)
-		if sendErr != nil {
-			h.logger.Error("Failed to send retry message", "error", sendErr)
+		errorText := h.l10n.Get(data.Language, "subscription.error_creating_will_retry", nil)
+
+		// Редактируем существующее сообщение, если MessageID есть
+		if data.MessageID != nil {
+			editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, errorText)
+			editMsg.ReplyMarkup = nil // Убираем кнопки
+			_, sendErr := h.bot.Send(editMsg)
+			if sendErr != nil {
+				h.logger.Error("Failed to edit message with retry info", "error", sendErr)
+			}
+		} else {
+			// Fallback: отправляем новое сообщение
+			msg := tgbotapi.NewMessage(chatID, errorText)
+			_, sendErr := h.bot.Send(msg)
+			if sendErr != nil {
+				h.logger.Error("Failed to send retry message", "error", sendErr)
+			}
 		}
 		// Clear state since payment is processed and worker will handle retry
 		h.stateManager.Clear(chatID)
@@ -423,7 +485,7 @@ func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, dat
 	}
 
 	// Отправляем инструкции по подключению
-	err = h.SendConnectionInstructions(chatID, subscription, data.Language)
+	err = h.SendConnectionInstructions(chatID, subscription, data.Language, data.MessageID)
 	if err != nil {
 		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "subscription.error_sending_instructions", nil))
 	}
@@ -496,7 +558,7 @@ func extractChatID(update *tgbotapi.Update) int64 {
 }
 
 // SendConnectionInstructions отправляет инструкции по подключению после успешной оплаты
-func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Subscription, lang string) error {
+func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Subscription, lang string, messageID *int) error {
 	messageText := h.l10n.Get(lang, "subscription.success_paid", nil)
 
 	if subscription.MarzbanLink != "" {
@@ -510,11 +572,21 @@ func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Su
 
 	keyboard := h.createConnectionKeyboard(lang)
 
+	// Редактируем существующее сообщение, если MessageID есть
+	if messageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, messageText)
+		editMsg.ParseMode = "MarkdownV2"
+		editMsg.ReplyMarkup = &keyboard
+		editMsg.DisableWebPagePreview = true
+		_, err := h.bot.Send(editMsg)
+		return err
+	}
+
+	// Fallback: отправляем новое сообщение
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "MarkdownV2"
 	msg.ReplyMarkup = keyboard
 	msg.DisableWebPagePreview = true
-
 	_, err := h.bot.Send(msg)
 	return err
 }
@@ -547,7 +619,7 @@ func (h *Handler) createFreeSubscription(ctx context.Context, chatID int64, data
 	}
 
 	// Отправляем инструкции по подключению
-	err = h.SendConnectionInstructions(chatID, subscription, data.Language)
+	err = h.SendConnectionInstructions(chatID, subscription, data.Language, data.MessageID)
 	if err != nil {
 		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "subscription.error_sending_instructions", nil))
 	}
