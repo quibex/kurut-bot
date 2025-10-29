@@ -1,14 +1,19 @@
 package subs
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type Service struct {
-	storage Storage
+	storage        Storage
+	marzbanService MarzbanService
 }
 
-func NewService(storage Storage) *Service {
+func NewService(storage Storage, marzbanService MarzbanService) *Service {
 	return &Service{
-		storage: storage,
+		storage:        storage,
+		marzbanService: marzbanService,
 	}
 }
 
@@ -21,5 +26,29 @@ func (s *Service) GetSubscription(ctx context.Context, criteria GetCriteria) (*S
 }
 
 func (s *Service) ExtendSubscription(ctx context.Context, subscriptionID int64, additionalDays int) error {
-	return s.storage.ExtendSubscription(ctx, subscriptionID, additionalDays)
+	subscription, err := s.storage.GetSubscription(ctx, GetCriteria{IDs: []int64{subscriptionID}})
+	if err != nil {
+		return fmt.Errorf("get subscription: %w", err)
+	}
+	if subscription == nil {
+		return fmt.Errorf("subscription not found: %d", subscriptionID)
+	}
+
+	if err := s.storage.ExtendSubscription(ctx, subscriptionID, additionalDays); err != nil {
+		return fmt.Errorf("extend subscription in DB: %w", err)
+	}
+
+	updatedSub, err := s.storage.GetSubscription(ctx, GetCriteria{IDs: []int64{subscriptionID}})
+	if err != nil {
+		return fmt.Errorf("get updated subscription: %w", err)
+	}
+	if updatedSub == nil || updatedSub.ExpiresAt == nil {
+		return fmt.Errorf("updated subscription has no expiration date")
+	}
+
+	if err := s.marzbanService.UpdateUserExpiry(ctx, subscription.MarzbanUserID, *updatedSub.ExpiresAt); err != nil {
+		return fmt.Errorf("update marzban user expiry: %w", err)
+	}
+
+	return nil
 }

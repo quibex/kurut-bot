@@ -3,35 +3,31 @@ package createsubs
 import (
 	"context"
 	"fmt"
-	"strings"
-	"time"
 	"math/rand"
+	"time"
 
+	"kurut-bot/internal/marzban"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
-	"kurut-bot/pkg/marzban"
 
 	"github.com/pkg/errors"
 )
 
 type Service struct {
-	storage        storage
-	marzbanClient  marzbanClient
-	now            func() time.Time
-	marzbanBaseURL string
+	storage    storage
+	marzbanSvc marzbanService
+	now        func() time.Time
 }
 
-func NewService(storage storage, marzbanClient marzbanClient, now func() time.Time, marzbanBaseURL string) *Service {
+func NewService(storage storage, marzbanSvc marzbanService, now func() time.Time) *Service {
 	return &Service{
-		storage:        storage,
-		marzbanClient:  marzbanClient,
-		now:            now,
-		marzbanBaseURL: marzbanBaseURL,
+		storage:    storage,
+		marzbanSvc: marzbanSvc,
+		now:        now,
 	}
 }
 
 func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscriptionRequest) (*subs.Subscription, error) {
-	// Get tariff information
 	tariff, err := s.storage.GetTariff(ctx, tariffs.GetCriteria{ID: &req.TariffID})
 	if err != nil {
 		return nil, errors.Errorf("failed to get tariff: %v", err)
@@ -40,86 +36,19 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 		return nil, errors.Errorf("tariff not found")
 	}
 
-	// Calculate expiration date
 	expiresAt := s.now().AddDate(0, 0, tariff.DurationDays)
 	now := s.now()
 
-	// Get available VLESS inbounds
-	vlessInbounds, err := s.getVlessInbounds(ctx)
+	marzbanSub, err := s.getMarzbanSub(ctx, req.UserID, expiresAt, tariff.TrafficLimitGB)
 	if err != nil {
-		return nil, errors.Errorf("failed to get VLESS inbounds: %v", err)
+		return nil, err
 	}
 
-	// Create user in Marzban
-	marzbanUserID := fmt.Sprintf("user_%d_%d_%d", req.UserID, now.Unix(), rand.Intn(1000000))
-
-	userCreate := &marzban.UserCreate{
-		Username: marzbanUserID,
-	}
-
-	// Set up proxies
-	proxies := marzban.OptUserCreateProxies{}
-	proxySettings := make(marzban.UserCreateProxies)
-	proxySettings["vless"] = marzban.ProxySettings{}
-	proxies.SetTo(proxySettings)
-	userCreate.Proxies = proxies
-
-	// Set up inbounds
-	inbounds := marzban.OptUserCreateInbounds{}
-	inboundSettings := make(marzban.UserCreateInbounds)
-	inboundSettings["vless"] = vlessInbounds
-	inbounds.SetTo(inboundSettings)
-	userCreate.Inbounds = inbounds
-
-	// Set expire time
-	expire := marzban.OptNilInt{}
-	expire.SetTo(int(expiresAt.Unix()))
-	userCreate.Expire = expire
-
-	// Set data limit if specified
-	if tariff.TrafficLimitGB != nil {
-		dataLimit := marzban.OptInt{}
-		dataLimit.SetTo(int(*tariff.TrafficLimitGB * 1024 * 1024 * 1024))
-		userCreate.DataLimit = dataLimit
-	}
-
-	// Set status to active
-	status := marzban.OptUserStatusCreate{}
-	status.SetTo(marzban.UserStatusCreateActive)
-	userCreate.Status = status
-
-	// Create user in Marzban
-	addUserRes, err := s.marzbanClient.AddUser(ctx, userCreate)
-	if err != nil {
-		return nil, errors.Errorf("failed to create user in Marzban: %v", err)
-	}
-
-	// Extract subscription URL
-	var subscriptionURL string
-	switch res := addUserRes.(type) {
-	case *marzban.UserResponse:
-		if res.GetSubscriptionURL().Set {
-			rawURL := res.GetSubscriptionURL().Value
-			subscriptionURL = s.buildFullSubscriptionURL(rawURL)
-		}
-	case *marzban.HTTPException:
-		return nil, errors.Errorf("Marzban API error: %s", res.GetDetail())
-	case *marzban.Conflict:
-		return nil, errors.Errorf("Marzban conflict error (user may already exist)")
-	case *marzban.HTTPValidationError:
-		return nil, errors.Errorf("Marzban validation error: invalid request")
-	case *marzban.UnauthorizedHeaders:
-		return nil, errors.Errorf("Marzban authorization error: check API token")
-	default:
-		return nil, errors.Errorf("unexpected response from Marzban AddUser: %T", addUserRes)
-	}
-
-	// Create subscription in database
 	subscription := subs.Subscription{
 		UserID:        req.UserID,
 		TariffID:      req.TariffID,
-		MarzbanUserID: marzbanUserID,
-		MarzbanLink:   subscriptionURL,
+		MarzbanUserID: marzbanSub.MarzbanUserID,
+		MarzbanLink:   marzbanSub.SubscriptionURL,
 		Status:        subs.StatusActive,
 		ClientName:    req.ClientName,
 		ActivatedAt:   &now,
@@ -131,7 +60,6 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 		return nil, errors.Errorf("failed to create subscription in database: %v", err)
 	}
 
-	// Link payment to subscription if payment ID is provided
 	if req.PaymentID != nil {
 		err = s.storage.LinkPaymentToSubscriptions(ctx, *req.PaymentID, []int64{created.ID})
 		if err != nil {
@@ -142,52 +70,19 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 	return created, nil
 }
 
-// buildFullSubscriptionURL формирует полную ссылку подписки
-func (s *Service) buildFullSubscriptionURL(subscriptionURL string) string {
-	// Если ссылка уже полная (содержит http:// или https://), возвращаем как есть
-	if strings.HasPrefix(subscriptionURL, "http://") || strings.HasPrefix(subscriptionURL, "https://") {
-		return subscriptionURL
+func (s *Service) getMarzbanSub(ctx context.Context, userID int64, expiresAt time.Time, trafficLimitGB *int) (*marzban.UserSubscription, error) {
+	now := s.now()
+	marzbanUserID := fmt.Sprintf("user_%d_%d_%d", userID, now.Unix(), rand.Intn(1000000))
+
+	protocols := []string{
+		marzban.ProtocolVLESS,
+		marzban.ProtocolTrojan,
 	}
 
-	// Если ссылка относительная (начинается с /), добавляем базовый URL
-	if strings.HasPrefix(subscriptionURL, "/") {
-		baseURL := strings.TrimSuffix(s.marzbanBaseURL, "/")
-		return baseURL + subscriptionURL
-	}
-
-	// Если ссылка не начинается с /, добавляем и базовый URL и /
-	baseURL := strings.TrimSuffix(s.marzbanBaseURL, "/")
-	return baseURL + "/" + subscriptionURL
-}
-
-// getVlessInbounds получает подходящие inbound'ы для VLESS протокола
-func (s *Service) getVlessInbounds(ctx context.Context) ([]string, error) {
-	// Получаем список всех доступных inbound'ов
-	inboundsRes, err := s.marzbanClient.GetInbounds(ctx)
-	if err != nil {
-		return nil, errors.Errorf("failed to get inbounds: %v", err)
-	}
-
-	var vlessInbounds []string
-
-	// Обрабатываем ответ
-	switch res := inboundsRes.(type) {
-	case *marzban.GetInboundsOK:
-		// Ищем inbound'ы для vless протокола
-		if inbounds, ok := (*res)["vless"]; ok {
-			for _, inbound := range inbounds {
-				// Добавляем тег inbound'а
-				vlessInbounds = append(vlessInbounds, inbound.Tag)
-			}
-		}
-	default:
-		return nil, errors.Errorf("unexpected response from GetInbounds: %T", res)
-	}
-
-	// Если не нашли VLESS inbound'ы, используем стандартные имена
-	if len(vlessInbounds) == 0 {
-		vlessInbounds = []string{"VLESS TCP REALITY"} // Fallback to common names
-	}
-
-	return vlessInbounds, nil
+	return s.marzbanSvc.CreateUser(ctx, marzban.CreateUserRequest{
+		Username:       marzbanUserID,
+		Protocols:      protocols,
+		ExpiresAt:      expiresAt,
+		TrafficLimitGB: trafficLimitGB,
+	})
 }

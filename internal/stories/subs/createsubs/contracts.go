@@ -3,9 +3,9 @@ package createsubs
 import (
 	"context"
 
+	"kurut-bot/internal/marzban"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
-	"kurut-bot/pkg/marzban"
 )
 
 type (
@@ -15,8 +15,7 @@ type (
 		LinkPaymentToSubscriptions(ctx context.Context, paymentID int64, subscriptionIDs []int64) error
 	}
 
-	marzbanClient interface {
-		AddUser(ctx context.Context, request *marzban.UserCreate) (marzban.AddUserRes, error)
-		GetInbounds(ctx context.Context) (marzban.GetInboundsRes, error)
+	marzbanService interface {
+		CreateUser(ctx context.Context, req marzban.CreateUserRequest) (*marzban.UserSubscription, error)
 	}
 )

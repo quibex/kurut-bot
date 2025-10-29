@@ -8,6 +8,7 @@ import (
 	"kurut-bot/internal/config"
 	"kurut-bot/internal/infra/yookassa"
 	"kurut-bot/internal/localization"
+	"kurut-bot/internal/marzban"
 	"kurut-bot/internal/storage"
 	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/subs"
@@ -57,8 +58,9 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	// Создаем реальные сервисы
 	userService := users.NewService(storageImpl)
 	tariffService := tariffs.NewService(storageImpl)
-	subsService := subs.NewService(storageImpl)
-	createSubService := createsubs.NewService(storageImpl, clients.MarzbanClient, time.Now, cfg.MarzbanClient.APIURL)
+	marzbanService := marzban.NewService(clients.MarzbanClient, cfg.MarzbanClient.APIURL)
+	subsService := subs.NewService(storageImpl, marzbanService)
+	createSubService := createsubs.NewService(storageImpl, marzbanService, time.Now)
 
 	// Создаем StateManager
 	stateManager := states.NewManager()
