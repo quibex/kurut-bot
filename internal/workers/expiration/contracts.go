@@ -12,6 +12,10 @@ type (
 		ListExpiredSubscriptions(ctx context.Context) ([]*subs.Subscription, error)
 		UpdateSubscription(ctx context.Context, criteria subs.GetCriteria, params subs.UpdateParams) (*subs.Subscription, error)
 	}
+
+	WireguardService interface {
+		DisablePeer(ctx context.Context, subscription *subs.Subscription) error
+	}
 )
 
 

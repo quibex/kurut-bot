@@ -787,7 +787,6 @@ func (h *Handler) sendSuccessMessage(chatID int64, subscription *subs.Subscripti
 		"subscription_id": subscription.ID,
 		"days_added":      data.DurationDays,
 		"expires_at":      expiresText,
-		"marzban_link":    subscription.MarzbanLink,
 	})
 
 	// Редактируем существующее сообщение, если MessageID есть

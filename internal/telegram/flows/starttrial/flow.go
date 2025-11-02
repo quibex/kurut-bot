@@ -2,6 +2,8 @@ package starttrial
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -86,30 +88,48 @@ func (h *Handler) sendConnectionInstructions(chatID int64, subscription *subs.Su
 		"duration":    durationDays,
 	})
 
-	if subscription.MarzbanLink != "" {
-		messageText += "\n`" + subscription.MarzbanLink + "`"
-	} else {
+	wgData, err := subscription.GetWireGuardData()
+	var keyboard tgbotapi.InlineKeyboardMarkup
+
+	if err != nil || wgData == nil || wgData.Config == "" {
 		messageText += "\n\n" + h.l10n.Get(lang, "subscription.link_not_ready", nil)
+		
+		keyboard = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.view_tariffs", nil), "view_tariffs"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "main_menu"),
+			),
+		)
+	} else {
+		messageText += "\n```\n" + wgData.Config + "\n```"
+
+		encoded := base64.StdEncoding.EncodeToString([]byte(wgData.Config))
+		wgLink := fmt.Sprintf("wireguard://tunnels/add/%s", encoded)
+
+		keyboard = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonURL("📱 Добавить в WireGuard", wgLink),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.view_tariffs", nil), "view_tariffs"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "main_menu"),
+			),
+		)
 	}
 
 	messageText += "\n\n" + h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n"
 	messageText += h.l10n.Get(lang, "subscription.trial_note", nil)
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.view_tariffs", nil), "view_tariffs"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "main_menu"),
-		),
-	)
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "MarkdownV2"
 	msg.ReplyMarkup = keyboard
 	msg.DisableWebPagePreview = true
 
-	_, err := h.bot.Send(msg)
+	_, err = h.bot.Send(msg)
 	return err
 }
 

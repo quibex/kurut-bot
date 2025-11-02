@@ -6,14 +6,14 @@ import (
 )
 
 type Service struct {
-	storage        Storage
-	marzbanService MarzbanService
+	storage          Storage
+	wireguardService WireguardService
 }
 
-func NewService(storage Storage, marzbanService MarzbanService) *Service {
+func NewService(storage Storage, wireguardService WireguardService) *Service {
 	return &Service{
-		storage:        storage,
-		marzbanService: marzbanService,
+		storage:          storage,
+		wireguardService: wireguardService,
 	}
 }
 
@@ -46,9 +46,8 @@ func (s *Service) ExtendSubscription(ctx context.Context, subscriptionID int64, 
 		return fmt.Errorf("updated subscription has no expiration date")
 	}
 
-	if err := s.marzbanService.UpdateUserExpiry(ctx, subscription.MarzbanUserID, *updatedSub.ExpiresAt); err != nil {
-		return fmt.Errorf("update marzban user expiry: %w", err)
-	}
+	// Note: For WireGuard, we don't need to update expiry on the server
+	// The expiration worker will disable the peer when the subscription expires
 
 	return nil
 }

@@ -2,6 +2,7 @@ package createsubforclient
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -551,20 +552,40 @@ func extractChatID(update *tgbotapi.Update) int64 {
 
 // SendConnectionKey отправляет ключ подключения администратору
 func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscription, clientName string, messageID *int) error {
+	var configText string
+	var keyboard *tgbotapi.InlineKeyboardMarkup
+	
+	wgData, err := subscription.GetWireGuardData()
+	if err == nil && wgData != nil && wgData.Config != "" {
+		configText = wgData.Config
+		
+		encoded := base64.StdEncoding.EncodeToString([]byte(wgData.Config))
+		wgLink := fmt.Sprintf("wireguard://tunnels/add/%s", encoded)
+		
+		kb := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonURL("📱 Добавить в WireGuard", wgLink),
+			),
+		)
+		keyboard = &kb
+	} else {
+		configText = "Конфигурация не готова"
+	}
+
 	messageText := fmt.Sprintf(
 		"✅ *Подписка создана успешно!*\n\n"+
 			"👤 Клиент: *%s*\n"+
 			"🔢 ID подписки: *%d*\n\n"+
-			"🔗 *Ключ для клиента:*\n"+
-			"`%s`\n\n"+
-			"📋 Отправьте этот ключ клиенту для подключения.",
-		clientName, subscription.ID, subscription.MarzbanLink)
+			"🔧 *Конфигурация WireGuard:*\n"+
+			"```\n%s\n```\n\n"+
+			"📋 Отправьте эту конфигурацию клиенту для подключения.",
+		clientName, subscription.ID, configText)
 
 	// Редактируем существующее сообщение, если MessageID есть
 	if messageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, messageText)
 		editMsg.ParseMode = "Markdown"
-		editMsg.ReplyMarkup = nil // Убираем кнопки
+		editMsg.ReplyMarkup = keyboard
 		_, err := h.bot.Send(editMsg)
 		return err
 	}
@@ -572,7 +593,10 @@ func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscriptio
 	// Fallback: отправляем новое сообщение
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "Markdown"
-	_, err := h.bot.Send(msg)
+	if keyboard != nil {
+		msg.ReplyMarkup = keyboard
+	}
+	_, err = h.bot.Send(msg)
 	return err
 }
 

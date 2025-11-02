@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"kurut-bot/internal/config"
+	"kurut-bot/internal/infra/wireguard"
 	"kurut-bot/internal/infra/yookassa"
 	"kurut-bot/internal/localization"
-	"kurut-bot/internal/marzban"
 	"kurut-bot/internal/storage"
 	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/subs"
@@ -16,6 +16,7 @@ import (
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/stories/users"
 	"kurut-bot/internal/telegram"
+	wgService "kurut-bot/internal/wireguard"
 	"kurut-bot/internal/telegram/cmds"
 	"kurut-bot/internal/telegram/flows/buysub"
 	"kurut-bot/internal/telegram/flows/createsubforclient"
@@ -27,6 +28,7 @@ import (
 	"kurut-bot/internal/telegram/states"
 	"kurut-bot/internal/workers"
 	"kurut-bot/internal/workers/expiration"
+	"kurut-bot/internal/workers/healthcheck"
 	"kurut-bot/internal/workers/notification"
 	retrysubscription "kurut-bot/internal/workers/retry-subscription"
 
@@ -55,12 +57,15 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		return nil, errors.Wrap(err, "failed to create localization service")
 	}
 
+	// Создаем WireGuard сервисы
+	wgBalancer := wireguard.NewBalancer(storageImpl, logger)
+	wireguardService := wgService.NewService(storageImpl, wgBalancer, logger)
+
 	// Создаем реальные сервисы
 	userService := users.NewService(storageImpl)
 	tariffService := tariffs.NewService(storageImpl)
-	marzbanService := marzban.NewService(clients.MarzbanClient, cfg.MarzbanClient.APIURL)
-	subsService := subs.NewService(storageImpl, marzbanService)
-	createSubService := createsubs.NewService(storageImpl, marzbanService, time.Now)
+	subsService := subs.NewService(storageImpl, wireguardService)
+	createSubService := createsubs.NewService(storageImpl, wireguardService, time.Now)
 
 	// Создаем StateManager
 	stateManager := states.NewManager()
@@ -187,6 +192,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 
 	expirationWorker := expiration.NewWorker(
 		storageImpl,
+		wireguardService,
 		logger,
 	)
 
@@ -197,12 +203,20 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
+	healthCheckWorker := healthcheck.NewWorker(
+		storageImpl,
+		clients.TelegramBot,
+		cfg.Telegram.AdminTelegramIDs,
+		logger,
+	)
+
 	// Создаем менеджер воркеров
 	s.WorkerManager = workers.NewManager(
 		logger,
 		retrySubWorker,
 		expirationWorker,
 		notificationWorker,
+		healthCheckWorker,
 	)
 
 	return &s, nil

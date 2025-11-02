@@ -150,8 +150,9 @@ func (c *MySubsCommand) showPage(ctx context.Context, user *users.User, chatID i
 			}
 		}
 
-		if sub.MarzbanLink != "" {
-			text.WriteString("\n" + c.l10n.Get(user.Language, "my_subs.your_key", nil) + "\n`" + sub.MarzbanLink + "`\n")
+		wgData, err := sub.GetWireGuardData()
+		if err == nil && wgData != nil && wgData.Config != "" {
+			text.WriteString("\n" + c.l10n.Get(user.Language, "my_subs.your_config", nil) + "\n```\n" + wgData.Config + "\n```\n")
 		}
 
 		text.WriteString("\n")

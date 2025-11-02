@@ -12,17 +12,19 @@ import (
 
 // Worker handles marking expired subscriptions
 type Worker struct {
-	storage Storage
-	logger  *slog.Logger
-	cron    *cron.Cron
+	storage   Storage
+	wireguard WireguardService
+	logger    *slog.Logger
+	cron      *cron.Cron
 }
 
 // NewWorker creates a new expiration worker
-func NewWorker(storage Storage, logger *slog.Logger) *Worker {
+func NewWorker(storage Storage, wireguard WireguardService, logger *slog.Logger) *Worker {
 	return &Worker{
-		storage: storage,
-		logger:  logger,
-		cron:    cron.New(),
+		storage:   storage,
+		wireguard: wireguard,
+		logger:    logger,
+		cron:      cron.New(),
 	}
 }
 
@@ -68,6 +70,17 @@ func (w *Worker) run(ctx context.Context) error {
 
 	expiredStatus := subs.StatusExpired
 	for _, sub := range subscriptions {
+		if sub.VPNType == string(subs.VPNTypeWireGuard) {
+			if err := w.wireguard.DisablePeer(ctx, sub); err != nil {
+				w.logger.Error("Failed to disable wireguard peer",
+					"subscription_id", sub.ID,
+					"error", err)
+			} else {
+				w.logger.Info("Disabled wireguard peer",
+					"subscription_id", sub.ID)
+			}
+		}
+
 		criteria := subs.GetCriteria{IDs: []int64{sub.ID}}
 		params := subs.UpdateParams{Status: &expiredStatus}
 
@@ -87,7 +100,3 @@ func (w *Worker) run(ctx context.Context) error {
 	w.logger.Info("Expiration worker execution completed")
 	return nil
 }
-
-
-
-

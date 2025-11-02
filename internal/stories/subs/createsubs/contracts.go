@@ -3,9 +3,9 @@ package createsubs
 import (
 	"context"
 
-	"kurut-bot/internal/marzban"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
+	"kurut-bot/internal/wireguard"
 )
 
 type (
@@ -15,7 +15,7 @@ type (
 		LinkPaymentToSubscriptions(ctx context.Context, paymentID int64, subscriptionIDs []int64) error
 	}
 
-	marzbanService interface {
-		CreateUser(ctx context.Context, req marzban.CreateUserRequest) (*marzban.UserSubscription, error)
+	wireguardService interface {
+		CreatePeer(ctx context.Context, userID int64, peerID string) (*wireguard.PeerConfig, error)
 	}
 )

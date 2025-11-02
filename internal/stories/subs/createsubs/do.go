@@ -3,10 +3,8 @@ package createsubs
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"time"
 
-	"kurut-bot/internal/marzban"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 
@@ -14,16 +12,16 @@ import (
 )
 
 type Service struct {
-	storage    storage
-	marzbanSvc marzbanService
-	now        func() time.Time
+	storage       storage
+	wireguardSvc  wireguardService
+	now           func() time.Time
 }
 
-func NewService(storage storage, marzbanSvc marzbanService, now func() time.Time) *Service {
+func NewService(storage storage, wireguardSvc wireguardService, now func() time.Time) *Service {
 	return &Service{
-		storage:    storage,
-		marzbanSvc: marzbanSvc,
-		now:        now,
+		storage:      storage,
+		wireguardSvc: wireguardSvc,
+		now:          now,
 	}
 }
 
@@ -39,20 +37,34 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 	expiresAt := s.now().AddDate(0, 0, tariff.DurationDays)
 	now := s.now()
 
-	marzbanSub, err := s.getMarzbanSub(ctx, req.UserID, expiresAt, tariff.TrafficLimitGB)
+	peerID := fmt.Sprintf("user_%d_%d", req.UserID, now.Unix())
+	peerConfig, err := s.wireguardSvc.CreatePeer(ctx, req.UserID, peerID)
 	if err != nil {
-		return nil, err
+		return nil, errors.Errorf("failed to create wireguard peer: %v", err)
+	}
+
+	wgData := subs.WireGuardData{
+		ServerID:  peerConfig.ServerID,
+		PublicKey: peerConfig.PublicKey,
+		AllowedIP: peerConfig.AllowedIP,
+		Config:    peerConfig.Config,
+		QRCode:    peerConfig.QRCode,
+	}
+
+	vpnData, err := subs.MarshalWireGuardData(wgData)
+	if err != nil {
+		return nil, errors.Errorf("failed to marshal wireguard data: %v", err)
 	}
 
 	subscription := subs.Subscription{
-		UserID:        req.UserID,
-		TariffID:      req.TariffID,
-		MarzbanUserID: marzbanSub.MarzbanUserID,
-		MarzbanLink:   marzbanSub.SubscriptionURL,
-		Status:        subs.StatusActive,
-		ClientName:    req.ClientName,
-		ActivatedAt:   &now,
-		ExpiresAt:     &expiresAt,
+		UserID:      req.UserID,
+		TariffID:    req.TariffID,
+		VPNType:     string(subs.VPNTypeWireGuard),
+		VPNData:     vpnData,
+		Status:      subs.StatusActive,
+		ClientName:  req.ClientName,
+		ActivatedAt: &now,
+		ExpiresAt:   &expiresAt,
 	}
 
 	created, err := s.storage.CreateSubscription(ctx, subscription)
@@ -68,21 +80,4 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 	}
 
 	return created, nil
-}
-
-func (s *Service) getMarzbanSub(ctx context.Context, userID int64, expiresAt time.Time, trafficLimitGB *int) (*marzban.UserSubscription, error) {
-	now := s.now()
-	marzbanUserID := fmt.Sprintf("user_%d_%d_%d", userID, now.Unix(), rand.Intn(1000000))
-
-	protocols := []string{
-		marzban.ProtocolVLESS,
-		marzban.ProtocolTrojan,
-	}
-
-	return s.marzbanSvc.CreateUser(ctx, marzban.CreateUserRequest{
-		Username:       marzbanUserID,
-		Protocols:      protocols,
-		ExpiresAt:      expiresAt,
-		TrafficLimitGB: trafficLimitGB,
-	})
 }

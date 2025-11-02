@@ -239,8 +239,9 @@ func (w *Worker) sendRetrySuccessNotification(ctx context.Context, user *users.U
 		"tariff_name": tariff.Name,
 	})
 
-	if subscription.MarzbanLink != "" {
-		message += "\n`" + subscription.MarzbanLink + "`"
+	wgData, err := subscription.GetWireGuardData()
+	if err == nil && wgData != nil && wgData.Config != "" {
+		message += "\n```\n" + wgData.Config + "\n```"
 	}
 
 	message += "\n\n" + w.localizer.Get(lang, "subscription.retry_success_body", nil)

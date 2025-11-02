@@ -21,6 +21,8 @@ type subscriptionRow struct {
 	TariffID      int64      `db:"tariff_id"`
 	MarzbanUserID string     `db:"marzban_user_id"`
 	MarzbanLink   string     `db:"marzban_link"`
+	VPNType       string     `db:"vpn_type"`
+	VPNData       *string    `db:"vpn_data"`
 	Status        string     `db:"status"`
 	ClientName    *string    `db:"client_name"`
 	ActivatedAt   *time.Time `db:"activated_at"`
@@ -36,6 +38,8 @@ func (s subscriptionRow) ToModel() *subs.Subscription {
 		TariffID:      s.TariffID,
 		MarzbanUserID: s.MarzbanUserID,
 		MarzbanLink:   s.MarzbanLink,
+		VPNType:       s.VPNType,
+		VPNData:       s.VPNData,
 		Status:        subs.Status(s.Status),
 		ClientName:    s.ClientName,
 		ActivatedAt:   s.ActivatedAt,
@@ -53,6 +57,8 @@ func (s *storageImpl) CreateSubscription(ctx context.Context, subscription subs.
 		"tariff_id":       subscription.TariffID,
 		"marzban_user_id": subscription.MarzbanUserID,
 		"marzban_link":    subscription.MarzbanLink,
+		"vpn_type":        subscription.VPNType,
+		"vpn_data":        subscription.VPNData,
 		"status":          string(subscription.Status),
 		"client_name":     subscription.ClientName,
 		"activated_at":    subscription.ActivatedAt,

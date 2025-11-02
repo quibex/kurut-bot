@@ -2,7 +2,6 @@ package subs
 
 import (
 	"context"
-	"time"
 )
 
 type Storage interface {
@@ -11,6 +10,7 @@ type Storage interface {
 	ExtendSubscription(ctx context.Context, subscriptionID int64, additionalDays int) error
 }
 
-type MarzbanService interface {
-	UpdateUserExpiry(ctx context.Context, marzbanUserID string, newExpiresAt time.Time) error
+type WireguardService interface {
+	DisablePeer(ctx context.Context, subscription *Subscription) error
+	EnablePeer(ctx context.Context, subscription *Subscription) error
 }

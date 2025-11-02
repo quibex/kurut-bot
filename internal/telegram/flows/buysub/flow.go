@@ -2,6 +2,7 @@ package buysub
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -561,16 +562,19 @@ func extractChatID(update *tgbotapi.Update) int64 {
 func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Subscription, lang string, messageID *int) error {
 	messageText := h.l10n.Get(lang, "subscription.success_paid", nil)
 
-	if subscription.MarzbanLink != "" {
-		messageText += "\n`" + subscription.MarzbanLink + "`"
-	} else {
+	wgData, err := subscription.GetWireGuardData()
+	var keyboard tgbotapi.InlineKeyboardMarkup
+
+	if err != nil || wgData == nil || wgData.Config == "" {
 		messageText += "\n\n" + h.l10n.Get(lang, "subscription.link_not_ready", nil)
+		keyboard = h.createConnectionKeyboard(lang, nil)
+	} else {
+		messageText += "\n```\n" + wgData.Config + "\n```"
+		keyboard = h.createConnectionKeyboard(lang, &wgData.Config)
 	}
 
 	messageText += "\n\n" + h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n"
 	messageText += h.l10n.Get(lang, "subscription.support_note", nil)
-
-	keyboard := h.createConnectionKeyboard(lang)
 
 	// Редактируем существующее сообщение, если MessageID есть
 	if messageID != nil {
@@ -587,12 +591,29 @@ func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Su
 	msg.ParseMode = "MarkdownV2"
 	msg.ReplyMarkup = keyboard
 	msg.DisableWebPagePreview = true
-	_, err := h.bot.Send(msg)
+	_, err = h.bot.Send(msg)
 	return err
 }
 
 // createConnectionKeyboard создает упрощенную клавиатуру для сообщения с подключениями
-func (h *Handler) createConnectionKeyboard(lang string) tgbotapi.InlineKeyboardMarkup {
+func (h *Handler) createConnectionKeyboard(lang string, wgConfig *string) tgbotapi.InlineKeyboardMarkup {
+	if wgConfig != nil && *wgConfig != "" {
+		encoded := base64.StdEncoding.EncodeToString([]byte(*wgConfig))
+		wgLink := fmt.Sprintf("wireguard://tunnels/add/%s", encoded)
+
+		return tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonURL("📱 Добавить в WireGuard", wgLink),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.my_subscriptions", nil), "my_subscriptions"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "cancel"),
+			),
+		)
+	}
+
 	return tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.my_subscriptions", nil), "my_subscriptions"),

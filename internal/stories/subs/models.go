@@ -1,6 +1,9 @@
 package subs
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Status string
 
@@ -11,18 +14,57 @@ const (
 	StatusDisabled Status = "disabled"
 )
 
+type VPNType string
+
+const (
+	VPNTypeMarzban   VPNType = "marzban"
+	VPNTypeWireGuard VPNType = "wireguard"
+)
+
 type Subscription struct {
 	ID            int64
 	UserID        int64
 	TariffID      int64
 	MarzbanUserID string
 	MarzbanLink   string
+	VPNType       string
+	VPNData       *string
 	Status        Status
 	ClientName    *string
 	ActivatedAt   *time.Time
 	ExpiresAt     *time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+type WireGuardData struct {
+	ServerID  int64  `json:"server_id"`
+	PublicKey string `json:"public_key"`
+	AllowedIP string `json:"allowed_ip"`
+	Config    string `json:"config"`
+	QRCode    string `json:"qr_code"`
+}
+
+func (s *Subscription) GetWireGuardData() (*WireGuardData, error) {
+	if s.VPNData == nil || *s.VPNData == "" {
+		return nil, nil
+	}
+
+	var data WireGuardData
+	if err := json.Unmarshal([]byte(*s.VPNData), &data); err != nil {
+		return nil, err
+	}
+
+	return &data, nil
+}
+
+func MarshalWireGuardData(data WireGuardData) (*string, error) {
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	str := string(bytes)
+	return &str, nil
 }
 
 // Критерии для получения подписки
