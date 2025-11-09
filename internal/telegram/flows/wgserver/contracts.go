@@ -23,6 +23,11 @@ type Storage interface {
 type StateManager interface {
 	GetState(chatID int64) (string, interface{})
 	SetState(chatID int64, state string, data interface{})
-	ClearState(chatID int64)
 }
 
+type TLSConfig interface {
+	GetCACertPath() string
+	GetClientCertPath() string
+	GetClientKeyPath() string
+	GetServerName() string
+}

@@ -34,6 +34,14 @@ func (m *Manager) GetState(chatID int64) State {
 	return state
 }
 
+// GetData получает данные пользователя
+func (m *Manager) GetData(chatID int64) any {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.userData[chatID]
+}
+
 // SetState устанавливает состояние пользователя
 func (m *Manager) SetState(chatID int64, state State, data any) {
 	m.mu.Lock()

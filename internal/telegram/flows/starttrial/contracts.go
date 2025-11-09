@@ -29,3 +29,7 @@ type userService interface {
 type localizer interface {
 	Get(lang, key string, params map[string]interface{}) string
 }
+
+type configStore interface {
+	Store(config string) string
+}

@@ -15,15 +15,17 @@ type Service struct {
 	yookassaClient YooKassaClient
 	logger         *slog.Logger
 	returnURL      string
+	mockPayment    bool
 }
 
 // NewService creates a new payment service
-func NewService(storage Storage, yookassaClient YooKassaClient, returnURL string, logger *slog.Logger) *Service {
+func NewService(storage Storage, yookassaClient YooKassaClient, returnURL string, mockPayment bool, logger *slog.Logger) *Service {
 	return &Service{
 		storage:        storage,
 		yookassaClient: yookassaClient,
 		logger:         logger,
 		returnURL:      returnURL,
+		mockPayment:    mockPayment,
 	}
 }
 
@@ -123,6 +125,28 @@ func (s *Service) CheckPaymentStatus(ctx context.Context, paymentID int64) (*Pay
 	if payment == nil {
 		s.logger.Error("Payment not found", "payment_id", paymentID)
 		return nil, fmt.Errorf("payment not found: %d", paymentID)
+	}
+
+	if s.mockPayment {
+		s.logger.Info("Mock payment mode enabled, returning approved status", "payment_id", paymentID)
+		if payment.Status != StatusApproved {
+			newStatus := StatusApproved
+			now := time.Now()
+			updateParams := UpdateParams{
+				Status:      &newStatus,
+				ProcessedAt: &now,
+			}
+			updatedPayment, err := s.storage.UpdatePayment(ctx, criteria, updateParams)
+			if err != nil {
+				s.logger.Error("Failed to update payment status in mock mode",
+					"error", err,
+					"payment_id", paymentID,
+				)
+				return nil, fmt.Errorf("failed to update payment status: %w", err)
+			}
+			return updatedPayment, nil
+		}
+		return payment, nil
 	}
 
 	// 2. Проверяем что есть YooKassaID

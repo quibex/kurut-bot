@@ -5,6 +5,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"kurut-bot/internal/storage"
 	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
@@ -37,7 +38,15 @@ type (
 		CheckPaymentStatus(ctx context.Context, paymentID int64) (*payment.Payment, error)
 	}
 
+	storageService interface {
+		ListEnabledWGServers(ctx context.Context) ([]*storage.WGServer, error)
+	}
+
 	localizer interface {
 		Get(lang, key string, params map[string]interface{}) string
+	}
+
+	configStore interface {
+		Store(config string) string
 	}
 )

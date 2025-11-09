@@ -20,8 +20,8 @@ type CreateUserRequest struct {
 }
 
 type UserSubscription struct {
-	MarzbanUserID   string
-	SubscriptionURL string
+	UserID string
+	Link   string
 }
 
 type ProtocolConfig struct {

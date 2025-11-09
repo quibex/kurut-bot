@@ -149,8 +149,7 @@ func (w *Worker) processOrphanedPayment(ctx context.Context, payment *payment.Pa
 	for _, sub := range existingSubs {
 		w.logger.Info("Checking subscription",
 			"subscription_id", sub.ID,
-			"status", sub.Status,
-			"marzban_user_id", sub.MarzbanUserID)
+			"status", sub.Status)
 		// Check if this subscription is already linked to ANY payment
 		linkedToPayment, err := w.storage.IsSubscriptionLinkedToPayment(ctx, sub.ID)
 		if err != nil {

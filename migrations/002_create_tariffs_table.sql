@@ -15,3 +15,5 @@ CREATE INDEX idx_tariffs_price ON tariffs(price);
 
 -- +goose Down
 DROP TABLE tariffs;
+
+

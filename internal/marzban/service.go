@@ -42,8 +42,8 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*UserS
 	}
 
 	return &UserSubscription{
-		MarzbanUserID:   req.Username,
-		SubscriptionURL: subscriptionURL,
+		UserID: req.Username,
+		Link:   subscriptionURL,
 	}, nil
 }
 

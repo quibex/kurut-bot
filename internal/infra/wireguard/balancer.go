@@ -48,3 +48,4 @@ func (b *Balancer) SelectServer(ctx context.Context) (*storage.WGServer, error) 
 	return nil, fmt.Errorf("all WireGuard servers are at capacity")
 }
 
+

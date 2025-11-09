@@ -175,3 +175,11 @@ migrate-down: | ./bin/goose
 .PHONY: migrate-status
 migrate-status: | ./bin/goose
 	goose -dir migrations sqlite3 $(DATABASE_PATH) status
+
+.PHONY: db-reset
+db-reset: | ./bin/goose
+	@echo "Resetting database..."
+	rm -f $(DATABASE_PATH)
+	@echo "Running migrations..."
+	goose -dir migrations sqlite3 $(DATABASE_PATH) up
+	@echo "Database reset complete!"

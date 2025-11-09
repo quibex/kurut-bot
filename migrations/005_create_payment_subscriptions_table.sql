@@ -12,3 +12,5 @@ CREATE INDEX idx_payment_subscriptions_subscription_id ON payment_subscriptions(
 
 -- +goose Down
 DROP TABLE payment_subscriptions;
+
+

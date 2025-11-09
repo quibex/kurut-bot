@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WireGuard Connection</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        h1 { color: #333; margin-bottom: 10px; font-size: 28px; }
+        .subtitle { color: #666; margin-bottom: 30px; font-size: 14px; }
+        .btn {
+            display: block;
+            padding: 15px 30px;
+            margin: 10px 0;
+            border-radius: 10px;
+            text-decoration: none;
+            font-size: 16px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+            border: none;
+            width: 100%;
+        }
+        .btn:hover { 
+            transform: translateY(-2px); 
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2); 
+        }
+        .primary { 
+            background: #667eea; 
+            color: white; 
+        }
+        .secondary { 
+            background: #f0f0f0; 
+            color: #333; 
+        }
+        #qrcode {
+            margin: 30px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            display: inline-block;
+        }
+        .instruction {
+            margin: 20px 0;
+            color: #666;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .divider {
+            margin: 30px 0;
+            border-top: 1px solid #e0e0e0;
+            position: relative;
+        }
+        .divider span {
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 0 15px;
+            color: #999;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+        }
+        @media (max-width: 600px) {
+            .container { padding: 30px 20px; }
+            h1 { font-size: 24px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 WireGuard VPN</h1>
+        <p class="subtitle">Выберите удобный способ подключения</p>
+        
+        <div id="status" class="status info" style="display: none;">
+            Попытка автоматического открытия приложения...
+        </div>
+        
+        <!-- Метод 1: Прямая ссылка -->
+        <a id="wgLink" href="wireguard://tunnels/add/{{.EncodedConfig}}" class="btn primary">
+            📱 Открыть в приложении WireGuard
+        </a>
+        
+        <div class="divider"><span>ИЛИ</span></div>
+        
+        <!-- Метод 2: QR-код -->
+        <p class="instruction">📷 Отсканируйте QR-код в приложении WireGuard</p>
+        <div id="qrcode"></div>
+        
+        <div class="divider"><span>ИЛИ</span></div>
+        
+        <!-- Метод 3: Скачать файл -->
+        <a href="/wg/config/{{.ConfigID}}" download="wireguard.conf" class="btn secondary">
+            📥 Скачать конфигурационный файл
+        </a>
+        
+        <p class="instruction" style="margin-top: 20px; font-size: 12px; color: #999;">
+            💡 После скачивания импортируйте файл в приложение WireGuard<br>
+            ⏰ Ссылка действительна 24 часа
+        </p>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>
+        const config = {{.Config}};
+        const deepLink = "wireguard://tunnels/add/{{.EncodedConfig}}";
+        
+        // Генерируем QR-код
+        new QRCode(document.getElementById("qrcode"), {
+            text: config,
+            width: 256,
+            height: 256,
+            colorDark: "#333333",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.M
+        });
+        
+        // Автоматический редирект только на Android
+        const isAndroid = /Android/i.test(navigator.userAgent);
+        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        
+        if (isAndroid) {
+            // На Android пробуем открыть автоматически через небольшую задержку
+            const statusDiv = document.getElementById('status');
+            statusDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                window.location.href = deepLink;
+                
+                // Через 2 секунды меняем статус
+                setTimeout(() => {
+                    statusDiv.className = 'status success';
+                    statusDiv.textContent = '✓ Если приложение не открылось, используйте QR-код или скачайте файл';
+                }, 2000);
+            }, 500);
+        }
+        
+        // Отслеживаем клик по основной кнопке
+        document.getElementById('wgLink').addEventListener('click', (e) => {
+            const statusDiv = document.getElementById('status');
+            statusDiv.style.display = 'block';
+            statusDiv.className = 'status info';
+            
+            if (isIOS) {
+                statusDiv.textContent = '📱 iOS: Используйте QR-код или скачайте файл для надежного импорта';
+            } else {
+                statusDiv.textContent = '✓ Открываем приложение WireGuard...';
+            }
+            
+            setTimeout(() => {
+                statusDiv.className = 'status success';
+                statusDiv.textContent = '💡 Если приложение не открылось, используйте QR-код или скачайте файл ниже';
+            }, 2000);
+        });
+    </script>
+</body>
+</html>
+

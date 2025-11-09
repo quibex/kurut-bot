@@ -14,6 +14,7 @@ import (
 	"kurut-bot/internal/telegram/flows/enabletariff"
 	"kurut-bot/internal/telegram/flows/renewsub"
 	"kurut-bot/internal/telegram/flows/starttrial"
+	"kurut-bot/internal/telegram/flows/wgserver"
 	"kurut-bot/internal/telegram/states"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -34,6 +35,7 @@ type Router struct {
 	enableTariffHandler       *enabletariff.Handler
 	startTrialHandler         *starttrial.Handler
 	renewSubHandler           *renewsub.Handler
+	wgServerHandler           *wgserver.Handler
 	mySubsCommand             *cmds.MySubsCommand
 	statsCommand              *cmds.StatsCommand
 }
@@ -158,6 +160,11 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		return r.renewSubHandler.Handle(update, state)
 	}
 
+	// Проверяем состояние флоу управления WG серверами
+	if strings.HasPrefix(string(state), "wgserver_") {
+		return r.wgServerHandler.Handle(ctx, update, string(state))
+	}
+
 	// Если нет активного состояния - обрабатываем как обычное сообщение
 	return r.sendHelp(extractChatID(update), user.Language)
 }
@@ -212,6 +219,19 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 		return r.enableTariffHandler.Start(
 			update.Message.Chat.ID,
 		)
+	case "wg_servers":
+		if !r.adminChecker.IsAdmin(user.TelegramID) {
+			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для управления серверами"))
+			return r.sendHelp(update.Message.Chat.ID, user.Language)
+		}
+		ctx := context.Background()
+		return r.wgServerHandler.ListServers(ctx, update.Message.Chat.ID)
+	case "add_wg_server":
+		if !r.adminChecker.IsAdmin(user.TelegramID) {
+			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для добавления серверов"))
+			return r.sendHelp(update.Message.Chat.ID, user.Language)
+		}
+		return r.wgServerHandler.StartAddServer(update.Message.Chat.ID)
 	case "my_subs":
 		ctx := context.Background()
 		return r.mySubsCommand.Execute(ctx, user, update.Message.Chat.ID)
@@ -438,7 +458,7 @@ func (r *Router) handleLanguageSelection(ctx context.Context, update *tgbotapi.U
 }
 
 // NewRouter создает новый роутер с зависимостями
-func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createSubForClientHandler *createsubforclient.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler, renewSubHandler *renewsub.Handler, mySubsCommand *cmds.MySubsCommand, statsCommand *cmds.StatsCommand, l10n localizer) *Router {
+func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createSubForClientHandler *createsubforclient.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler, renewSubHandler *renewsub.Handler, wgServerHandler *wgserver.Handler, mySubsCommand *cmds.MySubsCommand, statsCommand *cmds.StatsCommand, l10n localizer) *Router {
 	return &Router{
 		bot:                       bot,
 		stateManager:              stateManager,
@@ -451,6 +471,7 @@ func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService user
 		enableTariffHandler:       enableTariffHandler,
 		startTrialHandler:         startTrialHandler,
 		renewSubHandler:           renewSubHandler,
+		wgServerHandler:           wgServerHandler,
 		mySubsCommand:             mySubsCommand,
 		statsCommand:              statsCommand,
 		l10n:                      l10n,
@@ -583,6 +604,14 @@ func (r *Router) setupAdminCommands(chatID int64) {
 		{
 			Command:     "stats",
 			Description: "Просмотр статистики",
+		},
+		{
+			Command:     "wg_servers",
+			Description: "Список WireGuard серверов",
+		},
+		{
+			Command:     "add_wg_server",
+			Description: "Добавить WireGuard сервер",
 		},
 	}
 

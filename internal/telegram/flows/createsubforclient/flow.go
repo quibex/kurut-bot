@@ -2,7 +2,6 @@ package createsubforclient
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -23,6 +22,8 @@ type Handler struct {
 	tariffService       tariffService
 	subscriptionService subscriptionService
 	paymentService      paymentService
+	configStore         configStore
+	webAppBaseURL       string
 	logger              *slog.Logger
 }
 
@@ -32,6 +33,8 @@ func NewHandler(
 	ts tariffService,
 	ss subscriptionService,
 	ps paymentService,
+	configStore configStore,
+	webAppBaseURL string,
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
@@ -40,6 +43,8 @@ func NewHandler(
 		tariffService:       ts,
 		subscriptionService: ss,
 		paymentService:      ps,
+		configStore:         configStore,
+		webAppBaseURL:       webAppBaseURL,
 		logger:              logger,
 	}
 }
@@ -559,12 +564,12 @@ func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscriptio
 	if err == nil && wgData != nil && wgData.Config != "" {
 		configText = wgData.Config
 		
-		encoded := base64.StdEncoding.EncodeToString([]byte(wgData.Config))
-		wgLink := fmt.Sprintf("wireguard://tunnels/add/%s", encoded)
+		configID := h.configStore.Store(wgData.Config)
+		wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
 		
 		kb := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonURL("📱 Добавить в WireGuard", wgLink),
+				tgbotapi.NewInlineKeyboardButtonURL("🔗 Подключиться к VPN", wgLink),
 			),
 		)
 		keyboard = &kb

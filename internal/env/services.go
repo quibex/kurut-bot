@@ -25,6 +25,7 @@ import (
 	"kurut-bot/internal/telegram/flows/enabletariff"
 	"kurut-bot/internal/telegram/flows/renewsub"
 	"kurut-bot/internal/telegram/flows/starttrial"
+	"kurut-bot/internal/telegram/flows/wgserver"
 	"kurut-bot/internal/telegram/states"
 	"kurut-bot/internal/workers"
 	"kurut-bot/internal/workers/expiration"
@@ -41,7 +42,7 @@ type Services struct {
 	WorkerManager       *workers.Manager
 }
 
-func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger *slog.Logger) (*Services, error) {
+func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger *slog.Logger, configStore *telegram.ConfigStore) (*Services, error) {
 	var s Services
 
 	// Инициализируем telegram сервисы
@@ -59,7 +60,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 
 	// Создаем WireGuard сервисы
 	wgBalancer := wireguard.NewBalancer(storageImpl, logger)
-	wireguardService := wgService.NewService(storageImpl, wgBalancer, logger)
+	wgTLSAdapter := wgserver.NewTLSConfigAdapter(&cfg.WireGuard)
+	wireguardService := wgService.NewService(storageImpl, wgBalancer, wgTLSAdapter, logger)
 
 	// Создаем реальные сервисы
 	userService := users.NewService(storageImpl)
@@ -80,7 +82,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	}
 
 	// Создаем Payment service
-	paymentService := payment.NewService(storageImpl, yookassaClient, cfg.YooKassa.ReturnURL, logger)
+	paymentService := payment.NewService(storageImpl, yookassaClient, cfg.YooKassa.ReturnURL, cfg.YooKassa.MockPayment, logger)
 
 	// Создаем buySubHandler - наш клиент уже реализует botApi интерфейс
 	buySubHandler := buysub.NewHandler(
@@ -89,7 +91,10 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		tariffService,
 		createSubService,
 		paymentService,
+		storageImpl,
 		l10nService,
+		configStore,
+		cfg.WireGuard.WebAppBaseURL,
 		logger,
 	)
 
@@ -100,6 +105,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		tariffService,
 		createSubService,
 		paymentService,
+		configStore,
+		cfg.WireGuard.WebAppBaseURL,
 		logger,
 	)
 
@@ -135,6 +142,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		createSubService,
 		userService,
 		l10nService,
+		configStore,
+		cfg.WireGuard.WebAppBaseURL,
 		logger,
 	)
 
@@ -163,6 +172,17 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
+	// Создаем wgServerHandler
+	wgServerAdapter := wgserver.NewStateManagerAdapter(stateManager)
+	wgTLSConfigAdapter := wgserver.NewTLSConfigAdapter(&cfg.WireGuard)
+	wgServerHandler := wgserver.NewHandler(
+		clients.TelegramBot,
+		wgServerAdapter,
+		storageImpl,
+		wgTLSConfigAdapter,
+		logger,
+	)
+
 	// Создаем роутер
 	s.TelegramRouter = telegram.NewRouter(
 		clients.TelegramBot.GetBotAPI(),
@@ -176,6 +196,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		enableTariffHandler,
 		startTrialHandler,
 		renewSubHandler,
+		wgServerHandler,
 		mySubsCommand,
 		statsCommand,
 		l10nService,

@@ -2,7 +2,6 @@ package buysub
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -23,7 +22,10 @@ type Handler struct {
 	tariffService       tariffService
 	subscriptionService subscriptionService
 	paymentService      paymentService
+	storage             storageService
 	l10n                localizer
+	configStore         configStore
+	webAppBaseURL       string
 	logger              *slog.Logger
 }
 
@@ -33,7 +35,10 @@ func NewHandler(
 	ts tariffService,
 	ss subscriptionService,
 	ps paymentService,
+	storage storageService,
 	l10n localizer,
+	configStore configStore,
+	webAppBaseURL string,
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
@@ -42,7 +47,10 @@ func NewHandler(
 		tariffService:       ts,
 		subscriptionService: ss,
 		paymentService:      ps,
+		storage:             storage,
 		l10n:                l10n,
+		configStore:         configStore,
+		webAppBaseURL:       webAppBaseURL,
 		logger:              logger,
 	}
 }
@@ -161,6 +169,34 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 	_, err = h.bot.Request(callbackConfig)
 	if err != nil {
 		return err
+	}
+
+	// Check if WireGuard servers are available before creating payment
+	servers, err := h.storage.ListEnabledWGServers(ctx)
+	if err != nil {
+		h.logger.Error("Failed to check WireGuard servers", "error", err)
+		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "subscription.error_server_check", nil))
+	}
+	
+	if len(servers) == 0 {
+		h.logger.Warn("No WireGuard servers available for subscription")
+		h.stateManager.Clear(chatID)
+		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "subscription.no_servers_available", nil))
+	}
+
+	// Check if any server has capacity
+	hasCapacity := false
+	for _, server := range servers {
+		if server.CurrentPeers < server.MaxPeers {
+			hasCapacity = true
+			break
+		}
+	}
+	
+	if !hasCapacity {
+		h.logger.Warn("All WireGuard servers at capacity")
+		h.stateManager.Clear(chatID)
+		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "subscription.servers_at_capacity", nil))
 	}
 
 	// Если тариф бесплатный - сразу создаем подписку без оплаты
@@ -598,12 +634,12 @@ func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Su
 // createConnectionKeyboard создает упрощенную клавиатуру для сообщения с подключениями
 func (h *Handler) createConnectionKeyboard(lang string, wgConfig *string) tgbotapi.InlineKeyboardMarkup {
 	if wgConfig != nil && *wgConfig != "" {
-		encoded := base64.StdEncoding.EncodeToString([]byte(*wgConfig))
-		wgLink := fmt.Sprintf("wireguard://tunnels/add/%s", encoded)
+		configID := h.configStore.Store(*wgConfig)
+		wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
 
 		return tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonURL("📱 Добавить в WireGuard", wgLink),
+				tgbotapi.NewInlineKeyboardButtonURL("🔗 Подключиться к VPN", wgLink),
 			),
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.my_subscriptions", nil), "my_subscriptions"),

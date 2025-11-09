@@ -9,6 +9,9 @@ CREATE TABLE wg_servers (
     max_peers INTEGER DEFAULT 150,
     current_peers INTEGER DEFAULT 0,
     enabled BOOLEAN DEFAULT 1,
+    tls_enabled BOOLEAN DEFAULT 0,
+    tls_cert_path TEXT,
+    tls_server_name TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -18,4 +21,5 @@ CREATE INDEX idx_wg_servers_current_peers ON wg_servers(current_peers);
 
 -- +goose Down
 DROP TABLE wg_servers;
+
 

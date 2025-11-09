@@ -3,9 +3,10 @@ CREATE TABLE subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     tariff_id INTEGER NOT NULL,
-    marzban_user_id TEXT NOT NULL,
-    marzban_link TEXT NOT NULL,
     status TEXT NOT NULL,
+    client_name TEXT,
+    vpn_type TEXT DEFAULT 'marzban',
+    vpn_data TEXT,
     activated_at TIMESTAMP,
     expires_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -15,9 +16,10 @@ CREATE TABLE subscriptions (
 
 CREATE INDEX idx_subscriptions_user_id ON subscriptions(user_id);
 CREATE INDEX idx_subscriptions_tariff_id ON subscriptions(tariff_id);
-CREATE INDEX idx_subscriptions_marzban_user_id ON subscriptions(marzban_user_id);
 CREATE INDEX idx_subscriptions_status ON subscriptions(status);
 CREATE INDEX idx_subscriptions_expires_at ON subscriptions(expires_at);
+CREATE INDEX idx_subscriptions_vpn_type ON subscriptions(vpn_type);
 
 -- +goose Down
 DROP TABLE subscriptions;
+

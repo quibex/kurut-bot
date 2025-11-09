@@ -2,8 +2,11 @@ package wireguard
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -23,16 +26,53 @@ func NewClient(address string, logger *slog.Logger) (*Client, error) {
 	return NewClientWithTLS(address, false, "", "", logger)
 }
 
-func NewClientWithTLS(address string, tlsEnabled bool, certPath string, serverName string, logger *slog.Logger) (*Client, error) {
+func NewClientWithTLS(address string, tlsEnabled bool, caCertPath string, serverName string, logger *slog.Logger) (*Client, error) {
+	return NewClientWithMTLS(address, tlsEnabled, caCertPath, "", "", serverName, logger)
+}
+
+func NewClientWithMTLS(address string, tlsEnabled bool, caCertPath, clientCertPath, clientKeyPath string, serverName string, logger *slog.Logger) (*Client, error) {
 	var opts []grpc.DialOption
 
-	if tlsEnabled && certPath != "" {
-		creds, err := credentials.NewClientTLSFromFile(certPath, serverName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load TLS credentials from %s: %w", certPath, err)
+	if tlsEnabled && caCertPath != "" {
+		if clientCertPath != "" && clientKeyPath != "" {
+			// Load client's certificate and private key
+			clientCert, err := tls.LoadX509KeyPair(clientCertPath, clientKeyPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load client cert/key: %w", err)
+			}
+
+			// Load CA cert
+			caCert, err := os.ReadFile(caCertPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read CA cert: %w", err)
+			}
+
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM(caCert) {
+				return nil, fmt.Errorf("failed to parse CA cert")
+			}
+
+			// Create TLS config with mTLS
+			tlsConfig := &tls.Config{
+				Certificates: []tls.Certificate{clientCert},
+				RootCAs:      caCertPool,
+				ServerName:   serverName,
+			}
+
+			creds := credentials.NewTLS(tlsConfig)
+			opts = append(opts, grpc.WithTransportCredentials(creds))
+			logger.Info("Using mTLS for gRPC connection",
+				"ca_cert", caCertPath,
+				"client_cert", clientCertPath,
+				"server_name", serverName)
+		} else {
+			creds, err := credentials.NewClientTLSFromFile(caCertPath, serverName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load TLS credentials from %s: %w", caCertPath, err)
+			}
+			opts = append(opts, grpc.WithTransportCredentials(creds))
+			logger.Info("Using TLS for gRPC connection", "ca_cert", caCertPath, "server_name", serverName)
 		}
-		opts = append(opts, grpc.WithTransportCredentials(creds))
-		logger.Info("Using TLS for gRPC connection", "cert_path", certPath, "server_name", serverName)
 	} else {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if tlsEnabled {

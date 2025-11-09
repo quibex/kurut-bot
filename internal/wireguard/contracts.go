@@ -29,6 +29,13 @@ type Balancer interface {
 	SelectServer(ctx context.Context) (*storage.WGServer, error)
 }
 
+type TLSConfig interface {
+	GetCACertPath() string
+	GetClientCertPath() string
+	GetClientKeyPath() string
+	GetServerName() string
+}
+
 type PeerConfig struct {
 	ServerID   int64
 	PublicKey  string
@@ -37,4 +44,3 @@ type PeerConfig struct {
 	Config     string
 	QRCode     string
 }
-

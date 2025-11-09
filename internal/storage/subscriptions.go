@@ -16,36 +16,32 @@ const subscriptionsTable = "subscriptions"
 var subscriptionRowFields = fields(subscriptionRow{})
 
 type subscriptionRow struct {
-	ID            int64      `db:"id"`
-	UserID        int64      `db:"user_id"`
-	TariffID      int64      `db:"tariff_id"`
-	MarzbanUserID string     `db:"marzban_user_id"`
-	MarzbanLink   string     `db:"marzban_link"`
-	VPNType       string     `db:"vpn_type"`
-	VPNData       *string    `db:"vpn_data"`
-	Status        string     `db:"status"`
-	ClientName    *string    `db:"client_name"`
-	ActivatedAt   *time.Time `db:"activated_at"`
-	ExpiresAt     *time.Time `db:"expires_at"`
-	CreatedAt     time.Time  `db:"created_at"`
-	UpdatedAt     time.Time  `db:"updated_at"`
+	ID          int64      `db:"id"`
+	UserID      int64      `db:"user_id"`
+	TariffID    int64      `db:"tariff_id"`
+	VPNType     string     `db:"vpn_type"`
+	VPNData     *string    `db:"vpn_data"`
+	Status      string     `db:"status"`
+	ClientName  *string    `db:"client_name"`
+	ActivatedAt *time.Time `db:"activated_at"`
+	ExpiresAt   *time.Time `db:"expires_at"`
+	CreatedAt   time.Time  `db:"created_at"`
+	UpdatedAt   time.Time  `db:"updated_at"`
 }
 
 func (s subscriptionRow) ToModel() *subs.Subscription {
 	return &subs.Subscription{
-		ID:            s.ID,
-		UserID:        s.UserID,
-		TariffID:      s.TariffID,
-		MarzbanUserID: s.MarzbanUserID,
-		MarzbanLink:   s.MarzbanLink,
-		VPNType:       s.VPNType,
-		VPNData:       s.VPNData,
-		Status:        subs.Status(s.Status),
-		ClientName:    s.ClientName,
-		ActivatedAt:   s.ActivatedAt,
-		ExpiresAt:     s.ExpiresAt,
-		CreatedAt:     s.CreatedAt,
-		UpdatedAt:     s.UpdatedAt,
+		ID:          s.ID,
+		UserID:      s.UserID,
+		TariffID:    s.TariffID,
+		VPNType:     s.VPNType,
+		VPNData:     s.VPNData,
+		Status:      subs.Status(s.Status),
+		ClientName:  s.ClientName,
+		ActivatedAt: s.ActivatedAt,
+		ExpiresAt:   s.ExpiresAt,
+		CreatedAt:   s.CreatedAt,
+		UpdatedAt:   s.UpdatedAt,
 	}
 }
 
@@ -53,18 +49,16 @@ func (s *storageImpl) CreateSubscription(ctx context.Context, subscription subs.
 	now := s.now()
 
 	params := map[string]interface{}{
-		"user_id":         subscription.UserID,
-		"tariff_id":       subscription.TariffID,
-		"marzban_user_id": subscription.MarzbanUserID,
-		"marzban_link":    subscription.MarzbanLink,
-		"vpn_type":        subscription.VPNType,
-		"vpn_data":        subscription.VPNData,
-		"status":          string(subscription.Status),
-		"client_name":     subscription.ClientName,
-		"activated_at":    subscription.ActivatedAt,
-		"expires_at":      subscription.ExpiresAt,
-		"created_at":      now,
-		"updated_at":      now,
+		"user_id":     subscription.UserID,
+		"tariff_id":   subscription.TariffID,
+		"vpn_type":    subscription.VPNType,
+		"vpn_data":    subscription.VPNData,
+		"status":      string(subscription.Status),
+		"client_name": subscription.ClientName,
+		"activated_at": subscription.ActivatedAt,
+		"expires_at":  subscription.ExpiresAt,
+		"created_at":  now,
+		"updated_at":  now,
 	}
 
 	q, args, err := s.stmpBuilder().
@@ -99,9 +93,6 @@ func (s *storageImpl) GetSubscription(ctx context.Context, criteria subs.GetCrit
 	}
 	if len(criteria.UserIDs) > 0 {
 		query = query.Where(sq.Eq{"user_id": criteria.UserIDs})
-	}
-	if len(criteria.MarzbanUserIDs) > 0 {
-		query = query.Where(sq.Eq{"marzban_user_id": criteria.MarzbanUserIDs})
 	}
 
 	q, args, err := query.ToSql()
@@ -296,9 +287,6 @@ func (s *storageImpl) UpdateSubscription(ctx context.Context, criteria subs.GetC
 	}
 	if len(criteria.UserIDs) > 0 {
 		query = query.Where(sq.Eq{"user_id": criteria.UserIDs})
-	}
-	if len(criteria.MarzbanUserIDs) > 0 {
-		query = query.Where(sq.Eq{"marzban_user_id": criteria.MarzbanUserIDs})
 	}
 
 	q, args, err := query.ToSql()

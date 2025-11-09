@@ -2,7 +2,6 @@ package starttrial
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -19,6 +18,8 @@ type Handler struct {
 	subscriptionService subscriptionService
 	userService         userService
 	l10n                localizer
+	configStore         configStore
+	webAppBaseURL       string
 	logger              *slog.Logger
 }
 
@@ -28,6 +29,8 @@ func NewHandler(
 	ss subscriptionService,
 	us userService,
 	l10n localizer,
+	configStore configStore,
+	webAppBaseURL string,
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
@@ -36,6 +39,8 @@ func NewHandler(
 		subscriptionService: ss,
 		userService:         us,
 		l10n:                l10n,
+		configStore:         configStore,
+		webAppBaseURL:       webAppBaseURL,
 		logger:              logger,
 	}
 }
@@ -105,12 +110,12 @@ func (h *Handler) sendConnectionInstructions(chatID int64, subscription *subs.Su
 	} else {
 		messageText += "\n```\n" + wgData.Config + "\n```"
 
-		encoded := base64.StdEncoding.EncodeToString([]byte(wgData.Config))
-		wgLink := fmt.Sprintf("wireguard://tunnels/add/%s", encoded)
+		configID := h.configStore.Store(wgData.Config)
+		wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
 
 		keyboard = tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonURL("📱 Добавить в WireGuard", wgLink),
+				tgbotapi.NewInlineKeyboardButtonURL("🔗 Подключиться к VPN", wgLink),
 			),
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.view_tariffs", nil), "view_tariffs"),

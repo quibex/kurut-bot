@@ -22,19 +22,44 @@ const (
 )
 
 type Subscription struct {
-	ID            int64
-	UserID        int64
-	TariffID      int64
-	MarzbanUserID string
-	MarzbanLink   string
-	VPNType       string
-	VPNData       *string
-	Status        Status
-	ClientName    *string
-	ActivatedAt   *time.Time
-	ExpiresAt     *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID          int64
+	UserID      int64
+	TariffID    int64
+	VPNType     string
+	VPNData     *string
+	Status      Status
+	ClientName  *string
+	ActivatedAt *time.Time
+	ExpiresAt   *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type MarzbanData struct {
+	UserID string `json:"user_id"`
+	Link   string `json:"link"`
+}
+
+func (s *Subscription) GetMarzbanData() (*MarzbanData, error) {
+	if s.VPNData == nil || *s.VPNData == "" {
+		return nil, nil
+	}
+
+	var data MarzbanData
+	if err := json.Unmarshal([]byte(*s.VPNData), &data); err != nil {
+		return nil, err
+	}
+
+	return &data, nil
+}
+
+func MarshalMarzbanData(data MarzbanData) (*string, error) {
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	str := string(bytes)
+	return &str, nil
 }
 
 type WireGuardData struct {
@@ -69,16 +94,14 @@ func MarshalWireGuardData(data WireGuardData) (*string, error) {
 
 // Критерии для получения подписки
 type GetCriteria struct {
-	IDs            []int64
-	UserIDs        []int64
-	MarzbanUserIDs []string
+	IDs     []int64
+	UserIDs []int64
 }
 
 // Критерии для удаления подписки
 type DeleteCriteria struct {
-	IDs            []int64
-	UserIDs        []int64
-	MarzbanUserIDs []string
+	IDs     []int64
+	UserIDs []int64
 }
 
 // Критерии для списка подписок

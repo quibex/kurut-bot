@@ -36,4 +36,8 @@ type (
 		CreatePayment(ctx context.Context, paymentEntity payment.Payment) (*payment.Payment, error)
 		CheckPaymentStatus(ctx context.Context, paymentID int64) (*payment.Payment, error)
 	}
+
+	configStore interface {
+		Store(config string) string
+	}
 )

@@ -14,19 +14,21 @@ import (
 )
 
 type Service struct {
-	storage  Storage
-	balancer Balancer
-	logger   *slog.Logger
-	clients  map[int64]WGClient
-	mu       sync.RWMutex
+	storage   Storage
+	balancer  Balancer
+	logger    *slog.Logger
+	tlsConfig TLSConfig
+	clients   map[int64]WGClient
+	mu        sync.RWMutex
 }
 
-func NewService(storage Storage, balancer Balancer, logger *slog.Logger) *Service {
+func NewService(storage Storage, balancer Balancer, tlsConfig TLSConfig, logger *slog.Logger) *Service {
 	return &Service{
-		storage:  storage,
-		balancer: balancer,
-		logger:   logger,
-		clients:  make(map[int64]WGClient),
+		storage:   storage,
+		balancer:  balancer,
+		tlsConfig: tlsConfig,
+		logger:    logger,
+		clients:   make(map[int64]WGClient),
 	}
 }
 
@@ -51,15 +53,24 @@ func (s *Service) getOrCreateClient(ctx context.Context, server *storage.WGServe
 	var err error
 
 	if server.TLSEnabled {
-		certPath := ""
-		serverName := ""
-		if server.TLSCertPath != nil {
-			certPath = *server.TLSCertPath
-		}
-		if server.TLSServerName != nil {
+		caCertPath := s.tlsConfig.GetCACertPath()
+		clientCertPath := s.tlsConfig.GetClientCertPath()
+		clientKeyPath := s.tlsConfig.GetClientKeyPath()
+		serverName := s.tlsConfig.GetServerName()
+
+		if server.TLSServerName != nil && *server.TLSServerName != "" {
 			serverName = *server.TLSServerName
 		}
-		newClient, err = wireguard.NewClientWithTLS(server.GRPCAddress, true, certPath, serverName, s.logger)
+
+		newClient, err = wireguard.NewClientWithMTLS(
+			server.GRPCAddress,
+			true,
+			caCertPath,
+			clientCertPath,
+			clientKeyPath,
+			serverName,
+			s.logger,
+		)
 	} else {
 		newClient, err = wireguard.NewClient(server.GRPCAddress, s.logger)
 	}

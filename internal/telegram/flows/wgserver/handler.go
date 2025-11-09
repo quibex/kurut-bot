@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 
 	"kurut-bot/internal/storage"
@@ -16,14 +15,16 @@ type Handler struct {
 	bot          botApi
 	stateManager StateManager
 	storage      Storage
+	tlsConfig    TLSConfig
 	logger       *slog.Logger
 }
 
-func NewHandler(bot botApi, stateManager StateManager, storage Storage, logger *slog.Logger) *Handler {
+func NewHandler(bot botApi, stateManager StateManager, storage Storage, tlsConfig TLSConfig, logger *slog.Logger) *Handler {
 	return &Handler{
 		bot:          bot,
 		stateManager: stateManager,
 		storage:      storage,
+		tlsConfig:    tlsConfig,
 		logger:       logger,
 	}
 }
@@ -83,11 +84,11 @@ func (h *Handler) ListServers(ctx context.Context, chatID int64) error {
 }
 
 func (h *Handler) StartAddServer(chatID int64) error {
-	h.stateManager.SetState(chatID, StateAddName, &AddServerData{})
+	h.stateManager.SetState(chatID, StateAddName, nil)
 
 	msg := tgbotapi.NewMessage(chatID,
 		"➕ *Добавление нового WireGuard сервера*\n\n"+
-			"Шаг 1/4: Введите название сервера\n"+
+			"Шаг 1/3: Введите название сервера\n"+
 			"Например: `Server DE-1` или `Main Server`")
 	msg.ParseMode = "Markdown"
 	_, err := h.bot.Send(msg)
@@ -102,12 +103,20 @@ func (h *Handler) HandleAddName(ctx context.Context, chatID int64, name string) 
 		return nil
 	}
 
-	data := &AddServerData{Name: name}
+	_, dataInterface := h.stateManager.GetState(chatID)
+	var data *AddServerData
+	if dataInterface != nil {
+		data, _ = dataInterface.(*AddServerData)
+	}
+	if data == nil {
+		data = &AddServerData{}
+	}
+	data.Name = name
 	h.stateManager.SetState(chatID, StateAddEndpoint, data)
 
 	msg := tgbotapi.NewMessage(chatID,
 		"✅ Название сохранено: `"+name+"`\n\n"+
-			"Шаг 2/4: Введите endpoint сервера\n"+
+			"Шаг 2/3: Введите endpoint сервера\n"+
 			"Формат: `vpn.example.com:51820` или `1.2.3.4:51820`")
 	msg.ParseMode = "Markdown"
 	_, err := h.bot.Send(msg)
@@ -133,8 +142,8 @@ func (h *Handler) HandleAddEndpoint(ctx context.Context, chatID int64, endpoint 
 
 	msg := tgbotapi.NewMessage(chatID,
 		"✅ Endpoint сохранен: `"+endpoint+"`\n\n"+
-			"Шаг 3/4: Введите gRPC адрес сервера\n"+
-			"Формат: `vpn.example.com:50051` или `1.2.3.4:50051`")
+			"Шаг 3/3: Введите gRPC адрес сервера\n"+
+			"Формат: `vpn.example.com:7443` или `1.2.3.4:7443`")
 	msg.ParseMode = "Markdown"
 	_, err := h.bot.Send(msg)
 	return err
@@ -155,137 +164,28 @@ func (h *Handler) HandleAddGRPC(ctx context.Context, chatID int64, grpcAddr stri
 	}
 
 	data.GRPCAddress = grpcAddr
-	h.stateManager.SetState(chatID, StateAddMaxPeers, data)
-
-	msg := tgbotapi.NewMessage(chatID,
-		"✅ gRPC адрес сохранен: `"+grpcAddr+"`\n\n"+
-			"Шаг 4/4: Введите максимальное количество пиров\n"+
-			"По умолчанию: 150\n"+
-			"Введите число или отправьте `/skip` для значения по умолчанию")
-	msg.ParseMode = "Markdown"
-	_, err := h.bot.Send(msg)
-	return err
+	
+	return h.createServer(ctx, chatID, data, 150)
 }
 
-func (h *Handler) HandleAddMaxPeers(ctx context.Context, chatID int64, input string) error {
-	input = strings.TrimSpace(input)
-
-	_, dataInterface := h.stateManager.GetState(chatID)
-	data, ok := dataInterface.(*AddServerData)
-	if !ok {
-		return h.handleError(chatID, "Ошибка состояния")
+func (h *Handler) createServer(ctx context.Context, chatID int64, data *AddServerData, maxPeers int) error {
+	var tlsServerName *string
+	
+	serverName := h.tlsConfig.GetServerName()
+	if serverName != "" {
+		tlsServerName = &serverName
 	}
-
-	maxPeers := 150
-	if input != "/skip" && input != "" {
-		parsed, err := strconv.Atoi(input)
-		if err != nil || parsed < 1 {
-			msg := tgbotapi.NewMessage(chatID, "❌ Неверное число. Введите положительное число или `/skip`:")
-			_, _ = h.bot.Send(msg)
-			return nil
-		}
-		maxPeers = parsed
-	}
-
-	data.MaxPeers = maxPeers
-	h.stateManager.SetState(chatID, StateAddTLS, data)
-
-	msg := tgbotapi.NewMessage(chatID,
-		"✅ Max пиров: `"+strconv.Itoa(maxPeers)+"`\n\n"+
-			"Шаг 5/7: Использовать TLS для gRPC соединения?\n"+
-			"Рекомендуется: `yes` (если бот и сервер через интернет)\n\n"+
-			"Введите `yes` для включения TLS или `no` для отключения")
-	msg.ParseMode = "Markdown"
-	_, err := h.bot.Send(msg)
-	return err
-}
-
-func (h *Handler) HandleAddTLS(ctx context.Context, chatID int64, input string) error {
-	input = strings.ToLower(strings.TrimSpace(input))
-
-	_, dataInterface := h.stateManager.GetState(chatID)
-	data, ok := dataInterface.(*AddServerData)
-	if !ok {
-		return h.handleError(chatID, "Ошибка состояния")
-	}
-
-	if input != "yes" && input != "no" {
-		msg := tgbotapi.NewMessage(chatID, "❌ Введите `yes` или `no`:")
-		msg.ParseMode = "Markdown"
-		_, _ = h.bot.Send(msg)
-		return nil
-	}
-
-	data.TLSEnabled = (input == "yes")
-
-	if !data.TLSEnabled {
-		return h.createServer(ctx, chatID, data)
-	}
-
-	h.stateManager.SetState(chatID, StateAddCertPath, data)
-
-	msg := tgbotapi.NewMessage(chatID,
-		"✅ TLS включен\n\n"+
-			"Шаг 6/7: Введите путь к TLS сертификату (CA cert)\n"+
-			"Например: `/etc/kurut-bot/certs/ca.crt`\n"+
-			"Или `/skip` если сертификат в системном хранилище")
-	msg.ParseMode = "Markdown"
-	_, err := h.bot.Send(msg)
-	return err
-}
-
-func (h *Handler) HandleAddCertPath(ctx context.Context, chatID int64, input string) error {
-	input = strings.TrimSpace(input)
-
-	_, dataInterface := h.stateManager.GetState(chatID)
-	data, ok := dataInterface.(*AddServerData)
-	if !ok {
-		return h.handleError(chatID, "Ошибка состояния")
-	}
-
-	if input != "/skip" && input != "" {
-		data.TLSCertPath = &input
-	}
-
-	h.stateManager.SetState(chatID, StateAddServerName, data)
-
-	msg := tgbotapi.NewMessage(chatID,
-		"Шаг 7/7: Введите server name для TLS проверки\n"+
-			"Обычно это доменное имя, например: `vpn.example.com`\n"+
-			"Или `/skip` для использования имени из gRPC адреса")
-	msg.ParseMode = "Markdown"
-	_, err := h.bot.Send(msg)
-	return err
-}
-
-func (h *Handler) HandleAddServerName(ctx context.Context, chatID int64, input string) error {
-	input = strings.TrimSpace(input)
-
-	_, dataInterface := h.stateManager.GetState(chatID)
-	data, ok := dataInterface.(*AddServerData)
-	if !ok {
-		return h.handleError(chatID, "Ошибка состояния")
-	}
-
-	if input != "/skip" && input != "" {
-		data.TLSServerName = &input
-	}
-
-	return h.createServer(ctx, chatID, data)
-}
-
-func (h *Handler) createServer(ctx context.Context, chatID int64, data *AddServerData) error {
 	server := storage.WGServer{
 		Name:          data.Name,
 		Endpoint:      data.Endpoint,
 		GRPCAddress:   data.GRPCAddress,
 		Interface:     "wg0",
 		DNSServers:    "1.1.1.1",
-		MaxPeers:      data.MaxPeers,
+		MaxPeers:      maxPeers,
 		Enabled:       true,
-		TLSEnabled:    data.TLSEnabled,
-		TLSCertPath:   data.TLSCertPath,
-		TLSServerName: data.TLSServerName,
+		TLSEnabled:    true,
+		TLSCertPath:   nil,
+		TLSServerName: tlsServerName,
 	}
 
 	created, err := h.storage.CreateWGServer(ctx, server)
@@ -294,7 +194,7 @@ func (h *Handler) createServer(ctx context.Context, chatID int64, data *AddServe
 		return h.handleError(chatID, "Ошибка создания сервера")
 	}
 
-	h.stateManager.ClearState(chatID)
+	h.stateManager.SetState(chatID, "", nil)
 
 	tlsStatus := "❌ Выключен"
 	if created.TLSEnabled {
@@ -329,9 +229,41 @@ func (h *Handler) createServer(ctx context.Context, chatID int64, data *AddServe
 }
 
 func (h *Handler) handleError(chatID int64, errorMsg string) error {
-	h.stateManager.ClearState(chatID)
+	h.stateManager.SetState(chatID, "", nil)
 	msg := tgbotapi.NewMessage(chatID, "❌ "+errorMsg)
 	_, err := h.bot.Send(msg)
 	return err
+}
+
+func (h *Handler) Handle(ctx context.Context, update *tgbotapi.Update, state string) error {
+	chatID := extractChatID(update)
+	
+	if update.Message == nil || update.Message.Text == "" {
+		return nil
+	}
+
+	text := update.Message.Text
+
+	switch state {
+	case StateAddName:
+		return h.HandleAddName(ctx, chatID, text)
+	case StateAddEndpoint:
+		return h.HandleAddEndpoint(ctx, chatID, text)
+	case StateAddGRPCAddr:
+		return h.HandleAddGRPC(ctx, chatID, text)
+	default:
+		h.stateManager.SetState(chatID, "", nil)
+		return nil
+	}
+}
+
+func extractChatID(update *tgbotapi.Update) int64 {
+	if update.Message != nil {
+		return update.Message.Chat.ID
+	}
+	if update.CallbackQuery != nil && update.CallbackQuery.Message != nil {
+		return update.CallbackQuery.Message.Chat.ID
+	}
+	return 0
 }
 
