@@ -34,10 +34,8 @@ func NewClient(shopID, secretKey, returnURL string, logger *slog.Logger) (*Clien
 func (c *Client) CreatePayment(ctx context.Context, amount float64, description string, metadata map[string]string) (*yoopayment.Payment, error) {
 	c.logger.Info("Creating payment in YooKassa", "amount", amount)
 
-	// Создаём идемпотентность ключ
 	idempotenceKey := fmt.Sprintf("%s_%d", uuid.New().String(), time.Now().Unix())
 
-	// Создаём запрос на создание платежа
 	payment := &yoopayment.Payment{
 		Amount: &yoocommon.Amount{
 			Value:    fmt.Sprintf("%.2f", amount),
@@ -49,7 +47,22 @@ func (c *Client) CreatePayment(ctx context.Context, amount float64, description 
 		},
 		Description: description,
 		Metadata:    metadata,
-		Capture:     true, // Автоматическое подтверждение платежа
+		Capture:     true,
+		Receipt: &yoopayment.Receipt{
+			Items: []*yoocommon.Item{
+				{
+					Description: description,
+					Quantity:    "1",
+					Amount: &yoocommon.Amount{
+						Value:    fmt.Sprintf("%.2f", amount),
+						Currency: "RUB",
+					},
+					VatCode:        1,
+					PaymentMode:    "full_payment",
+					PaymentSubject: "service",
+				},
+			},
+		},
 	}
 
 	paymentHandler := yookassa.NewPaymentHandler(c.client).WithIdempotencyKey(idempotenceKey)

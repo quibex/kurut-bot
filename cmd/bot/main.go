@@ -35,6 +35,16 @@ func main() {
 		}()
 	}
 
+	// Start API server in background
+	if env.Servers.HTTP.API != nil {
+		go func() {
+			logger.Info("Starting API server", slog.String("addr", env.Servers.HTTP.API.Addr))
+			if err := env.Servers.HTTP.API.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				logger.Error("API server error", slog.Any("error", err))
+			}
+		}()
+	}
+
 	// Запускаем Telegram бота
 	if err := startTelegramBot(ctx, env); err != nil {
 		logger.Error("Failed to start telegram bot", slog.Any("error", err))
@@ -69,6 +79,12 @@ func main() {
 	if env.Servers.HTTP.Observability != nil {
 		if err := env.Servers.HTTP.Observability.Shutdown(shutdownCtx); err != nil && err != http.ErrServerClosed {
 			logger.Error("Observability server shutdown error", slog.Any("error", err))
+		}
+	}
+
+	if env.Servers.HTTP.API != nil {
+		if err := env.Servers.HTTP.API.Shutdown(shutdownCtx); err != nil && err != http.ErrServerClosed {
+			logger.Error("API server shutdown error", slog.Any("error", err))
 		}
 	}
 
