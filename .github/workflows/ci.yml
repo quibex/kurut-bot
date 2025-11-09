@@ -175,7 +175,7 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           port: ${{ secrets.STAGING_PORT }}
-          envs: REPO,GITHUB_TOKEN,GITHUB_ACTOR,IMAGE_TAG,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,MARZBAN_TOKEN,MARZBAN_API_URL,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_RETURN_URL,ENV_TYPE,LOG_LEVEL
+          envs: REPO,GITHUB_TOKEN,GITHUB_ACTOR,IMAGE_TAG,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,MARZBAN_TOKEN,MARZBAN_API_URL,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_RETURN_URL,WIREGUARD_TLS_CA_CERT,WIREGUARD_TLS_CLIENT_CERT,WIREGUARD_TLS_CLIENT_KEY,WIREGUARD_TLS_SERVER_NAME,WIREGUARD_WEB_APP_BASE_URL,ENV_TYPE,LOG_LEVEL
           script: |
             # Параметры для staging
             export REPO="${{ github.repository }}"
@@ -189,6 +189,11 @@ jobs:
             export YOOKASSA_SHOP_ID="${{ secrets.YOOKASSA_SHOP_ID }}"
             export YOOKASSA_SECRET_KEY="${{ secrets.YOOKASSA_SECRET_KEY }}"
             export YOOKASSA_RETURN_URL="${{ secrets.STAGING_YOOKASSA_RETURN_URL }}"
+            export WIREGUARD_TLS_CA_CERT="${{ secrets.WIREGUARD_TLS_CA_CERT }}"
+            export WIREGUARD_TLS_CLIENT_CERT="${{ secrets.WIREGUARD_TLS_CLIENT_CERT }}"
+            export WIREGUARD_TLS_CLIENT_KEY="${{ secrets.WIREGUARD_TLS_CLIENT_KEY }}"
+            export WIREGUARD_TLS_SERVER_NAME="${{ secrets.WIREGUARD_TLS_SERVER_NAME }}"
+            export WIREGUARD_WEB_APP_BASE_URL="${{ secrets.STAGING_WIREGUARD_WEB_APP_BASE_URL }}"
             export ENV_TYPE="staging"
             export LOG_LEVEL="debug"
             
@@ -231,6 +236,11 @@ jobs:
             YOOKASSA_SHOP_ID=$YOOKASSA_SHOP_ID
             YOOKASSA_SECRET_KEY=$YOOKASSA_SECRET_KEY
             YOOKASSA_RETURN_URL=$YOOKASSA_RETURN_URL
+            WIREGUARD_TLS_CA_CERT=$WIREGUARD_TLS_CA_CERT
+            WIREGUARD_TLS_CLIENT_CERT=$WIREGUARD_TLS_CLIENT_CERT
+            WIREGUARD_TLS_CLIENT_KEY=$WIREGUARD_TLS_CLIENT_KEY
+            WIREGUARD_TLS_SERVER_NAME=$WIREGUARD_TLS_SERVER_NAME
+            WIREGUARD_WEB_APP_BASE_URL=$WIREGUARD_WEB_APP_BASE_URL
             DB_PATH=/app/data/kurut.db
             LOGGER_LEVEL=$LOG_LEVEL
             IMAGE_TAG=$IMAGE_TAG
@@ -241,12 +251,6 @@ jobs:
             mkdir -p data
             sudo chown -R 1000:1000 data 2>/dev/null || chown -R 1000:1000 data
             chmod -R 755 data
-            
-            # Бэкап базы
-            if [ -f data/kurut.db ]; then
-              echo "📋 Backing up existing database..."
-              cp data/kurut.db "data/kurut.db.backup.$(date +%Y%m%d_%H%M%S)"
-            fi
             
             # Создаем файл БД с правами
             touch data/kurut.db
@@ -321,7 +325,7 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_PORT }}
-          envs: REPO,GITHUB_TOKEN,GITHUB_ACTOR,IMAGE_TAG,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,MARZBAN_TOKEN,MARZBAN_API_URL,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_RETURN_URL,ENV_TYPE,LOG_LEVEL
+          envs: REPO,GITHUB_TOKEN,GITHUB_ACTOR,IMAGE_TAG,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,MARZBAN_TOKEN,MARZBAN_API_URL,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_RETURN_URL,WIREGUARD_TLS_CA_CERT,WIREGUARD_TLS_CLIENT_CERT,WIREGUARD_TLS_CLIENT_KEY,WIREGUARD_TLS_SERVER_NAME,WIREGUARD_WEB_APP_BASE_URL,ENV_TYPE,LOG_LEVEL
           script: |
             # Параметры для production
             export REPO="${{ github.repository }}"
@@ -335,6 +339,11 @@ jobs:
             export YOOKASSA_SHOP_ID="${{ secrets.YOOKASSA_SHOP_ID }}"
             export YOOKASSA_SECRET_KEY="${{ secrets.YOOKASSA_SECRET_KEY }}"
             export YOOKASSA_RETURN_URL="${{ secrets.YOOKASSA_RETURN_URL }}"
+            export WIREGUARD_TLS_CA_CERT="${{ secrets.WIREGUARD_TLS_CA_CERT }}"
+            export WIREGUARD_TLS_CLIENT_CERT="${{ secrets.WIREGUARD_TLS_CLIENT_CERT }}"
+            export WIREGUARD_TLS_CLIENT_KEY="${{ secrets.WIREGUARD_TLS_CLIENT_KEY }}"
+            export WIREGUARD_TLS_SERVER_NAME="${{ secrets.WIREGUARD_TLS_SERVER_NAME }}"
+            export WIREGUARD_WEB_APP_BASE_URL="${{ secrets.WIREGUARD_WEB_APP_BASE_URL }}"
             export ENV_TYPE="production"
             export LOG_LEVEL="info"
             
@@ -377,6 +386,11 @@ jobs:
             YOOKASSA_SHOP_ID=$YOOKASSA_SHOP_ID
             YOOKASSA_SECRET_KEY=$YOOKASSA_SECRET_KEY
             YOOKASSA_RETURN_URL=$YOOKASSA_RETURN_URL
+            WIREGUARD_TLS_CA_CERT=$WIREGUARD_TLS_CA_CERT
+            WIREGUARD_TLS_CLIENT_CERT=$WIREGUARD_TLS_CLIENT_CERT
+            WIREGUARD_TLS_CLIENT_KEY=$WIREGUARD_TLS_CLIENT_KEY
+            WIREGUARD_TLS_SERVER_NAME=$WIREGUARD_TLS_SERVER_NAME
+            WIREGUARD_WEB_APP_BASE_URL=$WIREGUARD_WEB_APP_BASE_URL
             DB_PATH=/app/data/kurut.db
             LOGGER_LEVEL=$LOG_LEVEL
             IMAGE_TAG=$IMAGE_TAG
@@ -387,12 +401,6 @@ jobs:
             mkdir -p data
             sudo chown -R 1000:1000 data 2>/dev/null || chown -R 1000:1000 data
             chmod -R 755 data
-            
-            # Бэкап базы
-            if [ -f data/kurut.db ]; then
-              echo "📋 Backing up existing database..."
-              cp data/kurut.db "data/kurut.db.backup.$(date +%Y%m%d_%H%M%S)"
-            fi
             
             # Создаем файл БД с правами
             touch data/kurut.db
