@@ -48,21 +48,6 @@ func (c *Client) CreatePayment(ctx context.Context, amount float64, description 
 		Description: description,
 		Metadata:    metadata,
 		Capture:     true,
-		Receipt: &yoopayment.Receipt{
-			Items: []*yoocommon.Item{
-				{
-					Description: description,
-					Quantity:    "1",
-					Amount: &yoocommon.Amount{
-						Value:    fmt.Sprintf("%.2f", amount),
-						Currency: "RUB",
-					},
-					VatCode:        1,
-					PaymentMode:    "full_payment",
-					PaymentSubject: "service",
-				},
-			},
-		},
 	}
 
 	paymentHandler := yookassa.NewPaymentHandler(c.client).WithIdempotencyKey(idempotenceKey)
