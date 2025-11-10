@@ -50,7 +50,9 @@ func (h *Handler) ListServers(ctx context.Context, chatID int64) error {
 
 	for _, server := range servers {
 		status := "✅ Включен"
-		if !server.Enabled {
+		if server.Archived {
+			status = "📦 Архивирован"
+		} else if !server.Enabled {
 			status = "❌ Выключен"
 		}
 
@@ -235,6 +237,69 @@ func (h *Handler) handleError(chatID int64, errorMsg string) error {
 	return err
 }
 
+func (h *Handler) StartArchiveServer(chatID int64) error {
+	h.stateManager.SetState(chatID, StateArchiveServerID, nil)
+
+	msg := tgbotapi.NewMessage(chatID,
+		"📦 *Архивирование WireGuard сервера*\n\n"+
+			"Введите ID сервера для архивирования.\n"+
+			"После архивирования сервер будет исключен из балансировки и healthcheck мониторинга.\n\n"+
+			"Используйте команду /wg_servers для просмотра списка серверов.")
+	msg.ParseMode = "Markdown"
+	_, err := h.bot.Send(msg)
+	return err
+}
+
+func (h *Handler) HandleArchiveServerID(ctx context.Context, chatID int64, text string) error {
+	var serverID int64
+	if _, err := fmt.Sscanf(text, "%d", &serverID); err != nil {
+		msg := tgbotapi.NewMessage(chatID, "❌ Некорректный ID сервера. Введите число:")
+		_, _ = h.bot.Send(msg)
+		return nil
+	}
+
+	server, err := h.storage.GetWGServer(ctx, serverID)
+	if err != nil {
+		h.logger.Error("Failed to get WireGuard server", "error", err)
+		return h.handleError(chatID, "Ошибка получения сервера")
+	}
+	if server == nil {
+		return h.handleError(chatID, "Сервер с таким ID не найден")
+	}
+
+	if server.Archived {
+		return h.handleError(chatID, "Сервер уже архивирован")
+	}
+
+	archived, err := h.storage.ArchiveWGServer(ctx, serverID)
+	if err != nil {
+		h.logger.Error("Failed to archive WireGuard server", "error", err)
+		return h.handleError(chatID, "Ошибка архивирования сервера")
+	}
+
+	h.stateManager.SetState(chatID, "", nil)
+
+	msg := tgbotapi.NewMessage(chatID,
+		fmt.Sprintf(
+			"✅ *Сервер успешно архивирован!*\n\n"+
+				"🖥 *%s* (ID: %d)\n"+
+				"├ Endpoint: `%s`\n"+
+				"├ gRPC: `%s`\n"+
+				"├ Пиров: %d/%d\n"+
+				"└ Статус: 📦 *Архивирован*\n\n"+
+				"Сервер больше не будет использоваться для новых подключений и не будет проверяться healthcheck.",
+			archived.Name,
+			archived.ID,
+			archived.Endpoint,
+			archived.GRPCAddress,
+			archived.CurrentPeers,
+			archived.MaxPeers,
+		))
+	msg.ParseMode = "Markdown"
+	_, err = h.bot.Send(msg)
+	return err
+}
+
 func (h *Handler) Handle(ctx context.Context, update *tgbotapi.Update, state string) error {
 	chatID := extractChatID(update)
 	
@@ -251,6 +316,8 @@ func (h *Handler) Handle(ctx context.Context, update *tgbotapi.Update, state str
 		return h.HandleAddEndpoint(ctx, chatID, text)
 	case StateAddGRPCAddr:
 		return h.HandleAddGRPC(ctx, chatID, text)
+	case StateArchiveServerID:
+		return h.HandleArchiveServerID(ctx, chatID, text)
 	default:
 		h.stateManager.SetState(chatID, "", nil)
 		return nil

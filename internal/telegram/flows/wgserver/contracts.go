@@ -17,6 +17,8 @@ type Storage interface {
 	GetWGServer(ctx context.Context, id int64) (*storage.WGServer, error)
 	ListWGServers(ctx context.Context) ([]*storage.WGServer, error)
 	UpdateWGServer(ctx context.Context, id int64, params map[string]interface{}) (*storage.WGServer, error)
+	ArchiveWGServer(ctx context.Context, id int64) (*storage.WGServer, error)
+	UnarchiveWGServer(ctx context.Context, id int64) (*storage.WGServer, error)
 	DeleteWGServer(ctx context.Context, id int64) error
 }
 

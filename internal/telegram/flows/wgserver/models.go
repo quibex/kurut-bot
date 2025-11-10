@@ -1,15 +1,16 @@
 package wgserver
 
 const (
-	StateListServers   = "wgserver_list"
-	StateAddServer     = "wgserver_add_start"
-	StateAddName       = "wgserver_add_name"
-	StateAddEndpoint   = "wgserver_add_endpoint"
-	StateAddGRPCAddr   = "wgserver_add_grpc"
-	StateAddMaxPeers   = "wgserver_add_maxpeers"
-	StateEditServer    = "wgserver_edit"
-	StateDisableServer = "wgserver_disable"
-	StateEnableServer  = "wgserver_enable"
+	StateListServers     = "wgserver_list"
+	StateAddServer       = "wgserver_add_start"
+	StateAddName         = "wgserver_add_name"
+	StateAddEndpoint     = "wgserver_add_endpoint"
+	StateAddGRPCAddr     = "wgserver_add_grpc"
+	StateAddMaxPeers     = "wgserver_add_maxpeers"
+	StateEditServer      = "wgserver_edit"
+	StateDisableServer   = "wgserver_disable"
+	StateEnableServer    = "wgserver_enable"
+	StateArchiveServerID = "wgserver_archive_id"
 )
 
 type AddServerData struct {

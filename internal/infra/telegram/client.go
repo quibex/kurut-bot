@@ -82,6 +82,27 @@ func (c *Client) SendMessage(chatID int64, text string) error {
 	return nil
 }
 
+// EditMessage редактирует существующее сообщение
+func (c *Client) EditMessage(chatID int64, messageID int, text string) error {
+	if err := c.limiter.Wait(c.ctx); err != nil {
+		return fmt.Errorf("rate limiting: %w", err)
+	}
+
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
+	edit.ParseMode = "MarkdownV2"
+	edit.DisableWebPagePreview = true
+	_, err := c.api.Send(edit)
+	if err != nil {
+		c.logger.Error("ошибка редактирования сообщения",
+			slog.Int64("chat_id", chatID),
+			slog.Int("message_id", messageID),
+			slog.String("error", err.Error()))
+		return fmt.Errorf("редактирование сообщения: %w", err)
+	}
+
+	return nil
+}
+
 // SendKeyboard отправляет сообщение с клавиатурой
 func (c *Client) SendKeyboard(chatID int64, text string, keyboard tgbotapi.InlineKeyboardMarkup) error {
 	if err := c.limiter.Wait(c.ctx); err != nil {
