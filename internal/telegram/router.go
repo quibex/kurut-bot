@@ -286,6 +286,9 @@ func (r *Router) sendWelcome(chatID int64, user *users.User) error {
 			"/create_tariff — Создать тариф\n" +
 			"/disable_tariff — Архивировать тариф\n" +
 			"/enable_tariff — Восстановить тариф из архива\n" +
+			"/wg_servers — Список WireGuard серверов\n" +
+			"/add_wg_server — Добавить WireGuard сервер\n" +
+			"/archive_wg_server — Архивировать WireGuard сервер\n" +
 			"/stats — Просмотр статистики"
 	}
 
@@ -346,6 +349,9 @@ func (r *Router) sendHelp(chatID int64, lang string) error {
 			"/create_tariff — Создать тариф\n" +
 			"/disable_tariff — Архивировать тариф\n" +
 			"/enable_tariff — Восстановить тариф из архива\n" +
+			"/wg_servers — Список WireGuard серверов\n" +
+			"/add_wg_server — Добавить WireGuard сервер\n" +
+			"/archive_wg_server — Архивировать WireGuard сервер\n" +
 			"/stats — Просмотр статистики"
 	}
 	msg := tgbotapi.NewMessage(chatID, text)
