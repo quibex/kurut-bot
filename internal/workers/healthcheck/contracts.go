@@ -13,6 +13,7 @@ type (
 
 	TelegramNotifier interface {
 		SendMessage(chatID int64, text string) error
+		EditMessage(chatID int64, messageID int, text string) error
 	}
 )
 

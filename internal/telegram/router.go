@@ -232,6 +232,12 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 			return r.sendHelp(update.Message.Chat.ID, user.Language)
 		}
 		return r.wgServerHandler.StartAddServer(update.Message.Chat.ID)
+	case "archive_wg_server":
+		if !r.adminChecker.IsAdmin(user.TelegramID) {
+			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для архивирования серверов"))
+			return r.sendHelp(update.Message.Chat.ID, user.Language)
+		}
+		return r.wgServerHandler.StartArchiveServer(update.Message.Chat.ID)
 	case "my_subs":
 		ctx := context.Background()
 		return r.mySubsCommand.Execute(ctx, user, update.Message.Chat.ID)
@@ -280,6 +286,9 @@ func (r *Router) sendWelcome(chatID int64, user *users.User) error {
 			"/create_tariff — Создать тариф\n" +
 			"/disable_tariff — Архивировать тариф\n" +
 			"/enable_tariff — Восстановить тариф из архива\n" +
+			"/wg_servers — Список WireGuard серверов\n" +
+			"/add_wg_server — Добавить WireGuard сервер\n" +
+			"/archive_wg_server — Архивировать WireGuard сервер\n" +
 			"/stats — Просмотр статистики"
 	}
 
@@ -340,6 +349,9 @@ func (r *Router) sendHelp(chatID int64, lang string) error {
 			"/create_tariff — Создать тариф\n" +
 			"/disable_tariff — Архивировать тариф\n" +
 			"/enable_tariff — Восстановить тариф из архива\n" +
+			"/wg_servers — Список WireGuard серверов\n" +
+			"/add_wg_server — Добавить WireGuard сервер\n" +
+			"/archive_wg_server — Архивировать WireGuard сервер\n" +
 			"/stats — Просмотр статистики"
 	}
 	msg := tgbotapi.NewMessage(chatID, text)
@@ -612,6 +624,10 @@ func (r *Router) setupAdminCommands(chatID int64) {
 		{
 			Command:     "add_wg_server",
 			Description: "Добавить WireGuard сервер",
+		},
+		{
+			Command:     "archive_wg_server",
+			Description: "Архивировать WireGuard сервер",
 		},
 	}
 

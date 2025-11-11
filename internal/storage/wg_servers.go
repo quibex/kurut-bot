@@ -21,6 +21,7 @@ type WGServer struct {
 	MaxPeers      int       `db:"max_peers"`
 	CurrentPeers  int       `db:"current_peers"`
 	Enabled       bool      `db:"enabled"`
+	Archived      bool      `db:"archived"`
 	TLSEnabled    bool      `db:"tls_enabled"`
 	TLSCertPath   *string   `db:"tls_cert_path"`
 	TLSServerName *string   `db:"tls_server_name"`
@@ -42,6 +43,7 @@ func (s *storageImpl) CreateWGServer(ctx context.Context, server WGServer) (*WGS
 		"max_peers":       server.MaxPeers,
 		"current_peers":   0,
 		"enabled":         server.Enabled,
+		"archived":        server.Archived,
 		"tls_enabled":     server.TLSEnabled,
 		"tls_cert_path":   server.TLSCertPath,
 		"tls_server_name": server.TLSServerName,
@@ -118,7 +120,7 @@ func (s *storageImpl) ListEnabledWGServers(ctx context.Context) ([]*WGServer, er
 	query := s.stmpBuilder().
 		Select(wgServerRowFields).
 		From(wgServersTable).
-		Where(sq.Eq{"enabled": true}).
+		Where(sq.Eq{"enabled": true, "archived": false}).
 		OrderBy("current_peers ASC")
 
 	q, args, err := query.ToSql()
@@ -191,6 +193,20 @@ func (s *storageImpl) DecrementWGServerPeerCount(ctx context.Context, serverID i
 	}
 
 	return nil
+}
+
+func (s *storageImpl) ArchiveWGServer(ctx context.Context, id int64) (*WGServer, error) {
+	params := map[string]interface{}{
+		"archived": true,
+	}
+	return s.UpdateWGServer(ctx, id, params)
+}
+
+func (s *storageImpl) UnarchiveWGServer(ctx context.Context, id int64) (*WGServer, error) {
+	params := map[string]interface{}{
+		"archived": false,
+	}
+	return s.UpdateWGServer(ctx, id, params)
 }
 
 func (s *storageImpl) DeleteWGServer(ctx context.Context, id int64) error {

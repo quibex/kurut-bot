@@ -21,6 +21,7 @@ type serverStatus struct {
 	isUp         bool
 	lastCheck    time.Time
 	failureCount int
+	messageIDs   map[int64]int
 }
 
 type Worker struct {
@@ -166,8 +167,9 @@ func (w *Worker) updateStatus(server *storage.WGServer, isUp bool) {
 	
 	if !exists {
 		w.statuses[server.ID] = &serverStatus{
-			isUp:      isUp,
-			lastCheck: now,
+			isUp:       isUp,
+			lastCheck:  now,
+			messageIDs: make(map[int64]int),
 		}
 		if !isUp {
 			w.notifyServerDown(server, 1)
@@ -183,9 +185,7 @@ func (w *Worker) updateStatus(server *storage.WGServer, isUp bool) {
 	} else if !prevStatus.isUp && !isUp {
 		prevStatus.failureCount++
 		prevStatus.lastCheck = now
-		if prevStatus.failureCount%5 == 0 {
-			w.notifyServerStillDown(server, prevStatus.failureCount)
-		}
+		w.updateServerStillDown(server, prevStatus)
 	} else if !prevStatus.isUp && isUp {
 		downtime := now.Sub(prevStatus.lastCheck)
 		prevStatus.isUp = true
@@ -203,21 +203,6 @@ func (w *Worker) notifyServerDown(server *storage.WGServer, failureCount int) {
 			"Server: `%s`\n"+
 			"Endpoint: `%s`\n"+
 			"Status: ❌ *FAILED*\n"+
-			"Time: `%s`",
-		escapeMarkdownV2(server.Name),
-		escapeMarkdownV2(server.Endpoint),
-		escapeMarkdownV2(time.Now().Format("2006-01-02 15:04:05")),
-	)
-	
-	w.sendToAdmins(message)
-}
-
-func (w *Worker) notifyServerStillDown(server *storage.WGServer, failureCount int) {
-	message := fmt.Sprintf(
-		"⚠️ *WG Server Still Down*\n\n"+
-			"Server: `%s`\n"+
-			"Endpoint: `%s`\n"+
-			"Status: ❌ *FAILED*\n"+
 			"Failed checks: `%d`\n"+
 			"Time: `%s`",
 		escapeMarkdownV2(server.Name),
@@ -226,10 +211,33 @@ func (w *Worker) notifyServerStillDown(server *storage.WGServer, failureCount in
 		escapeMarkdownV2(time.Now().Format("2006-01-02 15:04:05")),
 	)
 	
-	w.sendToAdmins(message)
+	w.sendToAdminsAndSaveMessageID(server.ID, message)
+}
+
+func (w *Worker) updateServerStillDown(server *storage.WGServer, status *serverStatus) {
+	message := fmt.Sprintf(
+		"🚨 *WG Server Down*\n\n"+
+			"Server: `%s`\n"+
+			"Endpoint: `%s`\n"+
+			"Status: ❌ *FAILED*\n"+
+			"Failed checks: `%d`\n"+
+			"Time: `%s`",
+		escapeMarkdownV2(server.Name),
+		escapeMarkdownV2(server.Endpoint),
+		status.failureCount,
+		escapeMarkdownV2(time.Now().Format("2006-01-02 15:04:05")),
+	)
+	
+	w.updateAdminMessages(server.ID, status.messageIDs, message)
 }
 
 func (w *Worker) notifyServerRecovered(server *storage.WGServer, downtime time.Duration) {
+	w.statusMu.Lock()
+	status := w.statuses[server.ID]
+	messageIDs := status.messageIDs
+	status.messageIDs = make(map[int64]int)
+	w.statusMu.Unlock()
+	
 	message := fmt.Sprintf(
 		"✅ *WG Server Recovered*\n\n"+
 			"Server: `%s`\n"+
@@ -243,15 +251,31 @@ func (w *Worker) notifyServerRecovered(server *storage.WGServer, downtime time.D
 		escapeMarkdownV2(time.Now().Format("2006-01-02 15:04:05")),
 	)
 	
-	w.sendToAdmins(message)
+	w.updateAdminMessages(server.ID, messageIDs, message)
 }
 
-func (w *Worker) sendToAdmins(message string) {
+func (w *Worker) sendToAdminsAndSaveMessageID(serverID int64, message string) {
 	for _, adminID := range w.adminIDs {
 		if err := w.telegram.SendMessage(adminID, message); err != nil {
 			w.logger.Error("Failed to send notification to admin",
 				"admin_id", adminID,
 				"error", err)
+		}
+	}
+}
+
+func (w *Worker) updateAdminMessages(serverID int64, messageIDs map[int64]int, message string) {
+	for adminID, messageID := range messageIDs {
+		if err := w.telegram.EditMessage(adminID, messageID, message); err != nil {
+			w.logger.Warn("Failed to edit notification for admin, sending new",
+				"admin_id", adminID,
+				"message_id", messageID,
+				"error", err)
+			if err := w.telegram.SendMessage(adminID, message); err != nil {
+				w.logger.Error("Failed to send notification to admin",
+					"admin_id", adminID,
+					"error", err)
+			}
 		}
 	}
 }
