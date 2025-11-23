@@ -50,6 +50,11 @@ func (w *Worker) Name() string {
 func (w *Worker) Start() error {
 	// Runs every 5 minutes
 	_, err := w.cron.AddFunc("*/5 * * * *", func() {
+		defer func() {
+			if r := recover(); r != nil {
+				w.logger.Error("Panic in retry subscription worker", "panic", r)
+			}
+		}()
 		ctx := context.Background()
 		w.logger.Info("Running retry subscription worker")
 		if err := w.run(ctx); err != nil {

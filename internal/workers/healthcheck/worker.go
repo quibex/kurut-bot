@@ -67,7 +67,14 @@ func (w *Worker) Start() error {
 		"interval", checkInterval,
 		"admin_count", len(w.adminIDs))
 	
-	go w.run()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				w.logger.Error("Panic in healthcheck worker goroutine", "panic", r)
+			}
+		}()
+		w.run()
+	}()
 	return nil
 }
 

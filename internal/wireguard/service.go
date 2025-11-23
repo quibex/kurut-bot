@@ -104,7 +104,7 @@ func (s *Service) CreatePeer(ctx context.Context, userID int64, peerID string) (
 		return nil, fmt.Errorf("generate peer config: %w", err)
 	}
 
-	addResp, err := client.AddPeer(ctx, &pb.AddPeerRequest{
+	_, err = client.AddPeer(ctx, &pb.AddPeerRequest{
 		Interface:  server.Interface,
 		PublicKey:  genResp.PublicKey,
 		AllowedIp:  genResp.AllowedIp,
@@ -124,8 +124,8 @@ func (s *Service) CreatePeer(ctx context.Context, userID int64, peerID string) (
 		PublicKey:  genResp.PublicKey,
 		PrivateKey: genResp.PrivateKey,
 		AllowedIP:  genResp.AllowedIp,
-		Config:     addResp.Config,
-		QRCode:     addResp.QrCode,
+		Config:     genResp.Config,
+		QRCode:     genResp.QrCode,
 	}, nil
 }
 

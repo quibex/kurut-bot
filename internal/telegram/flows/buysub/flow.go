@@ -2,6 +2,7 @@ package buysub
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -177,7 +178,7 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 		h.logger.Error("Failed to check WireGuard servers", "error", err)
 		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "subscription.error_server_check", nil))
 	}
-	
+
 	if len(servers) == 0 {
 		h.logger.Warn("No WireGuard servers available for subscription")
 		h.stateManager.Clear(chatID)
@@ -192,7 +193,7 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 			break
 		}
 	}
-	
+
 	if !hasCapacity {
 		h.logger.Warn("All WireGuard servers at capacity")
 		h.stateManager.Clear(chatID)
@@ -596,45 +597,94 @@ func extractChatID(update *tgbotapi.Update) int64 {
 
 // SendConnectionInstructions отправляет инструкции по подключению после успешной оплаты
 func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Subscription, lang string, messageID *int) error {
-	messageText := h.l10n.Get(lang, "subscription.success_paid", nil)
-
 	wgData, err := subscription.GetWireGuardData()
-	var keyboard tgbotapi.InlineKeyboardMarkup
 
 	if err != nil || wgData == nil || wgData.Config == "" {
-		messageText += "\n\n" + h.l10n.Get(lang, "subscription.link_not_ready", nil)
-		keyboard = h.createConnectionKeyboard(lang, nil)
-	} else {
-		messageText += "\n```\n" + wgData.Config + "\n```"
-		keyboard = h.createConnectionKeyboard(lang, &wgData.Config)
-	}
+		messageText := h.l10n.Get(lang, "subscription.success_paid", nil) + "\n\n" + h.l10n.Get(lang, "subscription.link_not_ready", nil)
+		keyboard := h.createConnectionKeyboard(lang, nil)
 
-	messageText += "\n\n" + h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n"
-	messageText += h.l10n.Get(lang, "subscription.support_note", nil)
+		if messageID != nil {
+			editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, messageText)
+			editMsg.ParseMode = "MarkdownV2"
+			editMsg.ReplyMarkup = &keyboard
+			editMsg.DisableWebPagePreview = true
+			_, err := h.bot.Send(editMsg)
+			return err
+		}
 
-	// Редактируем существующее сообщение, если MessageID есть
-	if messageID != nil {
-		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, messageText)
-		editMsg.ParseMode = "MarkdownV2"
-		editMsg.ReplyMarkup = &keyboard
-		editMsg.DisableWebPagePreview = true
-		_, err := h.bot.Send(editMsg)
+		msg := tgbotapi.NewMessage(chatID, messageText)
+		msg.ParseMode = "MarkdownV2"
+		msg.ReplyMarkup = keyboard
+		msg.DisableWebPagePreview = true
+		_, err = h.bot.Send(msg)
 		return err
 	}
 
-	// Fallback: отправляем новое сообщение
-	msg := tgbotapi.NewMessage(chatID, messageText)
-	msg.ParseMode = "MarkdownV2"
-	msg.ReplyMarkup = keyboard
-	msg.DisableWebPagePreview = true
-	_, err = h.bot.Send(msg)
-	return err
+	successText := h.l10n.Get(lang, "subscription.success_paid", nil)
+
+	if messageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, successText)
+		editMsg.ParseMode = "MarkdownV2"
+		editMsg.DisableWebPagePreview = true
+		_, _ = h.bot.Send(editMsg)
+	}
+
+	instructionsText := h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n" + h.l10n.Get(lang, "subscription.support_note", nil)
+
+	qrBytes, err := base64.StdEncoding.DecodeString(wgData.QRCode)
+	if err != nil {
+		h.logger.Error("Failed to decode QR code", "error", err)
+	} else {
+		qrPhoto := tgbotapi.FileBytes{
+			Name:  "wireguard_qr.png",
+			Bytes: qrBytes,
+		}
+
+		photoMsg := tgbotapi.NewPhoto(chatID, qrPhoto)
+		photoMsg.Caption = instructionsText
+		photoMsg.ParseMode = "MarkdownV2"
+		_, err = h.bot.Send(photoMsg)
+		if err != nil {
+			h.logger.Error("Failed to send QR code photo", "error", err)
+		}
+	}
+
+	configBytes := []byte(wgData.Config)
+	configFile := tgbotapi.FileBytes{
+		Name:  "wireguard.conf",
+		Bytes: configBytes,
+	}
+
+	configID := h.configStore.Store(wgData.Config, wgData.QRCode)
+	wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("🔗 "+h.l10n.Get(lang, "buttons.open_vpn_page", nil), wgLink),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.my_subscriptions", nil), "my_subscriptions"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "cancel"),
+		),
+	)
+
+	docMsg := tgbotapi.NewDocument(chatID, configFile)
+	docMsg.Caption = h.l10n.Get(lang, "subscription.config_file", nil)
+	docMsg.ReplyMarkup = keyboard
+	_, err = h.bot.Send(docMsg)
+	if err != nil {
+		h.logger.Error("Failed to send config file", "error", err)
+	}
+
+	return nil
 }
 
 // createConnectionKeyboard создает упрощенную клавиатуру для сообщения с подключениями
-func (h *Handler) createConnectionKeyboard(lang string, wgConfig *string) tgbotapi.InlineKeyboardMarkup {
-	if wgConfig != nil && *wgConfig != "" {
-		configID := h.configStore.Store(*wgConfig)
+func (h *Handler) createConnectionKeyboard(lang string, wgData *subs.WireGuardData) tgbotapi.InlineKeyboardMarkup {
+	if wgData != nil && wgData.Config != "" {
+		configID := h.configStore.Store(wgData.Config, wgData.QRCode)
 		wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
 
 		return tgbotapi.NewInlineKeyboardMarkup(

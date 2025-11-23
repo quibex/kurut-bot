@@ -4,8 +4,10 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/base64"
+	"fmt"
 	"html/template"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 )
@@ -20,6 +22,7 @@ type ConfigStore struct {
 
 type storedConfig struct {
 	config    string
+	qrCode    string
 	expiresAt time.Time
 }
 
@@ -28,12 +31,20 @@ func NewConfigStore() *ConfigStore {
 		configs: make(map[string]*storedConfig),
 	}
 
-	go store.cleanupExpired()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// No logger available here, print to stderr
+				fmt.Fprintf(os.Stderr, "Panic in config store cleanup goroutine: %v\n", r)
+			}
+		}()
+		store.cleanupExpired()
+	}()
 
 	return store
 }
 
-func (cs *ConfigStore) Store(config string) string {
+func (cs *ConfigStore) Store(config string, qrCode string) string {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -42,26 +53,27 @@ func (cs *ConfigStore) Store(config string) string {
 
 	cs.configs[configID] = &storedConfig{
 		config:    config,
+		qrCode:    qrCode,
 		expiresAt: time.Now().Add(24 * time.Hour),
 	}
 
 	return configID
 }
 
-func (cs *ConfigStore) Get(configID string) (string, bool) {
+func (cs *ConfigStore) Get(configID string) (string, string, bool) {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
 
 	stored, exists := cs.configs[configID]
 	if !exists {
-		return "", false
+		return "", "", false
 	}
 
 	if time.Now().After(stored.expiresAt) {
-		return "", false
+		return "", "", false
 	}
 
-	return stored.config, true
+	return stored.config, stored.qrCode, true
 }
 
 func (cs *ConfigStore) cleanupExpired() {
@@ -90,7 +102,7 @@ func WGConnectHandler(store *ConfigStore) http.HandlerFunc {
 			return
 		}
 
-		config, exists := store.Get(configID)
+		config, qrCode, exists := store.Get(configID)
 		if !exists {
 			http.Error(w, "Config not found or expired", http.StatusNotFound)
 			return
@@ -99,8 +111,9 @@ func WGConnectHandler(store *ConfigStore) http.HandlerFunc {
 		encodedConfig := base64.StdEncoding.EncodeToString([]byte(config))
 
 		data := map[string]interface{}{
-			"Config":        template.JS(config),
+			"Config":        config,
 			"EncodedConfig": encodedConfig,
+			"QRCode":        qrCode,
 			"ConfigID":      configID,
 		}
 
@@ -119,7 +132,7 @@ func WGConfigDownloadHandler(store *ConfigStore) http.HandlerFunc {
 			return
 		}
 
-		config, exists := store.Get(configID)
+		config, _, exists := store.Get(configID)
 		if !exists {
 			http.Error(w, "Config not found or expired", http.StatusNotFound)
 			return

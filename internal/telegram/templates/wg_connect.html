@@ -3,189 +3,344 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WireGuard Connection</title>
+    <title>Kurut VPN - Кыргызский VPN</title>
     <style>
+        :root {
+            --kyrgyz-red: #D42631;
+            --kyrgyz-yellow: #FFD400;
+            --text-dark: #1a1a1a;
+            --text-light: #ffffff;
+            --bg-gradient: linear-gradient(135deg, #D42631 0%, #9e1b23 100%);
+            --glass-bg: rgba(255, 255, 255, 0.95);
+            --shadow-color: rgba(0, 0, 0, 0.25);
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg-gradient);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
             padding: 20px;
+            position: relative;
+            overflow-x: hidden;
+            color: var(--text-dark);
         }
+
+        /* Stylized background pattern simulating sun rays/tunduk feel */
+        body::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 150vmax;
+            height: 150vmax;
+            background: repeating-conic-gradient(
+                from 0deg,
+                rgba(255, 212, 0, 0.05) 0deg 10deg,
+                transparent 10deg 20deg
+            );
+            pointer-events: none;
+            animation: rotate 120s linear infinite;
+        }
+
+        @keyframes rotate {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
         .container {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            max-width: 500px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 40px 30px;
+            max-width: 480px;
             width: 100%;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 25px 50px -12px var(--shadow-color);
             text-align: center;
+            position: relative;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            z-index: 1;
         }
-        h1 { color: #333; margin-bottom: 10px; font-size: 28px; }
-        .subtitle { color: #666; margin-bottom: 30px; font-size: 14px; }
+
+        /* Ornament strip at the top */
+        .ornament-strip {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 8px;
+            background: repeating-linear-gradient(
+                45deg,
+                var(--kyrgyz-red),
+                var(--kyrgyz-red) 12px,
+                var(--kyrgyz-yellow) 12px,
+                var(--kyrgyz-yellow) 24px
+            );
+            border-radius: 24px 24px 0 0;
+        }
+
+        .logo-area {
+            margin-bottom: 20px;
+            font-size: 48px;
+            line-height: 1;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 { 
+            color: var(--text-dark); 
+            margin-bottom: 8px; 
+            font-size: 32px; 
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+        
+        .subtitle { 
+            color: #666; 
+            margin-bottom: 35px; 
+            font-size: 16px;
+            line-height: 1.5;
+        }
+
         .btn {
-            display: block;
-            padding: 15px 30px;
-            margin: 10px 0;
-            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 18px 24px;
+            margin: 12px 0;
+            border-radius: 16px;
             text-decoration: none;
             font-size: 16px;
-            font-weight: 600;
-            transition: transform 0.2s, box-shadow 0.2s;
+            font-weight: 700;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             cursor: pointer;
             border: none;
             width: 100%;
+            position: relative;
+            overflow: hidden;
         }
-        .btn:hover { 
-            transform: translateY(-2px); 
-            box-shadow: 0 10px 20px rgba(0,0,0,0.2); 
-        }
-        .primary { 
-            background: #667eea; 
+
+        .btn:active { transform: scale(0.98); }
+
+        .btn-primary { 
+            background: var(--kyrgyz-red); 
             color: white; 
+            box-shadow: 0 8px 20px -6px rgba(212, 38, 49, 0.6);
         }
-        .secondary { 
-            background: #f0f0f0; 
-            color: #333; 
+        
+        .btn-primary:hover {
+            background: #b31b25;
+            box-shadow: 0 12px 25px -8px rgba(212, 38, 49, 0.7);
+            transform: translateY(-2px);
         }
+
+        .btn-secondary { 
+            background: #f8f9fa; 
+            color: var(--text-dark); 
+            border: 2px solid #eee;
+        }
+
+        .btn-secondary:hover {
+            background: #fff;
+            border-color: #ccc;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+
         #qrcode {
             margin: 30px auto;
-            padding: 20px;
+            padding: 15px;
             background: white;
-            border-radius: 10px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
             display: inline-block;
+            border: 1px solid #eee;
+            transition: transform 0.3s ease;
         }
+
+        #qrcode:hover { transform: scale(1.03); }
+
+        #qrcode img {
+            display: block;
+            border-radius: 12px;
+            width: 100%;
+            height: auto;
+            max-width: 240px;
+        }
+
         .instruction {
             margin: 20px 0;
-            color: #666;
-            font-size: 14px;
-            line-height: 1.6;
+            color: #555;
+            font-size: 15px;
+            font-weight: 500;
         }
+
         .divider {
-            margin: 30px 0;
-            border-top: 1px solid #e0e0e0;
-            position: relative;
-        }
-        .divider span {
-            position: absolute;
-            top: -10px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: white;
-            padding: 0 15px;
-            color: #999;
+            margin: 25px 0;
+            display: flex;
+            align-items: center;
+            color: #aaa;
             font-size: 12px;
-            font-weight: 600;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
         }
+
+        .divider::before, .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #eee;
+        }
+
+        .divider span { padding: 0 15px; }
+
         .status {
-            padding: 10px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 25px;
             font-size: 14px;
+            font-weight: 500;
+            animation: slideDown 0.3s ease-out;
+            display: none;
         }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
         .status.info {
             background: #e3f2fd;
-            color: #1976d2;
+            color: #0d47a1;
+            border: 1px solid #bbdefb;
         }
+
         .status.success {
             background: #e8f5e9;
-            color: #388e3c;
+            color: #1b5e20;
+            border: 1px solid #c8e6c9;
         }
+
+        .footer-note {
+            margin-top: 35px;
+            font-size: 13px;
+            color: #888;
+            line-height: 1.6;
+        }
+        
+        .flag-icon {
+            display: inline-block;
+            width: 20px;
+            height: 14px;
+            background: var(--kyrgyz-red);
+            border-radius: 2px;
+            position: relative;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+        
+        .flag-icon::after {
+            content: '☀️';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 8px;
+            color: var(--kyrgyz-yellow);
+            line-height: 1;
+        }
+
         @media (max-width: 600px) {
-            .container { padding: 30px 20px; }
-            h1 { font-size: 24px; }
+            .container { padding: 30px 20px; border-radius: 20px; }
+            h1 { font-size: 28px; }
+            .logo-area { font-size: 40px; }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔐 WireGuard VPN</h1>
-        <p class="subtitle">Выберите удобный способ подключения</p>
+        <div class="ornament-strip"></div>
         
-        <div id="status" class="status info" style="display: none;">
-            Попытка автоматического открытия приложения...
+        <div class="logo-area">🏔️</div>
+        <h1>Kurut VPN</h1>
+        <p class="subtitle">Свободный интернет с духом гор.<br>Безопасно. Быстро. Надежно.</p>
+        
+        <div id="status" class="status info">
+            Попытка автоматического подключения...
         </div>
         
         <!-- Метод 1: Прямая ссылка -->
-        <a id="wgLink" href="wireguard://tunnels/add/{{.EncodedConfig}}" class="btn primary">
-            📱 Открыть в приложении WireGuard
+        <a id="wgLink" href="wireguard://{{.EncodedConfig}}" class="btn btn-primary">
+            <span>🚀 Открыть в WireGuard</span>
         </a>
         
-        <div class="divider"><span>ИЛИ</span></div>
+        <div class="divider"><span>или</span></div>
         
         <!-- Метод 2: QR-код -->
-        <p class="instruction">📷 Отсканируйте QR-код в приложении WireGuard</p>
-        <div id="qrcode"></div>
+        <p class="instruction">Наведите камеру для подключения</p>
+        {{if .QRCode}}
+        <div id="qrcode">
+            <img src="data:image/png;base64,{{.QRCode}}" alt="WireGuard QR Code" />
+        </div>
+        {{else}}
+        <div id="qrcode" style="padding: 40px; background: #f5f5f5; color: #999;">
+            QR код недоступен
+        </div>
+        {{end}}
         
-        <div class="divider"><span>ИЛИ</span></div>
+        <div class="divider"><span>или</span></div>
         
         <!-- Метод 3: Скачать файл -->
-        <a href="/wg/config/{{.ConfigID}}" download="wireguard.conf" class="btn secondary">
-            📥 Скачать конфигурационный файл
+        <a href="/wg/config/{{.ConfigID}}" download="wireguard.conf" class="btn btn-secondary">
+            <span>📥 Скачать конфиг файл</span>
         </a>
         
-        <p class="instruction" style="margin-top: 20px; font-size: 12px; color: #999;">
-            💡 После скачивания импортируйте файл в приложение WireGuard<br>
-            ⏰ Ссылка действительна 24 часа
-        </p>
+        <div class="footer-note">
+            <p><span class="flag-icon"></span>Сделано в Кыргызстане</p>
+            <p style="margin-top: 8px; font-size: 11px; opacity: 0.6;">Ссылка действительна 24 часа</p>
+        </div>
     </div>
     
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>
-        const config = {{.Config}};
-        const deepLink = "wireguard://tunnels/add/{{.EncodedConfig}}";
-        
-        // Генерируем QR-код
-        new QRCode(document.getElementById("qrcode"), {
-            text: config,
-            width: 256,
-            height: 256,
-            colorDark: "#333333",
-            colorLight: "#ffffff",
-            correctLevel: QRCode.CorrectLevel.M
-        });
-        
-        // Автоматический редирект только на Android
+        const deepLink = "wireguard://{{.EncodedConfig}}";
         const isAndroid = /Android/i.test(navigator.userAgent);
         const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        const statusDiv = document.getElementById('status');
         
         if (isAndroid) {
-            // На Android пробуем открыть автоматически через небольшую задержку
-            const statusDiv = document.getElementById('status');
             statusDiv.style.display = 'block';
             
             setTimeout(() => {
                 window.location.href = deepLink;
                 
-                // Через 2 секунды меняем статус
                 setTimeout(() => {
                     statusDiv.className = 'status success';
-                    statusDiv.textContent = '✓ Если приложение не открылось, используйте QR-код или скачайте файл';
+                    statusDiv.textContent = '✓ Если приложение не открылось, используйте QR-код ниже';
                 }, 2000);
-            }, 500);
+            }, 800);
         }
         
-        // Отслеживаем клик по основной кнопке
         document.getElementById('wgLink').addEventListener('click', (e) => {
-            const statusDiv = document.getElementById('status');
             statusDiv.style.display = 'block';
             statusDiv.className = 'status info';
             
             if (isIOS) {
-                statusDiv.textContent = '📱 iOS: Используйте QR-код или скачайте файл для надежного импорта';
+                statusDiv.textContent = '📱 iOS: Лучше использовать QR-код или скачать файл';
             } else {
-                statusDiv.textContent = '✓ Открываем приложение WireGuard...';
+                statusDiv.textContent = '✓ Запускаем WireGuard...';
             }
             
             setTimeout(() => {
                 statusDiv.className = 'status success';
-                statusDiv.textContent = '💡 Если приложение не открылось, используйте QR-код или скачайте файл ниже';
-            }, 2000);
+                statusDiv.textContent = '💡 Не сработало? Используйте QR-код или скачайте файл';
+            }, 2500);
         });
     </script>
 </body>
 </html>
-

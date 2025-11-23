@@ -2,6 +2,7 @@ package starttrial
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -88,54 +89,92 @@ func (h *Handler) Start(ctx context.Context, user *users.User, chatID int64) err
 }
 
 func (h *Handler) sendConnectionInstructions(chatID int64, subscription *subs.Subscription, tariffName string, durationDays int, lang string) error {
-	messageText := h.l10n.Get(lang, "subscription.success_trial", map[string]interface{}{
+	wgData, err := subscription.GetWireGuardData()
+
+	if err != nil || wgData == nil || wgData.Config == "" {
+		messageText := h.l10n.Get(lang, "subscription.success_trial", map[string]interface{}{
+			"tariff_name": escapeMarkdownV2(tariffName),
+			"duration":    durationDays,
+		})
+		messageText += "\n\n" + h.l10n.Get(lang, "subscription.link_not_ready", nil)
+		
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.view_tariffs", nil), "view_tariffs"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "main_menu"),
+			),
+		)
+
+		msg := tgbotapi.NewMessage(chatID, messageText)
+		msg.ParseMode = "MarkdownV2"
+		msg.ReplyMarkup = keyboard
+		msg.DisableWebPagePreview = true
+		_, err = h.bot.Send(msg)
+		return err
+	}
+
+	successText := h.l10n.Get(lang, "subscription.success_trial", map[string]interface{}{
 		"tariff_name": escapeMarkdownV2(tariffName),
 		"duration":    durationDays,
 	})
 
-	wgData, err := subscription.GetWireGuardData()
-	var keyboard tgbotapi.InlineKeyboardMarkup
+	msg := tgbotapi.NewMessage(chatID, successText)
+	msg.ParseMode = "MarkdownV2"
+	msg.DisableWebPagePreview = true
+	_, _ = h.bot.Send(msg)
 
-	if err != nil || wgData == nil || wgData.Config == "" {
-		messageText += "\n\n" + h.l10n.Get(lang, "subscription.link_not_ready", nil)
-		
-		keyboard = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.view_tariffs", nil), "view_tariffs"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "main_menu"),
-			),
-		)
+	instructionsText := h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n" + h.l10n.Get(lang, "subscription.trial_note", nil)
+
+	qrBytes, err := base64.StdEncoding.DecodeString(wgData.QRCode)
+	if err != nil {
+		h.logger.Error("Failed to decode QR code", "error", err)
 	} else {
-		messageText += "\n```\n" + wgData.Config + "\n```"
+		qrPhoto := tgbotapi.FileBytes{
+			Name:  "wireguard_qr.png",
+			Bytes: qrBytes,
+		}
 
-		configID := h.configStore.Store(wgData.Config)
-		wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
-
-		keyboard = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonURL("🔗 Подключиться к VPN", wgLink),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.view_tariffs", nil), "view_tariffs"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "main_menu"),
-			),
-		)
+		photoMsg := tgbotapi.NewPhoto(chatID, qrPhoto)
+		photoMsg.Caption = instructionsText
+		photoMsg.ParseMode = "MarkdownV2"
+		_, err = h.bot.Send(photoMsg)
+		if err != nil {
+			h.logger.Error("Failed to send QR code photo", "error", err)
+		}
 	}
 
-	messageText += "\n\n" + h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n"
-	messageText += h.l10n.Get(lang, "subscription.trial_note", nil)
+	configBytes := []byte(wgData.Config)
+	configFile := tgbotapi.FileBytes{
+		Name:  "wireguard.conf",
+		Bytes: configBytes,
+	}
 
-	msg := tgbotapi.NewMessage(chatID, messageText)
-	msg.ParseMode = "MarkdownV2"
-	msg.ReplyMarkup = keyboard
-	msg.DisableWebPagePreview = true
+	configID := h.configStore.Store(wgData.Config, wgData.QRCode)
+	wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
 
-	_, err = h.bot.Send(msg)
-	return err
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("🔗 "+h.l10n.Get(lang, "buttons.open_vpn_page", nil), wgLink),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.view_tariffs", nil), "view_tariffs"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "main_menu"),
+		),
+	)
+
+	docMsg := tgbotapi.NewDocument(chatID, configFile)
+	docMsg.Caption = h.l10n.Get(lang, "subscription.config_file", nil)
+	docMsg.ReplyMarkup = keyboard
+	_, err = h.bot.Send(docMsg)
+	if err != nil {
+		h.logger.Error("Failed to send config file", "error", err)
+	}
+
+	return nil
 }
 
 func escapeMarkdownV2(text string) string {

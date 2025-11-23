@@ -31,5 +31,5 @@ type localizer interface {
 }
 
 type configStore interface {
-	Store(config string) string
+	Store(config string, qrCode string) string
 }

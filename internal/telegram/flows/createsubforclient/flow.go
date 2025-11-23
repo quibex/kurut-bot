@@ -2,6 +2,7 @@ package createsubforclient
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -557,52 +558,89 @@ func extractChatID(update *tgbotapi.Update) int64 {
 
 // SendConnectionKey отправляет ключ подключения администратору
 func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscription, clientName string, messageID *int) error {
-	var configText string
-	var keyboard *tgbotapi.InlineKeyboardMarkup
-	
 	wgData, err := subscription.GetWireGuardData()
-	if err == nil && wgData != nil && wgData.Config != "" {
-		configText = wgData.Config
-		
-		configID := h.configStore.Store(wgData.Config)
-		wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
-		
-		kb := tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonURL("🔗 Подключиться к VPN", wgLink),
-			),
-		)
-		keyboard = &kb
-	} else {
-		configText = "Конфигурация не готова"
-	}
 
-	messageText := fmt.Sprintf(
-		"✅ *Подписка создана успешно!*\n\n"+
-			"👤 Клиент: *%s*\n"+
-			"🔢 ID подписки: *%d*\n\n"+
-			"🔧 *Конфигурация WireGuard:*\n"+
-			"```\n%s\n```\n\n"+
-			"📋 Отправьте эту конфигурацию клиенту для подключения.",
-		clientName, subscription.ID, configText)
+	if err != nil || wgData == nil || wgData.Config == "" {
+		messageText := fmt.Sprintf(
+			"✅ *Подписка создана успешно!*\n\n"+
+				"👤 Клиент: *%s*\n"+
+				"🔢 ID подписки: *%d*\n\n"+
+				"⚠️ Конфигурация WireGuard не готова",
+			clientName, subscription.ID)
 
-	// Редактируем существующее сообщение, если MessageID есть
-	if messageID != nil {
-		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, messageText)
-		editMsg.ParseMode = "Markdown"
-		editMsg.ReplyMarkup = keyboard
-		_, err := h.bot.Send(editMsg)
+		if messageID != nil {
+			editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, messageText)
+			editMsg.ParseMode = "Markdown"
+			_, err := h.bot.Send(editMsg)
+			return err
+		}
+
+		msg := tgbotapi.NewMessage(chatID, messageText)
+		msg.ParseMode = "Markdown"
+		_, err = h.bot.Send(msg)
 		return err
 	}
 
-	// Fallback: отправляем новое сообщение
-	msg := tgbotapi.NewMessage(chatID, messageText)
-	msg.ParseMode = "Markdown"
-	if keyboard != nil {
-		msg.ReplyMarkup = keyboard
+	successText := fmt.Sprintf(
+		"✅ *Подписка создана успешно!*\n\n"+
+			"👤 Клиент: *%s*\n"+
+			"🔢 ID подписки: *%d*\n\n"+
+			"📋 Отправьте QR-код и конфигурацию клиенту для подключения.",
+		clientName, subscription.ID)
+
+	if messageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, successText)
+		editMsg.ParseMode = "Markdown"
+		_, _ = h.bot.Send(editMsg)
+	} else {
+		msg := tgbotapi.NewMessage(chatID, successText)
+		msg.ParseMode = "Markdown"
+		_, _ = h.bot.Send(msg)
 	}
-	_, err = h.bot.Send(msg)
-	return err
+
+	qrBytes, err := base64.StdEncoding.DecodeString(wgData.QRCode)
+	if err != nil {
+		h.logger.Error("Failed to decode QR code", "error", err)
+	} else {
+		qrPhoto := tgbotapi.FileBytes{
+			Name:  "wireguard_qr.png",
+			Bytes: qrBytes,
+		}
+
+		photoMsg := tgbotapi.NewPhoto(chatID, qrPhoto)
+		photoMsg.Caption = fmt.Sprintf("QR-код для клиента: *%s*", clientName)
+		photoMsg.ParseMode = "Markdown"
+		_, err = h.bot.Send(photoMsg)
+		if err != nil {
+			h.logger.Error("Failed to send QR code photo", "error", err)
+		}
+	}
+
+	configBytes := []byte(wgData.Config)
+	configFile := tgbotapi.FileBytes{
+		Name:  "wireguard.conf",
+		Bytes: configBytes,
+	}
+
+	configID := h.configStore.Store(wgData.Config, wgData.QRCode)
+	wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("🔗 Открыть страницу подключения", wgLink),
+		),
+	)
+
+	docMsg := tgbotapi.NewDocument(chatID, configFile)
+	docMsg.Caption = fmt.Sprintf("Файл конфигурации для клиента: *%s*", clientName)
+	docMsg.ParseMode = "Markdown"
+	docMsg.ReplyMarkup = keyboard
+	_, err = h.bot.Send(docMsg)
+	if err != nil {
+		h.logger.Error("Failed to send config file", "error", err)
+	}
+
+	return nil
 }
 
 // createFreeSubscription создает бесплатную подписку без оплаты

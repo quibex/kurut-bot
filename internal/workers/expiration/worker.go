@@ -37,6 +37,11 @@ func (w *Worker) Name() string {
 func (w *Worker) Start() error {
 	// Runs daily at 00:10
 	_, err := w.cron.AddFunc("10 0 * * *", func() {
+		defer func() {
+			if r := recover(); r != nil {
+				w.logger.Error("Panic in expiration worker", "panic", r)
+			}
+		}()
 		ctx := context.Background()
 		w.logger.Info("Running expiration worker")
 		if err := w.run(ctx); err != nil {

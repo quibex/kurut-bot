@@ -14,6 +14,13 @@ import (
 )
 
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("FATAL PANIC in main: %v", r)
+			panic(r)
+		}
+	}()
+
 	ctx := context.Background()
 
 	// Initialize environment
@@ -28,6 +35,11 @@ func main() {
 	// Start observability server in background
 	if env.Servers.HTTP.Observability != nil {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("Panic in observability server goroutine", slog.Any("panic", r))
+				}
+			}()
 			logger.Info("Starting observability server", slog.String("addr", env.Servers.HTTP.Observability.Addr))
 			if err := env.Servers.HTTP.Observability.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				logger.Error("Observability server error", slog.Any("error", err))
@@ -38,6 +50,11 @@ func main() {
 	// Start API server in background
 	if env.Servers.HTTP.API != nil {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("Panic in API server goroutine", slog.Any("panic", r))
+				}
+			}()
 			logger.Info("Starting API server", slog.String("addr", env.Servers.HTTP.API.Addr))
 			if err := env.Servers.HTTP.API.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				logger.Error("API server error", slog.Any("error", err))
@@ -46,16 +63,20 @@ func main() {
 	}
 
 	// Запускаем Telegram бота
+	logger.Info("Starting Telegram bot...")
 	if err := startTelegramBot(ctx, env); err != nil {
 		logger.Error("Failed to start telegram bot", slog.Any("error", err))
-		return
+		log.Fatalf("FATAL: Failed to start telegram bot: %v", err)
 	}
+	logger.Info("Telegram bot started successfully")
 
 	// Запускаем worker manager
+	logger.Info("Starting worker manager...")
 	if err := env.Services.WorkerManager.Start(); err != nil {
 		logger.Error("Failed to start worker manager", slog.Any("error", err))
-		return
+		log.Fatalf("FATAL: Failed to start worker manager: %v", err)
 	}
+	logger.Info("Worker manager started successfully")
 
 	// Wait for interrupt signal to gracefully shutdown
 	quit := make(chan os.Signal, 1)
@@ -131,6 +152,11 @@ func startTelegramBot(ctx context.Context, env *environment.Env) error {
 
 	// Запускаем роутер для обработки обновлений
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("Panic in telegram bot goroutine", slog.Any("panic", r))
+			}
+		}()
 		for {
 			select {
 			case <-ctx.Done():
