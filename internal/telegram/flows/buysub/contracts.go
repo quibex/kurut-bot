@@ -42,10 +42,6 @@ type (
 		ListEnabledWGServers(ctx context.Context) ([]*storage.WGServer, error)
 	}
 
-	localizer interface {
-		Get(lang, key string, params map[string]interface{}) string
-	}
-
 	configStore interface {
 		Store(config string, qrCode string) string
 	}

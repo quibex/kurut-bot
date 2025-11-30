@@ -9,6 +9,7 @@ import (
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/stories/users"
+	"kurut-bot/internal/telegram/messages"
 
 	"github.com/robfig/cron/v3"
 )
@@ -18,7 +19,6 @@ type Worker struct {
 	storage             Storage
 	subscriptionService SubscriptionService
 	telegramBot         TelegramBot
-	localizer           Localizer
 	logger              *slog.Logger
 	cron                *cron.Cron
 }
@@ -28,14 +28,12 @@ func NewWorker(
 	storage Storage,
 	subscriptionService SubscriptionService,
 	telegramBot TelegramBot,
-	localizer Localizer,
 	logger *slog.Logger,
 ) *Worker {
 	return &Worker{
 		storage:             storage,
 		subscriptionService: subscriptionService,
 		telegramBot:         telegramBot,
-		localizer:           localizer,
 		logger:              logger,
 		cron:                cron.New(),
 	}
@@ -234,21 +232,14 @@ func (w *Worker) findTariffByPrice(ctx context.Context, price float64) (*tariffs
 
 // sendRetrySuccessNotification sends notification to user
 func (w *Worker) sendRetrySuccessNotification(ctx context.Context, user *users.User, subscription *subs.Subscription, tariff *tariffs.Tariff) error {
-	lang := user.Language
-	if lang == "" {
-		lang = "ru"
-	}
-
-	message := w.localizer.Get(lang, "subscription.retry_success", map[string]interface{}{
-		"tariff_name": tariff.Name,
-	})
+	message := messages.FormatSubscriptionRetrySuccess(tariff.Name)
 
 	wgData, err := subscription.GetWireGuardData()
-	if err == nil && wgData != nil && wgData.Config != "" {
-		message += "\n```\n" + wgData.Config + "\n```"
+	if err == nil && wgData != nil && wgData.ConfigFile != "" {
+		message += "\n```\n" + wgData.ConfigFile + "\n```"
 	}
 
-	message += "\n\n" + w.localizer.Get(lang, "subscription.retry_success_body", nil)
+	message += "\n\n" + messages.SubscriptionRetrySuccessBody
 
 	if err := w.telegramBot.SendMessage(user.TelegramID, message); err != nil {
 		return fmt.Errorf("send telegram message: %w", err)

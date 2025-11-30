@@ -29,9 +29,4 @@ type (
 	TelegramBot interface {
 		SendMessage(chatID int64, text string) error
 	}
-
-	// Localizer provides localization operations
-	Localizer interface {
-		Get(lang, key string, data map[string]interface{}) string
-	}
 )

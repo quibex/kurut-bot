@@ -274,7 +274,6 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	// Редактируем существующее сообщение, если MessageID есть
 	if data.MessageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, paymentMsg)
-		editMsg.ParseMode = "Markdown"
 		editMsg.ReplyMarkup = &keyboard
 		_, err = h.bot.Send(editMsg)
 		if err != nil {
@@ -283,7 +282,6 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	} else {
 		// Fallback: отправляем новое сообщение
 		msg := tgbotapi.NewMessage(chatID, paymentMsg)
-		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = keyboard
 		sentMsg, err := h.bot.Send(msg)
 		if err != nil {
@@ -550,7 +548,7 @@ func extractChatID(update *tgbotapi.Update) int64 {
 	if update.Message != nil {
 		return update.Message.Chat.ID
 	}
-	if update.CallbackQuery != nil {
+	if update.CallbackQuery != nil && update.CallbackQuery.Message != nil {
 		return update.CallbackQuery.Message.Chat.ID
 	}
 	return 0
@@ -560,7 +558,7 @@ func extractChatID(update *tgbotapi.Update) int64 {
 func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscription, clientName string, messageID *int) error {
 	wgData, err := subscription.GetWireGuardData()
 
-	if err != nil || wgData == nil || wgData.Config == "" {
+	if err != nil || wgData == nil || wgData.ConfigFile == "" {
 		messageText := fmt.Sprintf(
 			"✅ *Подписка создана успешно!*\n\n"+
 				"👤 Клиент: *%s*\n"+
@@ -570,13 +568,11 @@ func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscriptio
 
 		if messageID != nil {
 			editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, messageText)
-			editMsg.ParseMode = "Markdown"
 			_, err := h.bot.Send(editMsg)
 			return err
 		}
 
 		msg := tgbotapi.NewMessage(chatID, messageText)
-		msg.ParseMode = "Markdown"
 		_, err = h.bot.Send(msg)
 		return err
 	}
@@ -590,15 +586,13 @@ func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscriptio
 
 	if messageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, successText)
-		editMsg.ParseMode = "Markdown"
 		_, _ = h.bot.Send(editMsg)
 	} else {
 		msg := tgbotapi.NewMessage(chatID, successText)
-		msg.ParseMode = "Markdown"
 		_, _ = h.bot.Send(msg)
 	}
 
-	qrBytes, err := base64.StdEncoding.DecodeString(wgData.QRCode)
+	qrBytes, err := base64.StdEncoding.DecodeString(wgData.QRCodeBase64)
 	if err != nil {
 		h.logger.Error("Failed to decode QR code", "error", err)
 	} else {
@@ -609,20 +603,19 @@ func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscriptio
 
 		photoMsg := tgbotapi.NewPhoto(chatID, qrPhoto)
 		photoMsg.Caption = fmt.Sprintf("QR-код для клиента: *%s*", clientName)
-		photoMsg.ParseMode = "Markdown"
 		_, err = h.bot.Send(photoMsg)
 		if err != nil {
 			h.logger.Error("Failed to send QR code photo", "error", err)
 		}
 	}
 
-	configBytes := []byte(wgData.Config)
+	configBytes := []byte(wgData.ConfigFile)
 	configFile := tgbotapi.FileBytes{
 		Name:  "wireguard.conf",
 		Bytes: configBytes,
 	}
 
-	configID := h.configStore.Store(wgData.Config, wgData.QRCode)
+	configID := h.configStore.Store(wgData.ConfigFile, wgData.QRCodeBase64)
 	wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
@@ -633,7 +626,6 @@ func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscriptio
 
 	docMsg := tgbotapi.NewDocument(chatID, configFile)
 	docMsg.Caption = fmt.Sprintf("Файл конфигурации для клиента: *%s*", clientName)
-	docMsg.ParseMode = "Markdown"
 	docMsg.ReplyMarkup = keyboard
 	_, err = h.bot.Send(docMsg)
 	if err != nil {

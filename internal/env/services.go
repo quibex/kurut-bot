@@ -8,7 +8,6 @@ import (
 	"kurut-bot/internal/config"
 	"kurut-bot/internal/infra/wireguard"
 	"kurut-bot/internal/infra/yookassa"
-	"kurut-bot/internal/localization"
 	"kurut-bot/internal/storage"
 	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/subs"
@@ -16,7 +15,6 @@ import (
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/stories/users"
 	"kurut-bot/internal/telegram"
-	wgService "kurut-bot/internal/wireguard"
 	"kurut-bot/internal/telegram/cmds"
 	"kurut-bot/internal/telegram/flows/buysub"
 	"kurut-bot/internal/telegram/flows/createsubforclient"
@@ -27,6 +25,7 @@ import (
 	"kurut-bot/internal/telegram/flows/starttrial"
 	"kurut-bot/internal/telegram/flows/wgserver"
 	"kurut-bot/internal/telegram/states"
+	wgService "kurut-bot/internal/wireguard"
 	"kurut-bot/internal/workers"
 	"kurut-bot/internal/workers/expiration"
 	"kurut-bot/internal/workers/healthcheck"
@@ -51,12 +50,6 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	}
 	// Создаем реальный storage
 	storageImpl := storage.New(clients.SQLiteDB.DB)
-
-	// Создаем localization service
-	l10nService, err := localization.NewService()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create localization service")
-	}
 
 	// Создаем WireGuard сервисы
 	wgBalancer := wireguard.NewBalancer(storageImpl, logger)
@@ -92,7 +85,6 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		createSubService,
 		paymentService,
 		storageImpl,
-		l10nService,
 		configStore,
 		cfg.WireGuard.WebAppBaseURL,
 		logger,
@@ -138,10 +130,10 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	// Создаем startTrialHandler
 	startTrialHandler := starttrial.NewHandler(
 		clients.TelegramBot,
+		storageImpl,
 		tariffService,
 		createSubService,
 		userService,
-		l10nService,
 		configStore,
 		cfg.WireGuard.WebAppBaseURL,
 		logger,
@@ -152,7 +144,6 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		clients.TelegramBot.GetBotAPI(),
 		subsService,
 		tariffService,
-		l10nService,
 	)
 
 	// Создаем statsCommand
@@ -168,7 +159,6 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		subsService,
 		tariffService,
 		paymentService,
-		l10nService,
 		logger,
 	)
 
@@ -199,7 +189,6 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		wgServerHandler,
 		mySubsCommand,
 		statsCommand,
-		l10nService,
 	)
 
 	// Создаем воркеры
@@ -207,7 +196,6 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		storageImpl,
 		createSubService,
 		clients.TelegramBot,
-		l10nService,
 		logger,
 	)
 

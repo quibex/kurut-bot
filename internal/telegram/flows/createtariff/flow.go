@@ -72,7 +72,6 @@ func (h *Handler) showNameInput(chatID int64) error {
 	keyboard := h.createCancelKeyboard()
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
-	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
 
 	_, err := h.bot.Send(msg)
@@ -128,7 +127,6 @@ func (h *Handler) showPriceInput(chatID int64, tariffName string) error {
 	keyboard := h.createCancelKeyboard()
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
-	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
 
 	_, err := h.bot.Send(msg)
@@ -189,7 +187,6 @@ func (h *Handler) showDurationInput(chatID int64, tariffName string, price float
 	keyboard := h.createCancelKeyboard()
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
-	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
 
 	_, err := h.bot.Send(msg)
@@ -250,7 +247,6 @@ func (h *Handler) showConfirmation(chatID int64, data *flows.CreateTariffFlowDat
 	keyboard := h.createConfirmationKeyboard()
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
-	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
 
 	_, err := h.bot.Send(msg)
@@ -318,7 +314,6 @@ func (h *Handler) createTariffAndFinish(ctx context.Context, update *tgbotapi.Up
 		createdTariff.CreatedAt.Format("02.01.2006 15:04"))
 
 	msg := tgbotapi.NewMessage(chatID, successMsg)
-	msg.ParseMode = "Markdown"
 
 	_, err = h.bot.Send(msg)
 	if err != nil {
@@ -378,7 +373,7 @@ func extractChatID(update *tgbotapi.Update) int64 {
 	if update.Message != nil {
 		return update.Message.Chat.ID
 	}
-	if update.CallbackQuery != nil {
+	if update.CallbackQuery != nil && update.CallbackQuery.Message != nil {
 		return update.CallbackQuery.Message.Chat.ID
 	}
 	return 0

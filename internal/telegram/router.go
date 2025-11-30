@@ -15,6 +15,7 @@ import (
 	"kurut-bot/internal/telegram/flows/renewsub"
 	"kurut-bot/internal/telegram/flows/starttrial"
 	"kurut-bot/internal/telegram/flows/wgserver"
+	"kurut-bot/internal/telegram/messages"
 	"kurut-bot/internal/telegram/states"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -25,7 +26,6 @@ type Router struct {
 	stateManager stateManager
 	userService  userService
 	adminChecker adminChecker
-	l10n         localizer
 
 	// Handler для флоу покупки подписки
 	buySubHandler             *buysub.Handler
@@ -56,10 +56,6 @@ type adminChecker interface {
 	IsAdmin(telegramID int64) bool
 }
 
-type localizer interface {
-	Get(lang, key string, params map[string]interface{}) string
-}
-
 func (r *Router) Route(update *tgbotapi.Update) error {
 	ctx := context.Background()
 
@@ -75,7 +71,7 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		telegramID,
 	)
 	if err != nil {
-		_ = r.sendError(telegramID, "ru")
+		_ = r.sendError(telegramID)
 		return err
 	}
 
@@ -113,7 +109,7 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 			// Отвечаем на callback query
 			callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
 			_, _ = r.bot.Request(callbackConfig)
-			return r.buySubHandler.Start(user.ID, chatID, user.Language, messageID)
+			return r.buySubHandler.Start(user.ID, chatID, messageID)
 		case callbackData == "my_subscriptions":
 			return r.mySubsCommand.Execute(ctx, user, extractChatID(update))
 		case strings.HasPrefix(callbackData, "my_subs_page:"):
@@ -123,10 +119,15 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
 			_, _ = r.bot.Request(callback)
 			return nil
-		case callbackData == "lang_ru":
-			return r.handleLanguageSelection(ctx, update, user, "ru")
-		case callbackData == "lang_ky":
-			return r.handleLanguageSelection(ctx, update, user, "ky")
+		case strings.HasPrefix(callbackData, "wg_archive:"):
+			if !r.adminChecker.IsAdmin(telegramID) {
+				return nil
+			}
+			ctx := context.Background()
+			chatID := extractChatID(update)
+			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+			_, _ = r.bot.Request(callback)
+			return r.wgServerHandler.HandleArchiveCallback(ctx, chatID, update.CallbackQuery.ID, callbackData)
 		}
 	}
 
@@ -166,30 +167,27 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 	}
 
 	// Если нет активного состояния - обрабатываем как обычное сообщение
-	return r.sendHelp(extractChatID(update), user.Language)
+	return r.sendHelp(extractChatID(update))
 }
 
 func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User) error {
 	if update.Message == nil || !update.Message.IsCommand() {
-		return r.sendHelp(extractChatID(update), user.Language)
+		return r.sendHelp(extractChatID(update))
 	}
 
 	switch update.Message.Command() {
 	case "start":
 		return r.sendWelcome(update.Message.Chat.ID, user)
-	case "language":
-		return r.sendLanguageSelection(update.Message.Chat.ID, user, nil)
 	case "buy":
 		return r.buySubHandler.Start(
 			user.ID,
 			update.Message.Chat.ID,
-			user.Language,
 			nil, // Команда /buy не имеет MessageID для редактирования
 		)
 	case "create_sub":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
 			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для создания подписок клиентам"))
-			return r.sendHelp(update.Message.Chat.ID, user.Language)
+			return r.sendHelp(update.Message.Chat.ID)
 		}
 		return r.createSubForClientHandler.Start(
 			user.ID,
@@ -198,7 +196,7 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 	case "create_tariff":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
 			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для создания тарифов"))
-			return r.sendHelp(update.Message.Chat.ID, user.Language)
+			return r.sendHelp(update.Message.Chat.ID)
 		}
 		return r.createTariffHandler.Start(
 			update.Message.Chat.ID,
@@ -206,7 +204,7 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 	case "disable_tariff":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
 			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для архивации тарифов"))
-			return r.sendHelp(update.Message.Chat.ID, user.Language)
+			return r.sendHelp(update.Message.Chat.ID)
 		}
 		return r.disableTariffHandler.Start(
 			update.Message.Chat.ID,
@@ -214,7 +212,7 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 	case "enable_tariff":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
 			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для восстановления тарифов"))
-			return r.sendHelp(update.Message.Chat.ID, user.Language)
+			return r.sendHelp(update.Message.Chat.ID)
 		}
 		return r.enableTariffHandler.Start(
 			update.Message.Chat.ID,
@@ -222,59 +220,54 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 	case "wg_servers":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
 			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для управления серверами"))
-			return r.sendHelp(update.Message.Chat.ID, user.Language)
+			return r.sendHelp(update.Message.Chat.ID)
 		}
 		ctx := context.Background()
 		return r.wgServerHandler.ListServers(ctx, update.Message.Chat.ID)
 	case "add_wg_server":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
 			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для добавления серверов"))
-			return r.sendHelp(update.Message.Chat.ID, user.Language)
+			return r.sendHelp(update.Message.Chat.ID)
 		}
 		return r.wgServerHandler.StartAddServer(update.Message.Chat.ID)
 	case "archive_wg_server":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
 			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для архивирования серверов"))
-			return r.sendHelp(update.Message.Chat.ID, user.Language)
+			return r.sendHelp(update.Message.Chat.ID)
 		}
-		return r.wgServerHandler.StartArchiveServer(update.Message.Chat.ID)
+		ctx := context.Background()
+		return r.wgServerHandler.StartArchiveServer(ctx, update.Message.Chat.ID)
 	case "my_subs":
 		ctx := context.Background()
 		return r.mySubsCommand.Execute(ctx, user, update.Message.Chat.ID)
 	case "renew":
-		return r.renewSubHandler.Start(user.ID, update.Message.Chat.ID, user.Language)
+		return r.renewSubHandler.Start(user.ID, update.Message.Chat.ID)
 	case "stats":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
 			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для просмотра статистики"))
-			return r.sendHelp(update.Message.Chat.ID, user.Language)
+			return r.sendHelp(update.Message.Chat.ID)
 		}
 		ctx := context.Background()
 		return r.statsCommand.Execute(ctx, update.Message.Chat.ID)
 	default:
-		return r.sendHelp(update.Message.Chat.ID, user.Language)
+		return r.sendHelp(update.Message.Chat.ID)
 	}
 }
 
 func (r *Router) sendWelcome(chatID int64, user *users.User) error {
-	// Если язык не установлен - показываем выбор языка
-	if user.Language == "" {
-		return r.sendLanguageSelection(chatID, user, nil)
-	}
-
-	text := r.l10n.Get(user.Language, "welcome.title", nil) + "\n\n" +
-		r.l10n.Get(user.Language, "welcome.description", nil)
+	text := messages.WelcomeTitle + "\n\n" + messages.WelcomeDescription
 
 	// Создаем кнопки
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(
-				r.l10n.Get(user.Language, "buttons.start_trial", nil),
+				messages.ButtonStartTrial,
 				"start_trial",
 			),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(
-				r.l10n.Get(user.Language, "buttons.view_tariffs", nil),
+				messages.ButtonViewTariffs,
 				"view_tariffs",
 			),
 		),
@@ -293,14 +286,13 @@ func (r *Router) sendWelcome(chatID int64, user *users.User) error {
 	}
 
 	// Добавляем "Выберите действие:" в самый конец
-	text += "\n\n" + r.l10n.Get(user.Language, "welcome.choose_action", nil)
+	text += "\n\n" + messages.WelcomeChooseAction
 
 	// Проверяем есть ли сохраненное сообщение для редактирования
 	welcomeData, _ := r.stateManager.GetWelcomeData(chatID)
 	if welcomeData != nil {
 		// Редактируем существующее сообщение
 		editMsg := tgbotapi.NewEditMessageText(chatID, welcomeData.MessageID, text)
-		editMsg.ParseMode = "Markdown"
 		editMsg.ReplyMarkup = &keyboard
 		_, err := r.bot.Send(editMsg)
 		return err
@@ -308,7 +300,6 @@ func (r *Router) sendWelcome(chatID int64, user *users.User) error {
 
 	// Отправляем новое сообщение и сохраняем его ID
 	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
 	sentMsg, err := r.bot.Send(msg)
 	if err != nil {
@@ -318,13 +309,15 @@ func (r *Router) sendWelcome(chatID int64, user *users.User) error {
 	// Сохраняем MessageID для последующего редактирования
 	r.stateManager.SetState(chatID, states.StateWelcome, &flows.WelcomeFlowData{
 		MessageID: sentMsg.MessageID,
-		Language:  user.Language,
 	})
 
 	return nil
 }
 
 func (r *Router) handleStartTrial(update *tgbotapi.Update, user *users.User) error {
+	if update.CallbackQuery == nil || update.CallbackQuery.Message == nil {
+		return nil
+	}
 	chatID := update.CallbackQuery.Message.Chat.ID
 	ctx := context.Background()
 
@@ -338,11 +331,11 @@ func (r *Router) handleStartTrial(update *tgbotapi.Update, user *users.User) err
 	return r.startTrialHandler.Start(ctx, user, chatID)
 }
 
-func (r *Router) sendHelp(chatID int64, lang string) error {
+func (r *Router) sendHelp(chatID int64) error {
 	if chatID == 0 {
 		return nil // Не можем отправить сообщение
 	}
-	text := r.l10n.Get(lang, "commands.help", nil)
+	text := messages.CommandsHelp
 	if r.adminChecker.IsAdmin(chatID) {
 		text += "\n\nКоманды для администратора:\n" +
 			"/create_sub — Создать подписку для клиента\n" +
@@ -359,8 +352,8 @@ func (r *Router) sendHelp(chatID int64, lang string) error {
 	return err
 }
 
-func (r *Router) sendError(chatID int64, lang string) error {
-	msg := tgbotapi.NewMessage(chatID, r.l10n.Get(lang, "common.error", nil))
+func (r *Router) sendError(chatID int64) error {
+	msg := tgbotapi.NewMessage(chatID, messages.Error)
 	_, err := r.bot.Send(msg)
 	return err
 }
@@ -379,7 +372,7 @@ func extractChatID(update *tgbotapi.Update) int64 {
 	if update.Message != nil {
 		return update.Message.Chat.ID
 	}
-	if update.CallbackQuery != nil {
+	if update.CallbackQuery != nil && update.CallbackQuery.Message != nil {
 		return update.CallbackQuery.Message.Chat.ID
 	}
 	return 0
@@ -387,90 +380,27 @@ func extractChatID(update *tgbotapi.Update) int64 {
 
 // handleGlobalCancelWithInternalID обрабатывает глобальную отмену из любого состояния
 func (r *Router) handleGlobalCancelWithInternalID(update *tgbotapi.Update, user *users.User) error {
+	if update.CallbackQuery == nil || update.CallbackQuery.Message == nil {
+		return nil
+	}
 	chatID := update.CallbackQuery.Message.Chat.ID
 
 	// Очищаем любое состояние (используем внутренний ID)
 	r.stateManager.Clear(chatID)
 
 	// Отвечаем на callback query
-	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, r.l10n.Get(user.Language, "common.cancel", nil))
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, messages.Cancel)
 	_, err := r.bot.Request(callbackConfig)
 	if err != nil {
 		return err
 	}
 
 	// Отправляем список доступных команд
-	return r.sendHelp(chatID, user.Language)
-}
-
-// sendLanguageSelection отправляет меню выбора языка
-func (r *Router) sendLanguageSelection(chatID int64, user *users.User, messageID *int) error {
-	// Если язык пустой - используем русский для отображения
-	lang := user.Language
-	if lang == "" {
-		lang = "ru"
-	}
-
-	text := r.l10n.Get(lang, "welcome.choose_language", nil)
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🇷🇺 Русский", "lang_ru"),
-			tgbotapi.NewInlineKeyboardButtonData("🇰🇬 Кыргызча", "lang_ky"),
-		),
-	)
-
-	// Если есть MessageID - редактируем существующее сообщение
-	if messageID != nil {
-		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, text)
-		editMsg.ReplyMarkup = &keyboard
-		_, err := r.bot.Send(editMsg)
-		return err
-	}
-
-	// Отправляем новое сообщение и сохраняем его ID
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ReplyMarkup = keyboard
-	sentMsg, err := r.bot.Send(msg)
-	if err != nil {
-		return err
-	}
-
-	// Сохраняем MessageID для последующего редактирования
-	r.stateManager.SetState(chatID, states.StateWelcome, &flows.WelcomeFlowData{
-		MessageID: sentMsg.MessageID,
-		Language:  lang,
-	})
-
-	return nil
-}
-
-// handleLanguageSelection обрабатывает выбор языка
-func (r *Router) handleLanguageSelection(ctx context.Context, update *tgbotapi.Update, user *users.User, language string) error {
-	chatID := update.CallbackQuery.Message.Chat.ID
-
-	// Обновляем язык пользователя
-	err := r.userService.SetLanguage(ctx, user.TelegramID, language)
-	if err != nil {
-		return err
-	}
-
-	// Обновляем локальную копию
-	user.Language = language
-
-	// Отвечаем на callback query
-	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, r.l10n.Get(language, "welcome.language_set", nil))
-	_, err = r.bot.Request(callbackConfig)
-	if err != nil {
-		return err
-	}
-
-	// Показываем главное меню
-	return r.sendWelcome(chatID, user)
+	return r.sendHelp(chatID)
 }
 
 // NewRouter создает новый роутер с зависимостями
-func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createSubForClientHandler *createsubforclient.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler, renewSubHandler *renewsub.Handler, wgServerHandler *wgserver.Handler, mySubsCommand *cmds.MySubsCommand, statsCommand *cmds.StatsCommand, l10n localizer) *Router {
+func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createSubForClientHandler *createsubforclient.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler, renewSubHandler *renewsub.Handler, wgServerHandler *wgserver.Handler, mySubsCommand *cmds.MySubsCommand, statsCommand *cmds.StatsCommand) *Router {
 	return &Router{
 		bot:                       bot,
 		stateManager:              stateManager,
@@ -486,7 +416,6 @@ func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService user
 		wgServerHandler:           wgServerHandler,
 		mySubsCommand:             mySubsCommand,
 		statsCommand:              statsCommand,
-		l10n:                      l10n,
 	}
 }
 
@@ -509,10 +438,6 @@ func (r *Router) SetupBotCommands() error {
 		{
 			Command:     "my_subs",
 			Description: "Мои активные подписки",
-		},
-		{
-			Command:     "language",
-			Description: "Изменить язык",
 		},
 	}
 
@@ -592,10 +517,6 @@ func (r *Router) setupAdminCommands(chatID int64) {
 		{
 			Command:     "my_subs",
 			Description: "Мои активные подписки",
-		},
-		{
-			Command:     "language",
-			Description: "Изменить язык",
 		},
 		{
 			Command:     "create_sub",

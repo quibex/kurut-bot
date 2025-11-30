@@ -38,7 +38,6 @@ func (c *StatsCommand) Execute(ctx context.Context, chatID int64) error {
 	text := c.formatStatistics(stats)
 
 	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
 	_, err = c.bot.Send(msg)
 	return err
 }

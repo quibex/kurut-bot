@@ -137,7 +137,6 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 		tariff.DurationDays)
 
 	msg := tgbotapi.NewMessage(chatID, successMsg)
-	msg.ParseMode = "Markdown"
 
 	_, err = h.bot.Send(msg)
 	if err != nil {
@@ -175,7 +174,7 @@ func extractChatID(update *tgbotapi.Update) int64 {
 	if update.Message != nil {
 		return update.Message.Chat.ID
 	}
-	if update.CallbackQuery != nil {
+	if update.CallbackQuery != nil && update.CallbackQuery.Message != nil {
 		return update.CallbackQuery.Message.Chat.ID
 	}
 	return 0

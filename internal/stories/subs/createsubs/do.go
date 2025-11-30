@@ -12,9 +12,9 @@ import (
 )
 
 type Service struct {
-	storage       storage
-	wireguardSvc  wireguardService
-	now           func() time.Time
+	storage      storage
+	wireguardSvc wireguardService
+	now          func() time.Time
 }
 
 func NewService(storage storage, wireguardSvc wireguardService, now func() time.Time) *Service {
@@ -37,18 +37,19 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 	expiresAt := s.now().AddDate(0, 0, tariff.DurationDays)
 	now := s.now()
 
-	peerID := fmt.Sprintf("user_%d_%d", req.UserID, now.Unix())
-	peerConfig, err := s.wireguardSvc.CreatePeer(ctx, req.UserID, peerID)
+	clientID := fmt.Sprintf("user_%d_%d", req.UserID, now.Unix())
+	clientConfig, err := s.wireguardSvc.CreateClient(ctx, clientID)
 	if err != nil {
-		return nil, errors.Errorf("failed to create wireguard peer: %v", err)
+		return nil, errors.Errorf("failed to create wireguard client: %v", err)
 	}
 
 	wgData := subs.WireGuardData{
-		ServerID:  peerConfig.ServerID,
-		PublicKey: peerConfig.PublicKey,
-		AllowedIP: peerConfig.AllowedIP,
-		Config:    peerConfig.Config,
-		QRCode:    peerConfig.QRCode,
+		ServerID:     clientConfig.ServerID,
+		UserID:       clientConfig.UserID,
+		ConfigFile:   clientConfig.ConfigFile,
+		QRCodeBase64: clientConfig.QRCodeBase64,
+		DeepLink:     clientConfig.DeepLink,
+		ClientIP:     clientConfig.ClientIP,
 	}
 
 	vpnData, err := subs.MarshalWireGuardData(wgData)

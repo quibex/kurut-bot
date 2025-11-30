@@ -11,6 +11,7 @@ import (
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/telegram/flows"
+	"kurut-bot/internal/telegram/messages"
 	"kurut-bot/internal/telegram/states"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -22,7 +23,6 @@ type Handler struct {
 	subscriptionService subscriptionService
 	tariffService       tariffService
 	paymentService      paymentService
-	l10n                localizer
 	logger              *slog.Logger
 }
 
@@ -32,7 +32,6 @@ func NewHandler(
 	ss subscriptionService,
 	ts tariffService,
 	ps paymentService,
-	l10n localizer,
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
@@ -41,13 +40,12 @@ func NewHandler(
 		subscriptionService: ss,
 		tariffService:       ts,
 		paymentService:      ps,
-		l10n:                l10n,
 		logger:              logger,
 	}
 }
 
 // Start starts the renewal flow
-func (h *Handler) Start(userID, chatID int64, lang string) error {
+func (h *Handler) Start(userID, chatID int64) error {
 	ctx := context.Background()
 
 	subscriptions, err := h.subscriptionService.ListSubscriptions(ctx, subs.ListCriteria{
@@ -55,31 +53,30 @@ func (h *Handler) Start(userID, chatID int64, lang string) error {
 		Status:  []subs.Status{subs.StatusActive, subs.StatusExpired},
 	})
 	if err != nil {
-		msg := tgbotapi.NewMessage(chatID, h.l10n.Get(lang, "renew.no_subscriptions", nil))
+		msg := tgbotapi.NewMessage(chatID, messages.RenewNoSubscriptions)
 		_, _ = h.bot.Send(msg)
 		return fmt.Errorf("list subscriptions: %w", err)
 	}
 
 	if len(subscriptions) == 0 {
-		msg := tgbotapi.NewMessage(chatID, h.l10n.Get(lang, "renew.no_subscriptions", nil))
+		msg := tgbotapi.NewMessage(chatID, messages.RenewNoSubscriptions)
 		_, err = h.bot.Send(msg)
 		return err
 	}
 
 	// If only one subscription - show quick renew options
 	if len(subscriptions) == 1 {
-		return h.showQuickRenewOptions(chatID, userID, subscriptions[0], lang)
+		return h.showQuickRenewOptions(chatID, userID, subscriptions[0])
 	}
 
 	// If multiple subscriptions - show selection
 	flowData := &flows.RenewSubFlowData{
-		UserID:   userID,
-		Language: lang,
-		Page:     0,
+		UserID: userID,
+		Page:   0,
 	}
 	h.stateManager.SetState(chatID, states.UserRenewSubWaitSelection, flowData)
 
-	return h.showSubscriptions(chatID, userID, lang, 0)
+	return h.showSubscriptions(chatID, userID, 0)
 }
 
 // Handle processes the current state
@@ -99,12 +96,11 @@ func (h *Handler) Handle(update *tgbotapi.Update, state states.State) error {
 }
 
 // showQuickRenewOptions shows quick renewal options when there's only one subscription
-func (h *Handler) showQuickRenewOptions(chatID, userID int64, subscription *subs.Subscription, lang string) error {
+func (h *Handler) showQuickRenewOptions(chatID, userID int64, subscription *subs.Subscription) error {
 	// Prepare flow data
 	flowData := &flows.RenewSubFlowData{
 		UserID:         userID,
 		SubscriptionID: subscription.ID,
-		Language:       lang,
 		Page:           0,
 	}
 
@@ -124,7 +120,7 @@ func (h *Handler) showQuickRenewOptionsWithData(chatID int64, subscription *subs
 	tariff, err := h.tariffService.GetTariff(ctx, tariffs.GetCriteria{ID: &subscription.TariffID})
 	if err != nil {
 		h.logger.Error("Failed to get tariff", "error", err, "tariff_id", subscription.TariffID)
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "renew.error_loading_tariff", nil))
+		return h.sendError(chatID, messages.RenewErrorLoadingTariff)
 	}
 
 	h.stateManager.SetState(chatID, states.UserRenewSubWaitSelection, flowData)
@@ -136,41 +132,32 @@ func (h *Handler) showQuickRenewOptionsWithData(chatID int64, subscription *subs
 	}
 
 	// Build message
-	messageText := h.l10n.Get(flowData.Language, "renew.quick_renew_title", map[string]interface{}{
-		"id":          subscription.ID,
-		"tariff_name": tariff.Name,
-		"expires_at":  expiresText,
-	})
+	messageText := messages.FormatRenewQuickTitle(subscription.ID, tariff.Name, expiresText)
 
 	// Create keyboard with two options
 	var rows [][]tgbotapi.InlineKeyboardButton
 
 	// Button 1: Renew with same tariff
-	durationText := h.formatDuration(tariff.DurationDays, flowData.Language)
-	quickRenewText := h.l10n.Get(flowData.Language, "renew.quick_renew_same", map[string]interface{}{
-		"duration": durationText,
-		"price":    tariff.Price,
-	})
+	durationText := formatDuration(tariff.DurationDays)
+	quickRenewText := messages.FormatRenewQuickSame(durationText, tariff.Price)
 	quickRenewCallback := fmt.Sprintf("renew_quick:%d:%.2f:%d", tariff.ID, tariff.Price, tariff.DurationDays)
 	rows = append(rows, []tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardButtonData("⚡️ "+quickRenewText, quickRenewCallback),
 	})
 
 	// Button 2: Choose different tariff
-	chooseTariffText := h.l10n.Get(flowData.Language, "renew.choose_different_tariff", nil)
 	rows = append(rows, []tgbotapi.InlineKeyboardButton{
-		tgbotapi.NewInlineKeyboardButtonData("📋 "+chooseTariffText, "renew_choose_tariff"),
+		tgbotapi.NewInlineKeyboardButtonData("📋 "+messages.RenewChooseDifferentTariff, "renew_choose_tariff"),
 	})
 
 	// Cancel button
 	rows = append(rows, []tgbotapi.InlineKeyboardButton{
-		tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(flowData.Language, "buttons.cancel", nil), "cancel"),
+		tgbotapi.NewInlineKeyboardButtonData(messages.ButtonCancel, "cancel"),
 	})
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ReplyMarkup = keyboard
-	msg.ParseMode = "Markdown"
 
 	sentMsg, err := h.bot.Send(msg)
 	if err != nil {
@@ -185,7 +172,7 @@ func (h *Handler) showQuickRenewOptionsWithData(chatID int64, subscription *subs
 }
 
 // showSubscriptions shows user's active and expired subscriptions
-func (h *Handler) showSubscriptions(chatID, userID int64, lang string, page int) error {
+func (h *Handler) showSubscriptions(chatID, userID int64, page int) error {
 	ctx := context.Background()
 
 	subscriptions, err := h.subscriptionService.ListSubscriptions(ctx, subs.ListCriteria{
@@ -198,17 +185,17 @@ func (h *Handler) showSubscriptions(chatID, userID int64, lang string, page int)
 
 	if len(subscriptions) == 0 {
 		h.stateManager.Clear(chatID)
-		msg := tgbotapi.NewMessage(chatID, h.l10n.Get(lang, "renew.no_subscriptions", nil))
+		msg := tgbotapi.NewMessage(chatID, messages.RenewNoSubscriptions)
 		_, err = h.bot.Send(msg)
 		return err
 	}
 
-	keyboard, err := h.createSubscriptionsKeyboard(ctx, subscriptions, lang, page)
+	keyboard, err := h.createSubscriptionsKeyboard(ctx, subscriptions, page)
 	if err != nil {
 		return fmt.Errorf("create subscriptions keyboard: %w", err)
 	}
 
-	msg := tgbotapi.NewMessage(chatID, h.l10n.Get(lang, "renew.choose_subscription", nil))
+	msg := tgbotapi.NewMessage(chatID, messages.RenewChooseSubscription)
 	msg.ReplyMarkup = keyboard
 
 	// Отправляем сообщение и сохраняем его ID
@@ -228,7 +215,7 @@ func (h *Handler) showSubscriptions(chatID, userID int64, lang string, page int)
 }
 
 // createSubscriptionsKeyboard creates keyboard with subscriptions
-func (h *Handler) createSubscriptionsKeyboard(ctx context.Context, subscriptions []*subs.Subscription, lang string, page int) (tgbotapi.InlineKeyboardMarkup, error) {
+func (h *Handler) createSubscriptionsKeyboard(ctx context.Context, subscriptions []*subs.Subscription, page int) (tgbotapi.InlineKeyboardMarkup, error) {
 	const pageSize = 5
 	var rows [][]tgbotapi.InlineKeyboardButton
 
@@ -273,11 +260,7 @@ func (h *Handler) createSubscriptionsKeyboard(ctx context.Context, subscriptions
 			tariffName = fmt.Sprintf("Tariff #%d", sub.TariffID)
 		}
 
-		text := h.l10n.Get(lang, "renew.subscription_button", map[string]interface{}{
-			"id":          sub.ID,
-			"tariff_name": tariffName,
-			"expires_at":  expiresText,
-		})
+		text := messages.FormatRenewSubscriptionButton(sub.ID, tariffName, expiresText)
 		text = fmt.Sprintf("%s %s", statusEmoji, text)
 		callbackData := fmt.Sprintf("renew_sub:%d", sub.ID)
 		button := tgbotapi.NewInlineKeyboardButtonData(text, callbackData)
@@ -298,7 +281,7 @@ func (h *Handler) createSubscriptionsKeyboard(ctx context.Context, subscriptions
 	}
 
 	rows = append(rows, []tgbotapi.InlineKeyboardButton{
-		tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.cancel", nil), "cancel"),
+		tgbotapi.NewInlineKeyboardButtonData(messages.ButtonCancel, "cancel"),
 	})
 
 	return tgbotapi.NewInlineKeyboardMarkup(rows...), nil
@@ -311,11 +294,11 @@ func (h *Handler) handleSubscriptionSelection(ctx context.Context, update *tgbot
 	// Получаем данные флоу для языка
 	flowData, err := h.stateManager.GetRenewSubData(chatID)
 	if err != nil {
-		return h.sendError(chatID, "ru", h.l10n.Get("ru", "flows.error_getting_data", nil))
+		return h.sendError(chatID, messages.FlowErrorGettingData)
 	}
 
 	if update.CallbackQuery == nil {
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "flows.use_buttons", nil))
+		return h.sendError(chatID, messages.FlowUseButtons)
 	}
 
 	callbackData := update.CallbackQuery.Data
@@ -331,10 +314,10 @@ func (h *Handler) handleSubscriptionSelection(ctx context.Context, update *tgbot
 
 	// Handle choose different tariff
 	if callbackData == "renew_choose_tariff" {
-		callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, h.l10n.Get(flowData.Language, "tariffs.choose", nil))
+		callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, messages.TariffsChoose)
 		_, _ = h.bot.Request(callbackConfig)
 		h.stateManager.SetState(chatID, states.UserRenewSubWaitTariff, flowData)
-		return h.showTariffs(chatID, flowData.Language)
+		return h.showTariffs(chatID)
 	}
 
 	// Handle pagination
@@ -354,7 +337,7 @@ func (h *Handler) handleSubscriptionSelection(ctx context.Context, update *tgbot
 		deleteMsg := tgbotapi.NewDeleteMessage(chatID, update.CallbackQuery.Message.MessageID)
 		_, _ = h.bot.Request(deleteMsg)
 
-		return h.showSubscriptions(chatID, flowData.UserID, flowData.Language, page)
+		return h.showSubscriptions(chatID, flowData.UserID, page)
 	}
 
 	// Handle noop (page indicator button)
@@ -365,17 +348,17 @@ func (h *Handler) handleSubscriptionSelection(ctx context.Context, update *tgbot
 	}
 
 	if !strings.HasPrefix(callbackData, "renew_sub:") {
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "renew.invalid_subscription", nil))
+		return h.sendError(chatID, messages.RenewInvalidSubscription)
 	}
 
 	parts := strings.Split(update.CallbackQuery.Data, ":")
 	if len(parts) != 2 {
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "renew.invalid_subscription", nil))
+		return h.sendError(chatID, messages.RenewInvalidSubscription)
 	}
 
 	subID, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "renew.invalid_subscription", nil))
+		return h.sendError(chatID, messages.RenewInvalidSubscription)
 	}
 
 	flowData.SubscriptionID = subID
@@ -383,7 +366,7 @@ func (h *Handler) handleSubscriptionSelection(ctx context.Context, update *tgbot
 	// Получаем информацию о подписке, чтобы проверить, есть ли client_name
 	subscription, err := h.subscriptionService.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{subID}})
 	if err != nil {
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "flows.error_getting_data", nil))
+		return h.sendError(chatID, messages.FlowErrorGettingData)
 	}
 
 	// Сохраняем client_name если он есть
@@ -405,7 +388,7 @@ func (h *Handler) handleSubscriptionSelection(ctx context.Context, update *tgbot
 }
 
 // showTariffs shows available tariffs for renewal
-func (h *Handler) showTariffs(chatID int64, lang string) error {
+func (h *Handler) showTariffs(chatID int64) error {
 	ctx := context.Background()
 	tariffs, err := h.tariffService.GetActiveTariffs(ctx)
 	if err != nil {
@@ -414,7 +397,7 @@ func (h *Handler) showTariffs(chatID int64, lang string) error {
 
 	if len(tariffs) == 0 {
 		h.stateManager.Clear(chatID)
-		msg := tgbotapi.NewMessage(chatID, h.l10n.Get(lang, "tariffs.no_active", nil))
+		msg := tgbotapi.NewMessage(chatID, messages.TariffsNoActive)
 		_, err = h.bot.Send(msg)
 		return err
 	}
@@ -422,8 +405,8 @@ func (h *Handler) showTariffs(chatID int64, lang string) error {
 	// Получаем данные флоу
 	flowData, _ := h.stateManager.GetRenewSubData(chatID)
 
-	keyboard := h.createTariffsKeyboard(tariffs, lang)
-	messageText := h.l10n.Get(lang, "tariffs.choose", nil)
+	keyboard := h.createTariffsKeyboard(tariffs)
+	messageText := messages.TariffsChoose
 
 	// Редактируем существующее сообщение, если MessageID есть
 	if flowData != nil && flowData.MessageID != nil {
@@ -445,11 +428,11 @@ func (h *Handler) showTariffs(chatID int64, lang string) error {
 }
 
 // createTariffsKeyboard creates keyboard with tariffs
-func (h *Handler) createTariffsKeyboard(tariffs []*tariffs.Tariff, lang string) tgbotapi.InlineKeyboardMarkup {
+func (h *Handler) createTariffsKeyboard(tariffs []*tariffs.Tariff) tgbotapi.InlineKeyboardMarkup {
 	var rows [][]tgbotapi.InlineKeyboardButton
 
 	for _, t := range tariffs {
-		durationText := h.formatDuration(t.DurationDays, lang)
+		durationText := formatDuration(t.DurationDays)
 		text := fmt.Sprintf("📅 %s - %.2f ₽", durationText, t.Price)
 		callbackData := fmt.Sprintf("renew_tariff:%d:%.2f:%d", t.ID, t.Price, t.DurationDays)
 		button := tgbotapi.NewInlineKeyboardButtonData(text, callbackData)
@@ -457,32 +440,32 @@ func (h *Handler) createTariffsKeyboard(tariffs []*tariffs.Tariff, lang string) 
 	}
 
 	rows = append(rows, []tgbotapi.InlineKeyboardButton{
-		tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.cancel", nil), "cancel"),
+		tgbotapi.NewInlineKeyboardButtonData(messages.ButtonCancel, "cancel"),
 	})
 
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
 // formatDuration форматирует длительность в удобный формат
-func (h *Handler) formatDuration(days int, lang string) string {
+func formatDuration(days int) string {
 	if days >= 365 {
 		years := days / 365
 		if years == 1 {
-			return h.l10n.Get(lang, "tariffs.duration_1_year", nil)
+			return messages.FormatDuration1Year()
 		}
-		return h.l10n.Get(lang, "tariffs.duration_years", map[string]interface{}{"years": years})
+		return messages.FormatDurationYears(years)
 	}
 	if days >= 30 {
 		months := days / 30
 		if months == 1 {
-			return h.l10n.Get(lang, "tariffs.duration_1_month", nil)
+			return messages.FormatDuration1Month()
 		}
-		return h.l10n.Get(lang, "tariffs.duration_months", map[string]interface{}{"months": months})
+		return messages.FormatDurationMonths(months)
 	}
 	if days == 1 {
-		return h.l10n.Get(lang, "tariffs.duration_1_day", nil)
+		return messages.FormatDuration1Day()
 	}
-	return h.l10n.Get(lang, "tariffs.duration_days", map[string]interface{}{"days": days})
+	return messages.FormatDurationDays(days)
 }
 
 // handleTariffSelection handles tariff selection
@@ -492,11 +475,11 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 	// Получаем данные флоу для языка
 	flowData, err := h.stateManager.GetRenewSubData(chatID)
 	if err != nil {
-		return h.sendError(chatID, "ru", h.l10n.Get("ru", "flows.error_getting_data", nil))
+		return h.sendError(chatID, messages.FlowErrorGettingData)
 	}
 
 	if update.CallbackQuery == nil {
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "flows.use_buttons", nil))
+		return h.sendError(chatID, messages.FlowUseButtons)
 	}
 
 	if update.CallbackQuery.Data == "cancel" {
@@ -505,14 +488,14 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 
 	tariffData, err := h.parseTariffFromCallback(update.CallbackQuery.Data)
 	if err != nil {
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "renew.invalid_tariff", nil))
+		return h.sendError(chatID, messages.RenewInvalidTariff)
 	}
 
 	flowData.TariffID = tariffData.ID
 	flowData.Price = tariffData.Price
 	flowData.DurationDays = tariffData.DurationDays
 
-	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, h.l10n.Get(flowData.Language, "payment.creating_order", nil))
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, messages.PaymentCreating)
 	_, err = h.bot.Request(callbackConfig)
 	if err != nil {
 		return err
@@ -532,14 +515,14 @@ func (h *Handler) handleQuickRenew(ctx context.Context, update *tgbotapi.Update,
 
 	tariffData, err := h.parseTariffFromCallback(update.CallbackQuery.Data)
 	if err != nil {
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "renew.invalid_tariff", nil))
+		return h.sendError(chatID, messages.RenewInvalidTariff)
 	}
 
 	flowData.TariffID = tariffData.ID
 	flowData.Price = tariffData.Price
 	flowData.DurationDays = tariffData.DurationDays
 
-	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, h.l10n.Get(flowData.Language, "payment.creating_order", nil))
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, messages.PaymentCreating)
 	_, err = h.bot.Request(callbackConfig)
 	if err != nil {
 		return err
@@ -604,11 +587,11 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 
 	paymentObj, err := h.paymentService.CreatePayment(ctx, paymentEntity)
 	if err != nil {
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "payment.error_creating", nil))
+		return h.sendError(chatID, messages.PaymentErrorCreating)
 	}
 
 	if paymentObj.PaymentURL == nil {
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "payment.error_payment_url", nil))
+		return h.sendError(chatID, messages.PaymentErrorPaymentURL)
 	}
 
 	data.PaymentID = &paymentObj.ID
@@ -632,7 +615,7 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 				"%s\n\n"+
 				"Отправьте эту ссылку клиенту.\n"+
 				"После оплаты нажмите «Проверить оплату».",
-			paymentObj.ID, *data.ClientName, h.formatDuration(data.DurationDays, data.Language), data.Price, *paymentObj.PaymentURL)
+			paymentObj.ID, *data.ClientName, formatDuration(data.DurationDays), data.Price, *paymentObj.PaymentURL)
 
 		checkButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить оплату", "payment_completed")
 		cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", "cancel_renewal")
@@ -650,7 +633,7 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 				"💰 Сумма: %.2f ₽\n\n"+
 				"🔗 Перейдите по ссылке для оплаты.\n"+
 				"После оплаты вернитесь сюда и нажмите «Оплатил».",
-			paymentObj.ID, h.formatDuration(data.DurationDays, data.Language), data.Price)
+			paymentObj.ID, formatDuration(data.DurationDays), data.Price)
 
 		paymentButtonText := fmt.Sprintf("💳 Оплатить %.2f ₽", data.Price)
 		paymentButton := tgbotapi.NewInlineKeyboardButtonURL(paymentButtonText, *paymentObj.PaymentURL)
@@ -667,7 +650,6 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	// Редактируем существующее сообщение, если MessageID есть
 	if data.MessageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, paymentMsg)
-		editMsg.ParseMode = "Markdown"
 		editMsg.ReplyMarkup = &keyboard
 		_, err = h.bot.Send(editMsg)
 		if err != nil {
@@ -676,7 +658,6 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	} else {
 		// Fallback: отправляем новое сообщение
 		msg := tgbotapi.NewMessage(chatID, paymentMsg)
-		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = keyboard
 		sentMsg, err := h.bot.Send(msg)
 		if err != nil {
@@ -695,11 +676,11 @@ func (h *Handler) handlePaymentConfirmation(ctx context.Context, update *tgbotap
 
 	data, err := h.stateManager.GetRenewSubData(chatID)
 	if err != nil {
-		return h.sendError(chatID, "ru", h.l10n.Get("ru", "flows.error_getting_data", nil))
+		return h.sendError(chatID, messages.FlowErrorGettingData)
 	}
 
 	if update.CallbackQuery == nil {
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "flows.use_buttons", nil))
+		return h.sendError(chatID, messages.FlowUseButtons)
 	}
 
 	callbackData := update.CallbackQuery.Data
@@ -710,27 +691,30 @@ func (h *Handler) handlePaymentConfirmation(ctx context.Context, update *tgbotap
 	case callbackData == "cancel_renewal" || callbackData == "cancel":
 		return h.handleCancel(ctx, update)
 	default:
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "flows.unknown_command", nil))
+		return h.sendError(chatID, messages.FlowUnknownCommand)
 	}
 }
 
 // handlePaymentCompleted handles payment completion
 func (h *Handler) handlePaymentCompleted(ctx context.Context, update *tgbotapi.Update, data *flows.RenewSubFlowData) error {
+	if update.CallbackQuery == nil || update.CallbackQuery.Message == nil {
+		return nil
+	}
 	chatID := update.CallbackQuery.Message.Chat.ID
 
-	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, h.l10n.Get(data.Language, "payment.checking", nil))
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, messages.PaymentChecking)
 	_, err := h.bot.Request(callbackConfig)
 	if err != nil {
 		return err
 	}
 
 	if data.PaymentID == nil {
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "payment.not_found", nil))
+		return h.sendError(chatID, messages.PaymentNotFound)
 	}
 
 	paymentObj, err := h.paymentService.CheckPaymentStatus(ctx, *data.PaymentID)
 	if err != nil {
-		return h.sendPaymentCheckError(chatID, data, h.l10n.Get(data.Language, "payment.error_checking", nil))
+		return h.sendPaymentCheckError(chatID, data, messages.PaymentErrorChecking)
 	}
 
 	switch paymentObj.Status {
@@ -739,9 +723,9 @@ func (h *Handler) handlePaymentCompleted(ctx context.Context, update *tgbotapi.U
 	case payment.StatusPending:
 		return h.sendPaymentPendingMessage(chatID, data)
 	case payment.StatusRejected, payment.StatusCancelled:
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "payment.rejected", nil))
+		return h.sendError(chatID, messages.PaymentRejected)
 	default:
-		return h.sendPaymentCheckError(chatID, data, h.l10n.Get(data.Language, "payment.unknown_status", nil))
+		return h.sendPaymentCheckError(chatID, data, messages.PaymentUnknownStatus)
 	}
 }
 
@@ -750,7 +734,7 @@ func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, dat
 	err := h.subscriptionService.ExtendSubscription(ctx, data.SubscriptionID, data.DurationDays)
 	if err != nil {
 		h.logger.Error("Failed to extend subscription", "error", err, "subscription_id", data.SubscriptionID)
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "renew.error_renewing", nil))
+		return h.sendError(chatID, messages.RenewErrorRenewing)
 	}
 
 	err = h.paymentService.LinkPaymentToSubscriptions(ctx, paymentID, []int64{data.SubscriptionID})
@@ -764,12 +748,12 @@ func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, dat
 	subscription, err := h.subscriptionService.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{data.SubscriptionID}})
 	if err != nil {
 		h.logger.Error("Failed to get subscription", "error", err, "subscription_id", data.SubscriptionID)
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "flows.error_getting_data", nil))
+		return h.sendError(chatID, messages.FlowErrorGettingData)
 	}
 
 	err = h.sendSuccessMessage(chatID, subscription, data)
 	if err != nil {
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "subscription.error_sending_instructions", nil))
+		return h.sendError(chatID, messages.SubscriptionErrorSendingInstructions)
 	}
 
 	h.stateManager.Clear(chatID)
@@ -783,16 +767,11 @@ func (h *Handler) sendSuccessMessage(chatID int64, subscription *subs.Subscripti
 		expiresText = subscription.ExpiresAt.Format("02.01.2006 15:04")
 	}
 
-	messageText := h.l10n.Get(data.Language, "renew.success", map[string]interface{}{
-		"subscription_id": subscription.ID,
-		"days_added":      data.DurationDays,
-		"expires_at":      expiresText,
-	})
+	messageText := messages.FormatRenewSuccess(subscription.ID, data.DurationDays, expiresText)
 
 	// Редактируем существующее сообщение, если MessageID есть
 	if data.MessageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, messageText)
-		editMsg.ParseMode = "Markdown"
 		editMsg.ReplyMarkup = nil // Убираем кнопки
 		_, err := h.bot.Send(editMsg)
 		return err
@@ -800,18 +779,16 @@ func (h *Handler) sendSuccessMessage(chatID int64, subscription *subs.Subscripti
 
 	// Fallback: отправляем новое сообщение
 	msg := tgbotapi.NewMessage(chatID, messageText)
-	msg.ParseMode = "Markdown"
 	_, err := h.bot.Send(msg)
 	return err
 }
 
 // sendPaymentPendingMessage sends message about pending payment
 func (h *Handler) sendPaymentPendingMessage(chatID int64, data *flows.RenewSubFlowData) error {
-	messageText := "⏳ Платеж еще обрабатывается.\n" +
-		"Пожалуйста, подождите немного и попробуйте еще раз."
+	messageText := messages.PaymentPending
 
-	checkButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить еще раз", "payment_completed")
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", "cancel_renewal")
+	checkButton := tgbotapi.NewInlineKeyboardButtonData(messages.ButtonCheckAgain, "payment_completed")
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData(messages.ButtonCancelPurchase, "cancel_renewal")
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(checkButton),
@@ -838,8 +815,8 @@ func (h *Handler) sendPaymentPendingMessage(chatID int64, data *flows.RenewSubFl
 
 // sendPaymentCheckError sends payment check error message
 func (h *Handler) sendPaymentCheckError(chatID int64, data *flows.RenewSubFlowData, errorMsg string) error {
-	retryButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Попробовать еще раз", "payment_completed")
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", "cancel_renewal")
+	retryButton := tgbotapi.NewInlineKeyboardButtonData(messages.ButtonRetry, "payment_completed")
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData(messages.ButtonCancelPurchase, "cancel_renewal")
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(retryButton),
@@ -869,18 +846,18 @@ func (h *Handler) extendFreeSubscription(ctx context.Context, chatID int64, data
 	err := h.subscriptionService.ExtendSubscription(ctx, data.SubscriptionID, data.DurationDays)
 	if err != nil {
 		h.logger.Error("Failed to extend subscription", "error", err, "subscription_id", data.SubscriptionID)
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "renew.error_renewing", nil))
+		return h.sendError(chatID, messages.RenewErrorRenewing)
 	}
 
 	subscription, err := h.subscriptionService.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{data.SubscriptionID}})
 	if err != nil {
 		h.logger.Error("Failed to get subscription", "error", err, "subscription_id", data.SubscriptionID)
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "flows.error_getting_data", nil))
+		return h.sendError(chatID, messages.FlowErrorGettingData)
 	}
 
 	err = h.sendSuccessMessage(chatID, subscription, data)
 	if err != nil {
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "subscription.error_sending_instructions", nil))
+		return h.sendError(chatID, messages.SubscriptionErrorSendingInstructions)
 	}
 
 	h.stateManager.Clear(chatID)
@@ -889,11 +866,14 @@ func (h *Handler) extendFreeSubscription(ctx context.Context, chatID int64, data
 
 // handleCancel handles cancellation
 func (h *Handler) handleCancel(ctx context.Context, update *tgbotapi.Update) error {
+	if update.CallbackQuery == nil || update.CallbackQuery.Message == nil {
+		return nil
+	}
 	chatID := update.CallbackQuery.Message.Chat.ID
 
 	h.stateManager.Clear(chatID)
 
-	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Возвращаемся в главное меню")
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, messages.FlowReturningToMenu)
 	_, err := h.bot.Request(callbackConfig)
 	if err != nil {
 		return err
@@ -904,17 +884,12 @@ func (h *Handler) handleCancel(ctx context.Context, update *tgbotapi.Update) err
 
 // sendMainMenu sends main menu
 func (h *Handler) sendMainMenu(chatID int64) error {
-	text := "Доступные команды:\n" +
-		"/start — Начать работу\n" +
-		"/buy — Купить ключ доступа\n" +
-		"/renew — Продлить подписку"
-
-	msg := tgbotapi.NewMessage(chatID, text)
+	msg := tgbotapi.NewMessage(chatID, messages.CommandsHelp)
 	_, err := h.bot.Send(msg)
 	return err
 }
 
-func (h *Handler) sendError(chatID int64, lang, message string) error {
+func (h *Handler) sendError(chatID int64, message string) error {
 	msg := tgbotapi.NewMessage(chatID, message)
 	_, err := h.bot.Send(msg)
 	return err
@@ -924,7 +899,7 @@ func extractChatID(update *tgbotapi.Update) int64 {
 	if update.Message != nil {
 		return update.Message.Chat.ID
 	}
-	if update.CallbackQuery != nil {
+	if update.CallbackQuery != nil && update.CallbackQuery.Message != nil {
 		return update.CallbackQuery.Message.Chat.ID
 	}
 	return 0

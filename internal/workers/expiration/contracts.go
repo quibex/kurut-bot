@@ -14,10 +14,6 @@ type (
 	}
 
 	WireguardService interface {
-		DisablePeer(ctx context.Context, subscription *subs.Subscription) error
+		DisableClient(ctx context.Context, subscription *subs.Subscription) error
 	}
 )
-
-
-
-

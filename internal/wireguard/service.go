@@ -9,8 +9,6 @@ import (
 	"kurut-bot/internal/infra/wireguard"
 	"kurut-bot/internal/storage"
 	"kurut-bot/internal/stories/subs"
-
-	pb "github.com/quibex/wg-agent/pkg/api/proto"
 )
 
 type Service struct {
@@ -83,7 +81,7 @@ func (s *Service) getOrCreateClient(ctx context.Context, server *storage.WGServe
 	return newClient, nil
 }
 
-func (s *Service) CreatePeer(ctx context.Context, userID int64, peerID string) (*PeerConfig, error) {
+func (s *Service) CreateClient(ctx context.Context, userID string) (*ClientConfig, error) {
 	server, err := s.balancer.SelectServer(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("select server: %w", err)
@@ -94,42 +92,26 @@ func (s *Service) CreatePeer(ctx context.Context, userID int64, peerID string) (
 		return nil, fmt.Errorf("get client: %w", err)
 	}
 
-	genResp, err := client.GeneratePeerConfig(ctx, &pb.GeneratePeerConfigRequest{
-		Interface:      server.Interface,
-		ServerEndpoint: server.Endpoint,
-		DnsServers:     server.DNSServers,
-		AllowedIps:     "0.0.0.0/0",
-	})
+	resp, err := client.CreateClient(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("generate peer config: %w", err)
-	}
-
-	_, err = client.AddPeer(ctx, &pb.AddPeerRequest{
-		Interface:  server.Interface,
-		PublicKey:  genResp.PublicKey,
-		AllowedIp:  genResp.AllowedIp,
-		KeepaliveS: 25,
-		PeerId:     peerID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("add peer: %w", err)
+		return nil, fmt.Errorf("create client: %w", err)
 	}
 
 	if err := s.storage.IncrementWGServerPeerCount(ctx, server.ID); err != nil {
 		s.logger.Error("Failed to increment peer count", "server_id", server.ID, "error", err)
 	}
 
-	return &PeerConfig{
-		ServerID:   server.ID,
-		PublicKey:  genResp.PublicKey,
-		PrivateKey: genResp.PrivateKey,
-		AllowedIP:  genResp.AllowedIp,
-		Config:     genResp.Config,
-		QRCode:     genResp.QrCode,
+	return &ClientConfig{
+		ServerID:     server.ID,
+		UserID:       userID,
+		ConfigFile:   resp.ConfigFile,
+		QRCodeBase64: resp.QrCodeBase64,
+		DeepLink:     resp.DeepLink,
+		ClientIP:     resp.ClientIp,
 	}, nil
 }
 
-func (s *Service) DisablePeer(ctx context.Context, subscription *subs.Subscription) error {
+func (s *Service) DisableClient(ctx context.Context, subscription *subs.Subscription) error {
 	wgData, err := subscription.GetWireGuardData()
 	if err != nil {
 		return fmt.Errorf("get wireguard data: %w", err)
@@ -151,17 +133,14 @@ func (s *Service) DisablePeer(ctx context.Context, subscription *subs.Subscripti
 		return fmt.Errorf("get client: %w", err)
 	}
 
-	if err := client.DisablePeer(ctx, &pb.DisablePeerRequest{
-		Interface: server.Interface,
-		PublicKey: wgData.PublicKey,
-	}); err != nil {
-		return fmt.Errorf("disable peer: %w", err)
+	if err := client.DisableClient(ctx, wgData.UserID); err != nil {
+		return fmt.Errorf("disable client: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Service) EnablePeer(ctx context.Context, subscription *subs.Subscription) error {
+func (s *Service) EnableClient(ctx context.Context, subscription *subs.Subscription) error {
 	wgData, err := subscription.GetWireGuardData()
 	if err != nil {
 		return fmt.Errorf("get wireguard data: %w", err)
@@ -183,17 +162,14 @@ func (s *Service) EnablePeer(ctx context.Context, subscription *subs.Subscriptio
 		return fmt.Errorf("get client: %w", err)
 	}
 
-	if err := client.EnablePeer(ctx, &pb.EnablePeerRequest{
-		Interface: server.Interface,
-		PublicKey: wgData.PublicKey,
-	}); err != nil {
-		return fmt.Errorf("enable peer: %w", err)
+	if err := client.EnableClient(ctx, wgData.UserID); err != nil {
+		return fmt.Errorf("enable client: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Service) RemovePeer(ctx context.Context, subscription *subs.Subscription) error {
+func (s *Service) DeleteClient(ctx context.Context, subscription *subs.Subscription) error {
 	wgData, err := subscription.GetWireGuardData()
 	if err != nil {
 		return fmt.Errorf("get wireguard data: %w", err)
@@ -215,11 +191,8 @@ func (s *Service) RemovePeer(ctx context.Context, subscription *subs.Subscriptio
 		return fmt.Errorf("get client: %w", err)
 	}
 
-	if err := client.RemovePeer(ctx, &pb.RemovePeerRequest{
-		Interface: server.Interface,
-		PublicKey: wgData.PublicKey,
-	}); err != nil {
-		return fmt.Errorf("remove peer: %w", err)
+	if err := client.DeleteClient(ctx, wgData.UserID); err != nil {
+		return fmt.Errorf("delete client: %w", err)
 	}
 
 	if err := s.storage.DecrementWGServerPeerCount(ctx, wgData.ServerID); err != nil {

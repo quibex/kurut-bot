@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
-	"net/http" // add this import for http.ErrServerClosed
+	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 
 	environment "kurut-bot/internal/env"
@@ -152,34 +153,58 @@ func startTelegramBot(ctx context.Context, env *environment.Env) error {
 
 	// Запускаем роутер для обработки обновлений
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logger.Error("Panic in telegram bot goroutine", slog.Any("panic", r))
-			}
-		}()
 		for {
 			select {
 			case <-ctx.Done():
 				env.Clients.TelegramBot.Stop()
 				return
 			case update := <-updates:
-				// Логируем входящие обновления
-				if update.Message != nil {
-					logger.Info("Получено сообщение",
-						slog.Int64("chat_id", update.Message.Chat.ID),
-						slog.Int64("user_id", update.Message.From.ID),
-						slog.String("text", update.Message.Text))
-				} else if update.CallbackQuery != nil {
-					logger.Info("Получен callback",
-						slog.Int64("chat_id", update.CallbackQuery.Message.Chat.ID),
-						slog.Int64("user_id", update.CallbackQuery.From.ID),
-						slog.String("data", update.CallbackQuery.Data))
-				}
+				// Обрабатываем каждый update в отдельной функции с recover
+				func() {
+					// Определяем chatID для отправки ошибки
+					var chatID int64
+					if update.Message != nil {
+						chatID = update.Message.Chat.ID
+					} else if update.CallbackQuery != nil && update.CallbackQuery.Message != nil {
+						chatID = update.CallbackQuery.Message.Chat.ID
+					}
 
-				// Обрабатываем через роутер
-				if err := env.Services.TelegramRouter.Route(&update); err != nil {
-					logger.Error("Ошибка обработки обновления", slog.Any("error", err))
-				}
+					defer func() {
+						if r := recover(); r != nil {
+							stack := debug.Stack()
+							logger.Error("PANIC при обработке update",
+								slog.Any("panic", r),
+								slog.String("stack", string(stack)))
+
+							// Отправляем пользователю сообщение об ошибке
+							if chatID != 0 {
+								errMsg := "⚠️ Произошла внутренняя ошибка.\n\n" +
+									"Если вы оплатили подписку - не переживайте! " +
+									"Ваш платеж сохранен и подписка будет создана автоматически в течение нескольких минут.\n\n" +
+									"Если проблема повторяется - обратитесь в поддержку."
+								_ = env.Clients.TelegramBot.SendMessage(chatID, errMsg)
+							}
+						}
+					}()
+
+					// Логируем входящие обновления
+					if update.Message != nil {
+						logger.Info("Получено сообщение",
+							slog.Int64("chat_id", update.Message.Chat.ID),
+							slog.Int64("user_id", update.Message.From.ID),
+							slog.String("text", update.Message.Text))
+					} else if update.CallbackQuery != nil {
+						logger.Info("Получен callback",
+							slog.Int64("chat_id", chatID),
+							slog.Int64("user_id", update.CallbackQuery.From.ID),
+							slog.String("data", update.CallbackQuery.Data))
+					}
+
+					// Обрабатываем через роутер
+					if err := env.Services.TelegramRouter.Route(&update); err != nil {
+						logger.Error("Ошибка обработки обновления", slog.Any("error", err))
+					}
+				}()
 			}
 		}
 	}()

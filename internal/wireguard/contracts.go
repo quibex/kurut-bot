@@ -9,13 +9,12 @@ import (
 )
 
 type WGClient interface {
-	GeneratePeerConfig(ctx context.Context, req *pb.GeneratePeerConfigRequest) (*pb.GeneratePeerConfigResponse, error)
-	AddPeer(ctx context.Context, req *pb.AddPeerRequest) (*pb.AddPeerResponse, error)
-	RemovePeer(ctx context.Context, req *pb.RemovePeerRequest) error
-	DisablePeer(ctx context.Context, req *pb.DisablePeerRequest) error
-	EnablePeer(ctx context.Context, req *pb.EnablePeerRequest) error
-	GetPeerInfo(ctx context.Context, req *pb.GetPeerInfoRequest) (*pb.GetPeerInfoResponse, error)
-	ListPeers(ctx context.Context, req *pb.ListPeersRequest) (*pb.ListPeersResponse, error)
+	CreateClient(ctx context.Context, userID string) (*pb.CreateClientResponse, error)
+	DisableClient(ctx context.Context, userID string) error
+	EnableClient(ctx context.Context, userID string) error
+	DeleteClient(ctx context.Context, userID string) error
+	GetClient(ctx context.Context, userID string) (*pb.GetClientResponse, error)
+	ListClients(ctx context.Context) (*pb.ListClientsResponse, error)
 	Close() error
 }
 
@@ -36,11 +35,11 @@ type TLSConfig interface {
 	GetServerName() string
 }
 
-type PeerConfig struct {
-	ServerID   int64
-	PublicKey  string
-	PrivateKey string
-	AllowedIP  string
-	Config     string
-	QRCode     string
+type ClientConfig struct {
+	ServerID     int64
+	UserID       string
+	ConfigFile   string
+	QRCodeBase64 string
+	DeepLink     string
+	ClientIP     string
 }

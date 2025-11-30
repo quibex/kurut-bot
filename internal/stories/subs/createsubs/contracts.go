@@ -16,6 +16,6 @@ type (
 	}
 
 	wireguardService interface {
-		CreatePeer(ctx context.Context, userID int64, peerID string) (*wireguard.PeerConfig, error)
+		CreateClient(ctx context.Context, userID string) (*wireguard.ClientConfig, error)
 	}
 )

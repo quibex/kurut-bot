@@ -12,21 +12,22 @@ import (
 const wgServersTable = "wg_servers"
 
 type WGServer struct {
-	ID            int64     `db:"id"`
-	Name          string    `db:"name"`
-	Endpoint      string    `db:"endpoint"`
-	GRPCAddress   string    `db:"grpc_address"`
-	Interface     string    `db:"interface"`
-	DNSServers    string    `db:"dns_servers"`
-	MaxPeers      int       `db:"max_peers"`
-	CurrentPeers  int       `db:"current_peers"`
-	Enabled       bool      `db:"enabled"`
-	Archived      bool      `db:"archived"`
-	TLSEnabled    bool      `db:"tls_enabled"`
-	TLSCertPath   *string   `db:"tls_cert_path"`
-	TLSServerName *string   `db:"tls_server_name"`
-	CreatedAt     time.Time `db:"created_at"`
-	UpdatedAt     time.Time `db:"updated_at"`
+	ID             int64     `db:"id"`
+	Name           string    `db:"name"`
+	Endpoint       string    `db:"endpoint"`
+	GRPCAddress    string    `db:"grpc_address"`
+	HealthEndpoint string    `db:"health_endpoint"`
+	Interface      string    `db:"interface"`
+	DNSServers     string    `db:"dns_servers"`
+	MaxPeers       int       `db:"max_peers"`
+	CurrentPeers   int       `db:"current_peers"`
+	Enabled        bool      `db:"enabled"`
+	Archived       bool      `db:"archived"`
+	TLSEnabled     bool      `db:"tls_enabled"`
+	TLSCertPath    *string   `db:"tls_cert_path"`
+	TLSServerName  *string   `db:"tls_server_name"`
+	CreatedAt      time.Time `db:"created_at"`
+	UpdatedAt      time.Time `db:"updated_at"`
 }
 
 var wgServerRowFields = fields(WGServer{})
@@ -38,6 +39,7 @@ func (s *storageImpl) CreateWGServer(ctx context.Context, server WGServer) (*WGS
 		"name":            server.Name,
 		"endpoint":        server.Endpoint,
 		"grpc_address":    server.GRPCAddress,
+		"health_endpoint": server.HealthEndpoint,
 		"interface":       server.Interface,
 		"dns_servers":     server.DNSServers,
 		"max_peers":       server.MaxPeers,
@@ -225,4 +227,3 @@ func (s *storageImpl) DeleteWGServer(ctx context.Context, id int64) error {
 
 	return nil
 }
-

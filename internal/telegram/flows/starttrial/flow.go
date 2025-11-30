@@ -5,20 +5,20 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/users"
+	"kurut-bot/internal/telegram/messages"
 )
 
 type Handler struct {
 	bot                 botApi
+	storage             localStorage
 	tariffService       tariffService
 	subscriptionService subscriptionService
 	userService         userService
-	l10n                localizer
 	configStore         configStore
 	webAppBaseURL       string
 	logger              *slog.Logger
@@ -26,20 +26,20 @@ type Handler struct {
 
 func NewHandler(
 	bot botApi,
+	storage localStorage,
 	ts tariffService,
 	ss subscriptionService,
 	us userService,
-	l10n localizer,
 	configStore configStore,
 	webAppBaseURL string,
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
 		bot:                 bot,
+		storage:             storage,
 		tariffService:       ts,
 		subscriptionService: ss,
 		userService:         us,
-		l10n:                l10n,
 		configStore:         configStore,
 		webAppBaseURL:       webAppBaseURL,
 		logger:              logger,
@@ -47,87 +47,97 @@ func NewHandler(
 }
 
 func (h *Handler) Start(ctx context.Context, user *users.User, chatID int64) error {
-	// Проверяем, использовал ли пользователь пробный период
 	if user.UsedTrial {
-		msg := tgbotapi.NewMessage(chatID, h.l10n.Get(user.Language, "trial.already_used", nil))
+		msg := tgbotapi.NewMessage(chatID, messages.TrialAlreadyUsed)
 		_, err := h.bot.Send(msg)
 		return err
 	}
 
-	// Получаем пробный тариф (бесплатный)
 	trialTariff, err := h.tariffService.GetTrialTariff(ctx)
 	if err != nil {
-		return h.sendError(chatID, user.Language, h.l10n.Get(user.Language, "trial.error_getting_tariffs", nil))
+		return h.sendError(chatID, messages.TrialErrorGettingTariffs)
 	}
 
 	if trialTariff == nil {
-		return h.sendError(chatID, user.Language, h.l10n.Get(user.Language, "trial.unavailable", nil))
+		return h.sendError(chatID, messages.TrialUnavailable)
 	}
 
-	// Создаем подписку
+	servers, err := h.storage.ListEnabledWGServers(ctx)
+	if err != nil {
+		h.logger.Error("Failed to check WireGuard servers", "error", err)
+		return h.sendError(chatID, messages.SubscriptionErrorServerCheck)
+	}
+
+	if len(servers) == 0 {
+		h.logger.Warn("No WireGuard servers available for trial subscription")
+		return h.sendError(chatID, messages.SubscriptionNoServersAvailable)
+	}
+
+	hasCapacity := false
+	for _, server := range servers {
+		if server.CurrentPeers < server.MaxPeers {
+			hasCapacity = true
+			break
+		}
+	}
+
+	if !hasCapacity {
+		h.logger.Warn("All WireGuard servers at capacity for trial")
+		return h.sendError(chatID, messages.SubscriptionServersAtCapacity)
+	}
+
 	subReq := &subs.CreateSubscriptionRequest{
 		UserID:    user.ID,
 		TariffID:  trialTariff.ID,
-		PaymentID: nil, // Без платежа для пробного периода
+		PaymentID: nil,
 	}
 
 	subscription, err := h.subscriptionService.CreateSubscription(ctx, subReq)
 	if err != nil {
 		h.logger.Error("Failed to create trial subscription", "error", err)
-		return h.sendError(chatID, user.Language, h.l10n.Get(user.Language, "trial.error_creating", nil))
+		return h.sendError(chatID, messages.TrialErrorCreating)
 	}
 
-	// Отмечаем что пользователь использовал пробный период
 	err = h.userService.MarkTrialAsUsed(ctx, user.ID)
 	if err != nil {
 		h.logger.Error("Failed to mark trial as used", "error", err)
-		// Не возвращаем ошибку, так как подписка уже создана
 	}
 
-	// Отправляем инструкции
-	return h.sendConnectionInstructions(chatID, subscription, trialTariff.Name, trialTariff.DurationDays, user.Language)
+	return h.sendConnectionInstructions(chatID, subscription, trialTariff.Name, trialTariff.DurationDays)
 }
 
-func (h *Handler) sendConnectionInstructions(chatID int64, subscription *subs.Subscription, tariffName string, durationDays int, lang string) error {
+func (h *Handler) sendConnectionInstructions(chatID int64, subscription *subs.Subscription, tariffName string, durationDays int) error {
 	wgData, err := subscription.GetWireGuardData()
 
-	if err != nil || wgData == nil || wgData.Config == "" {
-		messageText := h.l10n.Get(lang, "subscription.success_trial", map[string]interface{}{
-			"tariff_name": escapeMarkdownV2(tariffName),
-			"duration":    durationDays,
-		})
-		messageText += "\n\n" + h.l10n.Get(lang, "subscription.link_not_ready", nil)
-		
+	if err != nil || wgData == nil || wgData.ConfigFile == "" {
+		messageText := messages.FormatSubscriptionSuccessTrial(tariffName, durationDays)
+		messageText += "\n\n" + messages.SubscriptionLinkNotReady
+
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.view_tariffs", nil), "view_tariffs"),
+				tgbotapi.NewInlineKeyboardButtonData(messages.ButtonViewTariffs, "view_tariffs"),
 			),
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "main_menu"),
+				tgbotapi.NewInlineKeyboardButtonData(messages.ButtonMainMenu, "main_menu"),
 			),
 		)
 
 		msg := tgbotapi.NewMessage(chatID, messageText)
-		msg.ParseMode = "MarkdownV2"
 		msg.ReplyMarkup = keyboard
 		msg.DisableWebPagePreview = true
 		_, err = h.bot.Send(msg)
 		return err
 	}
 
-	successText := h.l10n.Get(lang, "subscription.success_trial", map[string]interface{}{
-		"tariff_name": escapeMarkdownV2(tariffName),
-		"duration":    durationDays,
-	})
+	successText := messages.FormatSubscriptionSuccessTrial(tariffName, durationDays)
 
 	msg := tgbotapi.NewMessage(chatID, successText)
-	msg.ParseMode = "MarkdownV2"
 	msg.DisableWebPagePreview = true
 	_, _ = h.bot.Send(msg)
 
-	instructionsText := h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n" + h.l10n.Get(lang, "subscription.trial_note", nil)
+	instructionsText := messages.SubscriptionInstructions + "\n\n" + messages.SubscriptionTrialNote
 
-	qrBytes, err := base64.StdEncoding.DecodeString(wgData.QRCode)
+	qrBytes, err := base64.StdEncoding.DecodeString(wgData.QRCodeBase64)
 	if err != nil {
 		h.logger.Error("Failed to decode QR code", "error", err)
 	} else {
@@ -138,36 +148,35 @@ func (h *Handler) sendConnectionInstructions(chatID int64, subscription *subs.Su
 
 		photoMsg := tgbotapi.NewPhoto(chatID, qrPhoto)
 		photoMsg.Caption = instructionsText
-		photoMsg.ParseMode = "MarkdownV2"
 		_, err = h.bot.Send(photoMsg)
 		if err != nil {
 			h.logger.Error("Failed to send QR code photo", "error", err)
 		}
 	}
 
-	configBytes := []byte(wgData.Config)
+	configBytes := []byte(wgData.ConfigFile)
 	configFile := tgbotapi.FileBytes{
 		Name:  "wireguard.conf",
 		Bytes: configBytes,
 	}
 
-	configID := h.configStore.Store(wgData.Config, wgData.QRCode)
+	configID := h.configStore.Store(wgData.ConfigFile, wgData.QRCodeBase64)
 	wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonURL("🔗 "+h.l10n.Get(lang, "buttons.open_vpn_page", nil), wgLink),
+			tgbotapi.NewInlineKeyboardButtonURL("🔗 "+messages.ButtonOpenVPNPage, wgLink),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.view_tariffs", nil), "view_tariffs"),
+			tgbotapi.NewInlineKeyboardButtonData(messages.ButtonViewTariffs, "view_tariffs"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "main_menu"),
+			tgbotapi.NewInlineKeyboardButtonData(messages.ButtonMainMenu, "main_menu"),
 		),
 	)
 
 	docMsg := tgbotapi.NewDocument(chatID, configFile)
-	docMsg.Caption = h.l10n.Get(lang, "subscription.config_file", nil)
+	docMsg.Caption = messages.SubscriptionConfigFile
 	docMsg.ReplyMarkup = keyboard
 	_, err = h.bot.Send(docMsg)
 	if err != nil {
@@ -177,16 +186,7 @@ func (h *Handler) sendConnectionInstructions(chatID int64, subscription *subs.Su
 	return nil
 }
 
-func escapeMarkdownV2(text string) string {
-	specialChars := []string{"_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"}
-	result := text
-	for _, char := range specialChars {
-		result = strings.ReplaceAll(result, char, "\\"+char)
-	}
-	return result
-}
-
-func (h *Handler) sendError(chatID int64, lang, message string) error {
+func (h *Handler) sendError(chatID int64, message string) error {
 	msg := tgbotapi.NewMessage(chatID, message)
 	_, err := h.bot.Send(msg)
 	return err

@@ -63,11 +63,12 @@ func MarshalMarzbanData(data MarzbanData) (*string, error) {
 }
 
 type WireGuardData struct {
-	ServerID  int64  `json:"server_id"`
-	PublicKey string `json:"public_key"`
-	AllowedIP string `json:"allowed_ip"`
-	Config    string `json:"config"`
-	QRCode    string `json:"qr_code"`
+	ServerID     int64  `json:"server_id"`
+	UserID       string `json:"user_id"`
+	ConfigFile   string `json:"config_file"`
+	QRCodeBase64 string `json:"qr_code_base64"`
+	DeepLink     string `json:"deep_link"`
+	ClientIP     string `json:"client_ip"`
 }
 
 func (s *Subscription) GetWireGuardData() (*WireGuardData, error) {

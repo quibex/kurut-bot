@@ -12,6 +12,7 @@ import (
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/telegram/flows"
+	"kurut-bot/internal/telegram/messages"
 	"kurut-bot/internal/telegram/states"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -24,7 +25,6 @@ type Handler struct {
 	subscriptionService subscriptionService
 	paymentService      paymentService
 	storage             storageService
-	l10n                localizer
 	configStore         configStore
 	webAppBaseURL       string
 	logger              *slog.Logger
@@ -37,7 +37,6 @@ func NewHandler(
 	ss subscriptionService,
 	ps paymentService,
 	storage storageService,
-	l10n localizer,
 	configStore configStore,
 	webAppBaseURL string,
 	logger *slog.Logger,
@@ -49,7 +48,6 @@ func NewHandler(
 		subscriptionService: ss,
 		paymentService:      ps,
 		storage:             storage,
-		l10n:                l10n,
 		configStore:         configStore,
 		webAppBaseURL:       webAppBaseURL,
 		logger:              logger,
@@ -57,17 +55,16 @@ func NewHandler(
 }
 
 // Start начинает flow покупки подписки
-func (h *Handler) Start(userID, chatID int64, lang string, messageID *int) error {
+func (h *Handler) Start(userID, chatID int64, messageID *int) error {
 	// Инициализируем данные флоу с внутренним ID пользователя
 	flowData := &flows.BuySubFlowData{
 		UserID:    userID,
-		Language:  lang,
 		MessageID: messageID,
 	}
 	h.stateManager.SetState(chatID, states.UserBuySubWaitTariff, flowData)
 
 	// Показываем тарифы
-	return h.showTariffs(chatID, lang)
+	return h.showTariffs(chatID)
 }
 
 // Handle обрабатывает текущее состояние
@@ -84,7 +81,7 @@ func (h *Handler) Handle(update *tgbotapi.Update, state states.State) error {
 	}
 }
 
-func (h *Handler) showTariffs(chatID int64, lang string) error {
+func (h *Handler) showTariffs(chatID int64) error {
 	ctx := context.Background()
 	tariffs, err := h.tariffService.GetActiveTariffs(ctx)
 	if err != nil {
@@ -95,15 +92,15 @@ func (h *Handler) showTariffs(chatID int64, lang string) error {
 		// Очищаем состояние пользователя, чтобы он вышел из flow
 		h.stateManager.Clear(chatID)
 
-		msg := tgbotapi.NewMessage(chatID, h.l10n.Get(lang, "tariffs.no_active", nil))
+		msg := tgbotapi.NewMessage(chatID, messages.TariffsNoActive)
 		_, err = h.bot.Send(msg)
 		return err
 	}
 
 	// Создаем клавиатуру с тарифами
-	keyboard := h.createTariffsKeyboard(tariffs, lang)
+	keyboard := h.createTariffsKeyboard(tariffs)
 
-	msg := tgbotapi.NewMessage(chatID, h.l10n.Get(lang, "tariffs.choose", nil))
+	msg := tgbotapi.NewMessage(chatID, messages.TariffsChoose)
 	msg.ReplyMarkup = keyboard
 
 	// Отправляем сообщение и сохраняем его ID
@@ -129,17 +126,21 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 		// Получаем язык из flow data
 		flowData, err := h.stateManager.GetBuySubData(chatID)
 		if err != nil {
-			return h.sendError(chatID, "ru", h.l10n.Get("ru", "flows.error_getting_data", nil))
+			return h.sendError(chatID, messages.FlowErrorGettingData)
 		}
 		// Проверяем есть ли активные тарифы, если нет - выходим из flow
 		tariffs, err := h.tariffService.GetActiveTariffs(ctx)
 		if err == nil && len(tariffs) == 0 {
 			h.stateManager.Clear(chatID)
-			return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "tariffs.no_active", nil))
+			return h.sendError(chatID, messages.TariffsNoActive)
 		}
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "tariffs.please_select", nil))
+		_ = flowData // unused but kept for context
+		return h.sendError(chatID, messages.TariffsPleaseSelect)
 	}
 
+	if update.CallbackQuery.Message == nil {
+		return nil
+	}
 	chatID := update.CallbackQuery.Message.Chat.ID
 
 	// Проверяем на отмену
@@ -150,13 +151,13 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 	// Получаем существующие данные флоу, чтобы сохранить UserID и язык
 	flowData, err := h.stateManager.GetBuySubData(chatID)
 	if err != nil {
-		return h.sendError(chatID, "ru", h.l10n.Get("ru", "flows.error_getting_data", nil))
+		return h.sendError(chatID, messages.FlowErrorGettingData)
 	}
 
 	// Парсим данные тарифа
 	tariffData, err := h.parseTariffFromCallback(update.CallbackQuery.Data)
 	if err != nil {
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "tariffs.invalid_data", nil))
+		return h.sendError(chatID, messages.TariffsInvalidData)
 	}
 
 	// Обновляем данные о тарифе
@@ -166,7 +167,7 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 	flowData.TotalAmount = tariffData.Price
 
 	// Отвечаем на callback query
-	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, h.l10n.Get(flowData.Language, "payment.creating_order", nil))
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, messages.PaymentCreating)
 	_, err = h.bot.Request(callbackConfig)
 	if err != nil {
 		return err
@@ -176,13 +177,13 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 	servers, err := h.storage.ListEnabledWGServers(ctx)
 	if err != nil {
 		h.logger.Error("Failed to check WireGuard servers", "error", err)
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "subscription.error_server_check", nil))
+		return h.sendError(chatID, messages.SubscriptionErrorServerCheck)
 	}
 
 	if len(servers) == 0 {
 		h.logger.Warn("No WireGuard servers available for subscription")
 		h.stateManager.Clear(chatID)
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "subscription.no_servers_available", nil))
+		return h.sendError(chatID, messages.SubscriptionNoServersAvailable)
 	}
 
 	// Check if any server has capacity
@@ -197,7 +198,7 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 	if !hasCapacity {
 		h.logger.Warn("All WireGuard servers at capacity")
 		h.stateManager.Clear(chatID)
-		return h.sendError(chatID, flowData.Language, h.l10n.Get(flowData.Language, "subscription.servers_at_capacity", nil))
+		return h.sendError(chatID, messages.SubscriptionServersAtCapacity)
 	}
 
 	// Если тариф бесплатный - сразу создаем подписку без оплаты
@@ -219,11 +220,11 @@ func (h *Handler) handlePaymentConfirmation(ctx context.Context, update *tgbotap
 	// Получаем данные флоу
 	data, err := h.stateManager.GetBuySubData(chatID)
 	if err != nil {
-		return h.sendError(chatID, "ru", h.l10n.Get("ru", "flows.error_getting_data", nil))
+		return h.sendError(chatID, messages.FlowErrorGettingData)
 	}
 
 	if update.CallbackQuery == nil {
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "flows.use_buttons", nil))
+		return h.sendError(chatID, messages.FlowUseButtons)
 	}
 
 	callbackData := update.CallbackQuery.Data
@@ -235,7 +236,7 @@ func (h *Handler) handlePaymentConfirmation(ctx context.Context, update *tgbotap
 	case callbackData == "cancel_purchase" || callbackData == "cancel":
 		return h.handleCancel(ctx, update)
 	default:
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "flows.unknown_command", nil))
+		return h.sendError(chatID, messages.FlowUnknownCommand)
 	}
 }
 
@@ -250,12 +251,12 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 
 	paymentObj, err := h.paymentService.CreatePayment(ctx, paymentEntity)
 	if err != nil {
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "payment.error_creating", nil))
+		return h.sendError(chatID, messages.PaymentErrorCreating)
 	}
 
 	// Проверяем что ссылка на оплату была создана
 	if paymentObj.PaymentURL == nil {
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "payment.error_payment_url", nil))
+		return h.sendError(chatID, messages.PaymentErrorPaymentURL)
 	}
 
 	// Сохраняем данные платежа в флоу
@@ -263,23 +264,17 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	data.PaymentURL = paymentObj.PaymentURL
 
 	// Показываем сообщение с ссылкой на оплату
-	paymentMsg := h.l10n.Get(data.Language, "payment.order_created", map[string]interface{}{
-		"order_id":    paymentObj.ID,
-		"tariff_name": data.TariffName,
-		"amount":      fmt.Sprintf("%.2f", data.TotalAmount),
-	})
+	paymentMsg := messages.FormatPaymentOrderCreated(paymentObj.ID, data.TariffName, data.TotalAmount)
 
 	// Создаем ссылку для оплаты
-	paymentButtonText := h.l10n.Get(data.Language, "buttons.pay", map[string]interface{}{
-		"amount": fmt.Sprintf("%.2f", data.TotalAmount),
-	})
+	paymentButtonText := messages.FormatPayButtonText(data.TotalAmount)
 	paymentButton := tgbotapi.NewInlineKeyboardButtonURL(paymentButtonText, *paymentObj.PaymentURL)
 	completeButton := tgbotapi.NewInlineKeyboardButtonData(
-		h.l10n.Get(data.Language, "buttons.paid", nil),
+		messages.ButtonPaid,
 		"payment_completed",
 	)
 	cancelButton := tgbotapi.NewInlineKeyboardButtonData(
-		h.l10n.Get(data.Language, "buttons.cancel_purchase", nil),
+		messages.ButtonCancelPurchase,
 		"cancel_purchase",
 	)
 
@@ -292,7 +287,6 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	// Редактируем существующее сообщение, если MessageID есть
 	if data.MessageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, paymentMsg)
-		editMsg.ParseMode = "Markdown"
 		editMsg.ReplyMarkup = &keyboard
 		_, err = h.bot.Send(editMsg)
 		if err != nil {
@@ -301,7 +295,6 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	} else {
 		// Fallback: отправляем новое сообщение, если MessageID нет
 		msg := tgbotapi.NewMessage(chatID, paymentMsg)
-		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = keyboard
 		sentMsg, err := h.bot.Send(msg)
 		if err != nil {
@@ -318,42 +311,36 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 
 // handleCancel обрабатывает отмену любого действия и возвращает в главное меню
 func (h *Handler) handleCancel(ctx context.Context, update *tgbotapi.Update) error {
+	if update.CallbackQuery == nil || update.CallbackQuery.Message == nil {
+		return nil
+	}
 	chatID := update.CallbackQuery.Message.Chat.ID
 
 	h.stateManager.Clear(chatID)
 
-	// Получаем данные для языка
-	data, _ := h.stateManager.GetBuySubData(chatID)
-	lang := "ru"
-	if data != nil {
-		lang = data.Language
-	}
-
 	// Отвечаем на callback query
-	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, h.l10n.Get(lang, "flows.returning_to_menu", nil))
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, messages.FlowReturningToMenu)
 	_, err := h.bot.Request(callbackConfig)
 	if err != nil {
 		return err
 	}
 
 	// Отправляем главное меню
-	return h.sendMainMenu(chatID, lang)
+	return h.sendMainMenu(chatID)
 }
 
 // sendMainMenu отправляет главное меню
-func (h *Handler) sendMainMenu(chatID int64, lang string) error {
-	text := h.l10n.Get(lang, "commands.help", nil)
-
-	msg := tgbotapi.NewMessage(chatID, text)
+func (h *Handler) sendMainMenu(chatID int64) error {
+	msg := tgbotapi.NewMessage(chatID, messages.CommandsHelp)
 	_, err := h.bot.Send(msg)
 	return err
 }
 
-func (h *Handler) createTariffsKeyboard(tariffs []*tariffs.Tariff, lang string) tgbotapi.InlineKeyboardMarkup {
+func (h *Handler) createTariffsKeyboard(tariffs []*tariffs.Tariff) tgbotapi.InlineKeyboardMarkup {
 	var rows [][]tgbotapi.InlineKeyboardButton
 
 	for _, t := range tariffs {
-		durationText := h.formatDuration(t.DurationDays, lang)
+		durationText := formatDuration(t.DurationDays)
 		text := fmt.Sprintf("📅 %s - %.2f ₽ (%s)", t.Name, t.Price, durationText)
 		callbackData := fmt.Sprintf("tariff:%d:%.2f:%s:%d", t.ID, t.Price, t.Name, t.DurationDays)
 		button := tgbotapi.NewInlineKeyboardButtonData(text, callbackData)
@@ -362,40 +349,43 @@ func (h *Handler) createTariffsKeyboard(tariffs []*tariffs.Tariff, lang string) 
 
 	// Добавляем кнопку отмены
 	rows = append(rows, []tgbotapi.InlineKeyboardButton{
-		tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.cancel", nil), "cancel"),
+		tgbotapi.NewInlineKeyboardButtonData(messages.ButtonCancel, "cancel"),
 	})
 
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
 // formatDuration форматирует длительность в удобный формат (дни/месяцы/годы)
-func (h *Handler) formatDuration(days int, lang string) string {
+func formatDuration(days int) string {
 	if days >= 365 {
 		years := days / 365
 		if years == 1 {
-			return h.l10n.Get(lang, "tariffs.duration_1_year", nil)
+			return messages.FormatDuration1Year()
 		}
-		return h.l10n.Get(lang, "tariffs.duration_years", map[string]interface{}{"years": years})
+		return messages.FormatDurationYears(years)
 	}
 	if days >= 30 {
 		months := days / 30
 		if months == 1 {
-			return h.l10n.Get(lang, "tariffs.duration_1_month", nil)
+			return messages.FormatDuration1Month()
 		}
-		return h.l10n.Get(lang, "tariffs.duration_months", map[string]interface{}{"months": months})
+		return messages.FormatDurationMonths(months)
 	}
 	if days == 1 {
-		return h.l10n.Get(lang, "tariffs.duration_1_day", nil)
+		return messages.FormatDuration1Day()
 	}
-	return h.l10n.Get(lang, "tariffs.duration_days", map[string]interface{}{"days": days})
+	return messages.FormatDurationDays(days)
 }
 
 // handlePaymentCompleted обрабатывает нажатие кнопки "Оплатил"
 func (h *Handler) handlePaymentCompleted(ctx context.Context, update *tgbotapi.Update, data *flows.BuySubFlowData) error {
+	if update.CallbackQuery == nil || update.CallbackQuery.Message == nil {
+		return nil
+	}
 	chatID := update.CallbackQuery.Message.Chat.ID
 
 	// Отвечаем на callback query
-	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, h.l10n.Get(data.Language, "payment.checking", nil))
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, messages.PaymentChecking)
 	_, err := h.bot.Request(callbackConfig)
 	if err != nil {
 		return err
@@ -403,13 +393,13 @@ func (h *Handler) handlePaymentCompleted(ctx context.Context, update *tgbotapi.U
 
 	// Проверяем что paymentID есть
 	if data.PaymentID == nil {
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "payment.not_found", nil))
+		return h.sendError(chatID, messages.PaymentNotFound)
 	}
 
 	// Проверяем статус платежа через API
 	paymentObj, err := h.paymentService.CheckPaymentStatus(ctx, *data.PaymentID)
 	if err != nil {
-		return h.sendPaymentCheckError(chatID, data, h.l10n.Get(data.Language, "payment.error_checking", nil))
+		return h.sendPaymentCheckError(chatID, data, messages.PaymentErrorChecking)
 	}
 
 	// Проверяем статус
@@ -422,18 +412,18 @@ func (h *Handler) handlePaymentCompleted(ctx context.Context, update *tgbotapi.U
 		return h.sendPaymentPendingMessage(chatID, data)
 	case payment.StatusRejected, payment.StatusCancelled:
 		// Платеж отклонен или отменен
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "payment.rejected", nil))
+		return h.sendError(chatID, messages.PaymentRejected)
 	default:
-		return h.sendPaymentCheckError(chatID, data, h.l10n.Get(data.Language, "payment.unknown_status", nil))
+		return h.sendPaymentCheckError(chatID, data, messages.PaymentUnknownStatus)
 	}
 }
 
 // sendPaymentPendingMessage отправляет сообщение о том, что платеж еще обрабатывается
 func (h *Handler) sendPaymentPendingMessage(chatID int64, data *flows.BuySubFlowData) error {
-	messageText := h.l10n.Get(data.Language, "payment.pending", nil)
+	messageText := messages.PaymentPending
 
-	checkButton := tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(data.Language, "buttons.check_again", nil), "payment_completed")
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(data.Language, "buttons.cancel_purchase", nil), "cancel_purchase")
+	checkButton := tgbotapi.NewInlineKeyboardButtonData(messages.ButtonCheckAgain, "payment_completed")
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData(messages.ButtonCancelPurchase, "cancel_purchase")
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(checkButton),
@@ -460,8 +450,8 @@ func (h *Handler) sendPaymentPendingMessage(chatID int64, data *flows.BuySubFlow
 
 // sendPaymentCheckError отправляет сообщение об ошибке проверки с возможностью повторить
 func (h *Handler) sendPaymentCheckError(chatID int64, data *flows.BuySubFlowData, errorMsg string) error {
-	retryButton := tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(data.Language, "buttons.retry", nil), "payment_completed")
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(data.Language, "buttons.cancel_purchase", nil), "cancel_purchase")
+	retryButton := tgbotapi.NewInlineKeyboardButtonData(messages.ButtonRetry, "payment_completed")
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData(messages.ButtonCancelPurchase, "cancel_purchase")
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(retryButton),
@@ -499,7 +489,7 @@ func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, dat
 	if err != nil {
 		h.logger.Error("Failed to create subscription after payment", "error", err, "paymentID", paymentID)
 		// Send reassuring message that the system will retry automatically
-		errorText := h.l10n.Get(data.Language, "subscription.error_creating_will_retry", nil)
+		errorText := messages.SubscriptionErrorCreatingWillRetry
 
 		// Редактируем существующее сообщение, если MessageID есть
 		if data.MessageID != nil {
@@ -523,9 +513,9 @@ func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, dat
 	}
 
 	// Отправляем инструкции по подключению
-	err = h.SendConnectionInstructions(chatID, subscription, data.Language, data.MessageID)
+	err = h.SendConnectionInstructions(chatID, subscription, data.MessageID)
 	if err != nil {
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "subscription.error_sending_instructions", nil))
+		return h.sendError(chatID, messages.SubscriptionErrorSendingInstructions)
 	}
 
 	// Очищаем состояние флоу
@@ -579,7 +569,7 @@ func (h *Handler) parseTariffFromCallback(callbackData string) (*TariffCallbackD
 	}, nil
 }
 
-func (h *Handler) sendError(chatID int64, lang, message string) error {
+func (h *Handler) sendError(chatID int64, message string) error {
 	msg := tgbotapi.NewMessage(chatID, message)
 	_, err := h.bot.Send(msg)
 	return err
@@ -589,23 +579,22 @@ func extractChatID(update *tgbotapi.Update) int64 {
 	if update.Message != nil {
 		return update.Message.Chat.ID
 	}
-	if update.CallbackQuery != nil {
+	if update.CallbackQuery != nil && update.CallbackQuery.Message != nil {
 		return update.CallbackQuery.Message.Chat.ID
 	}
 	return 0
 }
 
 // SendConnectionInstructions отправляет инструкции по подключению после успешной оплаты
-func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Subscription, lang string, messageID *int) error {
+func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Subscription, messageID *int) error {
 	wgData, err := subscription.GetWireGuardData()
 
-	if err != nil || wgData == nil || wgData.Config == "" {
-		messageText := h.l10n.Get(lang, "subscription.success_paid", nil) + "\n\n" + h.l10n.Get(lang, "subscription.link_not_ready", nil)
-		keyboard := h.createConnectionKeyboard(lang, nil)
+	if err != nil || wgData == nil || wgData.ConfigFile == "" {
+		messageText := messages.SubscriptionSuccessPaid + "\n\n" + messages.SubscriptionLinkNotReady
+		keyboard := h.createConnectionKeyboard(nil)
 
 		if messageID != nil {
 			editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, messageText)
-			editMsg.ParseMode = "MarkdownV2"
 			editMsg.ReplyMarkup = &keyboard
 			editMsg.DisableWebPagePreview = true
 			_, err := h.bot.Send(editMsg)
@@ -613,25 +602,23 @@ func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Su
 		}
 
 		msg := tgbotapi.NewMessage(chatID, messageText)
-		msg.ParseMode = "MarkdownV2"
 		msg.ReplyMarkup = keyboard
 		msg.DisableWebPagePreview = true
 		_, err = h.bot.Send(msg)
 		return err
 	}
 
-	successText := h.l10n.Get(lang, "subscription.success_paid", nil)
+	successText := messages.SubscriptionSuccessPaid
 
 	if messageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, successText)
-		editMsg.ParseMode = "MarkdownV2"
 		editMsg.DisableWebPagePreview = true
 		_, _ = h.bot.Send(editMsg)
 	}
 
-	instructionsText := h.l10n.Get(lang, "subscription.instructions", nil) + "\n\n" + h.l10n.Get(lang, "subscription.support_note", nil)
+	instructionsText := messages.SubscriptionInstructions + "\n\n" + messages.SubscriptionSupportNote
 
-	qrBytes, err := base64.StdEncoding.DecodeString(wgData.QRCode)
+	qrBytes, err := base64.StdEncoding.DecodeString(wgData.QRCodeBase64)
 	if err != nil {
 		h.logger.Error("Failed to decode QR code", "error", err)
 	} else {
@@ -642,36 +629,35 @@ func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Su
 
 		photoMsg := tgbotapi.NewPhoto(chatID, qrPhoto)
 		photoMsg.Caption = instructionsText
-		photoMsg.ParseMode = "MarkdownV2"
 		_, err = h.bot.Send(photoMsg)
 		if err != nil {
 			h.logger.Error("Failed to send QR code photo", "error", err)
 		}
 	}
 
-	configBytes := []byte(wgData.Config)
+	configBytes := []byte(wgData.ConfigFile)
 	configFile := tgbotapi.FileBytes{
 		Name:  "wireguard.conf",
 		Bytes: configBytes,
 	}
 
-	configID := h.configStore.Store(wgData.Config, wgData.QRCode)
+	configID := h.configStore.Store(wgData.ConfigFile, wgData.QRCodeBase64)
 	wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonURL("🔗 "+h.l10n.Get(lang, "buttons.open_vpn_page", nil), wgLink),
+			tgbotapi.NewInlineKeyboardButtonURL("🔗 "+messages.ButtonOpenVPNPage, wgLink),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.my_subscriptions", nil), "my_subscriptions"),
+			tgbotapi.NewInlineKeyboardButtonData(messages.ButtonMySubscriptions, "my_subscriptions"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "cancel"),
+			tgbotapi.NewInlineKeyboardButtonData(messages.ButtonMainMenu, "cancel"),
 		),
 	)
 
 	docMsg := tgbotapi.NewDocument(chatID, configFile)
-	docMsg.Caption = h.l10n.Get(lang, "subscription.config_file", nil)
+	docMsg.Caption = messages.SubscriptionConfigFile
 	docMsg.ReplyMarkup = keyboard
 	_, err = h.bot.Send(docMsg)
 	if err != nil {
@@ -682,9 +668,9 @@ func (h *Handler) SendConnectionInstructions(chatID int64, subscription *subs.Su
 }
 
 // createConnectionKeyboard создает упрощенную клавиатуру для сообщения с подключениями
-func (h *Handler) createConnectionKeyboard(lang string, wgData *subs.WireGuardData) tgbotapi.InlineKeyboardMarkup {
-	if wgData != nil && wgData.Config != "" {
-		configID := h.configStore.Store(wgData.Config, wgData.QRCode)
+func (h *Handler) createConnectionKeyboard(wgData *subs.WireGuardData) tgbotapi.InlineKeyboardMarkup {
+	if wgData != nil && wgData.ConfigFile != "" {
+		configID := h.configStore.Store(wgData.ConfigFile, wgData.QRCodeBase64)
 		wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
 
 		return tgbotapi.NewInlineKeyboardMarkup(
@@ -692,20 +678,20 @@ func (h *Handler) createConnectionKeyboard(lang string, wgData *subs.WireGuardDa
 				tgbotapi.NewInlineKeyboardButtonURL("🔗 Подключиться к VPN", wgLink),
 			),
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.my_subscriptions", nil), "my_subscriptions"),
+				tgbotapi.NewInlineKeyboardButtonData(messages.ButtonMySubscriptions, "my_subscriptions"),
 			),
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "cancel"),
+				tgbotapi.NewInlineKeyboardButtonData(messages.ButtonMainMenu, "cancel"),
 			),
 		)
 	}
 
 	return tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.my_subscriptions", nil), "my_subscriptions"),
+			tgbotapi.NewInlineKeyboardButtonData(messages.ButtonMySubscriptions, "my_subscriptions"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(h.l10n.Get(lang, "buttons.main_menu", nil), "cancel"),
+			tgbotapi.NewInlineKeyboardButtonData(messages.ButtonMainMenu, "cancel"),
 		),
 	)
 }
@@ -722,13 +708,13 @@ func (h *Handler) createFreeSubscription(ctx context.Context, chatID int64, data
 	subscription, err := h.subscriptionService.CreateSubscription(ctx, subReq)
 	if err != nil {
 		h.logger.Error("Failed to create free subscription", "error", err)
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "subscription.error_creating", nil))
+		return h.sendError(chatID, messages.SubscriptionErrorCreating)
 	}
 
 	// Отправляем инструкции по подключению
-	err = h.SendConnectionInstructions(chatID, subscription, data.Language, data.MessageID)
+	err = h.SendConnectionInstructions(chatID, subscription, data.MessageID)
 	if err != nil {
-		return h.sendError(chatID, data.Language, h.l10n.Get(data.Language, "subscription.error_sending_instructions", nil))
+		return h.sendError(chatID, messages.SubscriptionErrorSendingInstructions)
 	}
 
 	// Очищаем состояние флоу

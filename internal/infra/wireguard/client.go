@@ -100,80 +100,78 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) GeneratePeerConfig(ctx context.Context, req *pb.GeneratePeerConfigRequest) (*pb.GeneratePeerConfigResponse, error) {
-	c.logger.Debug("Generating peer config", "interface", req.Interface)
+func (c *Client) CreateClient(ctx context.Context, userID string) (*pb.CreateClientResponse, error) {
+	c.logger.Debug("Creating client", "user_id", userID)
 
-	resp, err := c.client.GeneratePeerConfig(ctx, req)
+	resp, err := c.client.CreateClient(ctx, &pb.CreateClientRequest{
+		UserId: userID,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("generate peer config: %w", err)
+		return nil, fmt.Errorf("create client: %w", err)
 	}
 
 	return resp, nil
 }
 
-func (c *Client) AddPeer(ctx context.Context, req *pb.AddPeerRequest) (*pb.AddPeerResponse, error) {
-	c.logger.Debug("Adding peer", "interface", req.Interface, "peer_id", req.PeerId)
+func (c *Client) DisableClient(ctx context.Context, userID string) error {
+	c.logger.Debug("Disabling client", "user_id", userID)
 
-	resp, err := c.client.AddPeer(ctx, req)
+	_, err := c.client.DisableClient(ctx, &pb.DisableClientRequest{
+		UserId: userID,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("add peer: %w", err)
-	}
-
-	return resp, nil
-}
-
-func (c *Client) RemovePeer(ctx context.Context, req *pb.RemovePeerRequest) error {
-	c.logger.Debug("Removing peer", "interface", req.Interface, "public_key", req.PublicKey)
-
-	_, err := c.client.RemovePeer(ctx, req)
-	if err != nil {
-		return fmt.Errorf("remove peer: %w", err)
+		return fmt.Errorf("disable client: %w", err)
 	}
 
 	return nil
 }
 
-func (c *Client) DisablePeer(ctx context.Context, req *pb.DisablePeerRequest) error {
-	c.logger.Debug("Disabling peer", "interface", req.Interface, "public_key", req.PublicKey)
+func (c *Client) EnableClient(ctx context.Context, userID string) error {
+	c.logger.Debug("Enabling client", "user_id", userID)
 
-	_, err := c.client.DisablePeer(ctx, req)
+	_, err := c.client.EnableClient(ctx, &pb.EnableClientRequest{
+		UserId: userID,
+	})
 	if err != nil {
-		return fmt.Errorf("disable peer: %w", err)
+		return fmt.Errorf("enable client: %w", err)
 	}
 
 	return nil
 }
 
-func (c *Client) EnablePeer(ctx context.Context, req *pb.EnablePeerRequest) error {
-	c.logger.Debug("Enabling peer", "interface", req.Interface, "public_key", req.PublicKey)
+func (c *Client) DeleteClient(ctx context.Context, userID string) error {
+	c.logger.Debug("Deleting client", "user_id", userID)
 
-	_, err := c.client.EnablePeer(ctx, req)
+	_, err := c.client.DeleteClient(ctx, &pb.DeleteClientRequest{
+		UserId: userID,
+	})
 	if err != nil {
-		return fmt.Errorf("enable peer: %w", err)
+		return fmt.Errorf("delete client: %w", err)
 	}
 
 	return nil
 }
 
-func (c *Client) GetPeerInfo(ctx context.Context, req *pb.GetPeerInfoRequest) (*pb.GetPeerInfoResponse, error) {
-	c.logger.Debug("Getting peer info", "interface", req.Interface, "public_key", req.PublicKey)
+func (c *Client) GetClient(ctx context.Context, userID string) (*pb.GetClientResponse, error) {
+	c.logger.Debug("Getting client", "user_id", userID)
 
-	resp, err := c.client.GetPeerInfo(ctx, req)
+	resp, err := c.client.GetClient(ctx, &pb.GetClientRequest{
+		UserId: userID,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("get peer info: %w", err)
+		return nil, fmt.Errorf("get client: %w", err)
 	}
 
 	return resp, nil
 }
 
-func (c *Client) ListPeers(ctx context.Context, req *pb.ListPeersRequest) (*pb.ListPeersResponse, error) {
-	c.logger.Debug("Listing peers", "interface", req.Interface)
+func (c *Client) ListClients(ctx context.Context) (*pb.ListClientsResponse, error) {
+	c.logger.Debug("Listing clients")
 
-	resp, err := c.client.ListPeers(ctx, req)
+	resp, err := c.client.ListClients(ctx, &pb.ListClientsRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("list peers: %w", err)
+		return nil, fmt.Errorf("list clients: %w", err)
 	}
 
 	return resp, nil
 }
-

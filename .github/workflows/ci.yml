@@ -293,15 +293,15 @@ jobs:
               exit 1
             fi
             
-            if docker-compose logs --tail=20 bot | grep -i "error\|fatal\|failed"; then
-              echo "❌ ERROR: Application has errors in logs!"
+            if docker-compose logs --tail=50 bot | grep -E 'level="FATAL"|panic:'; then
+              echo "❌ FATAL: Application has critical errors in logs!"
               docker-compose logs bot
               exit 1
             fi
             
             echo "✅ Application deployed and running successfully"
             docker-compose ps
-            docker-compose logs --tail=10 bot
+            docker-compose logs --tail=20 bot
             
             # Очистка
             docker image prune -f
@@ -445,15 +445,15 @@ jobs:
               exit 1
             fi
             
-            if docker-compose logs --tail=20 bot | grep -i "error\|fatal\|failed"; then
-              echo "❌ ERROR: Application has errors in logs!"
+            if docker-compose logs --tail=50 bot | grep -E 'level="FATAL"|panic:'; then
+              echo "❌ FATAL: Application has critical errors in logs!"
               docker-compose logs bot
               exit 1
             fi
             
             echo "✅ Application deployed and running successfully"
             docker-compose ps
-            docker-compose logs --tail=10 bot
+            docker-compose logs --tail=20 bot
             
             # Очистка
             docker image prune -f

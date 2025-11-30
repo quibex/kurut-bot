@@ -11,6 +11,6 @@ type Storage interface {
 }
 
 type WireguardService interface {
-	DisablePeer(ctx context.Context, subscription *Subscription) error
-	EnablePeer(ctx context.Context, subscription *Subscription) error
+	DisableClient(ctx context.Context, subscription *Subscription) error
+	EnableClient(ctx context.Context, subscription *Subscription) error
 }

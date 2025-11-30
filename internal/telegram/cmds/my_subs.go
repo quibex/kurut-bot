@@ -10,6 +10,7 @@ import (
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/stories/users"
+	"kurut-bot/internal/telegram/messages"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/samber/lo"
@@ -19,7 +20,6 @@ type MySubsCommand struct {
 	bot             *tgbotapi.BotAPI
 	subscriptionSvc SubscriptionService
 	tariffSvc       TariffService
-	l10n            Localizer
 }
 
 type SubscriptionService interface {
@@ -30,16 +30,11 @@ type TariffService interface {
 	GetTariff(ctx context.Context, criteria tariffs.GetCriteria) (*tariffs.Tariff, error)
 }
 
-type Localizer interface {
-	Get(lang, key string, params map[string]interface{}) string
-}
-
-func NewMySubsCommand(bot *tgbotapi.BotAPI, subscriptionSvc SubscriptionService, tariffSvc TariffService, l10n Localizer) *MySubsCommand {
+func NewMySubsCommand(bot *tgbotapi.BotAPI, subscriptionSvc SubscriptionService, tariffSvc TariffService) *MySubsCommand {
 	return &MySubsCommand{
 		bot:             bot,
 		subscriptionSvc: subscriptionSvc,
 		tariffSvc:       tariffSvc,
-		l10n:            l10n,
 	}
 }
 
@@ -75,13 +70,13 @@ func (c *MySubsCommand) showPage(ctx context.Context, user *users.User, chatID i
 		Limit:   50,
 	})
 	if err != nil {
-		msg := tgbotapi.NewMessage(chatID, c.l10n.Get(user.Language, "my_subs.error_loading", nil))
+		msg := tgbotapi.NewMessage(chatID, messages.MySubsErrorLoading)
 		_, _ = c.bot.Send(msg)
 		return fmt.Errorf("list subscriptions: %w", err)
 	}
 
 	if len(subscriptions) == 0 {
-		msg := tgbotapi.NewMessage(chatID, c.l10n.Get(user.Language, "my_subs.no_subscriptions", nil))
+		msg := tgbotapi.NewMessage(chatID, messages.MySubsNoSubscriptions)
 		_, _ = c.bot.Send(msg)
 		return nil
 	}
@@ -102,7 +97,7 @@ func (c *MySubsCommand) showPage(ctx context.Context, user *users.User, chatID i
 	}
 
 	var text strings.Builder
-	text.WriteString(c.l10n.Get(user.Language, "my_subs.title", nil) + "\n\n")
+	text.WriteString(messages.MySubsTitle + "\n\n")
 
 	// Show only subscriptions for current page
 	for i := startIdx; i < endIdx; i++ {
@@ -114,58 +109,44 @@ func (c *MySubsCommand) showPage(ctx context.Context, user *users.User, chatID i
 			continue
 		}
 
-		text.WriteString(c.l10n.Get(user.Language, "my_subs.subscription_id", map[string]interface{}{
-			"id": sub.ID,
-		}) + "\n")
-
-		text.WriteString(c.l10n.Get(user.Language, "my_subs.tariff", map[string]interface{}{
-			"name": tariff.Name,
-		}) + "\n")
+		text.WriteString(messages.FormatMySubsSubscriptionID(sub.ID) + "\n")
+		text.WriteString(messages.FormatMySubsTariff(tariff.Name) + "\n")
 
 		if sub.ClientName != nil && *sub.ClientName != "" {
-			text.WriteString(c.l10n.Get(user.Language, "my_subs.client", map[string]interface{}{
-				"name": *sub.ClientName,
-			}) + "\n")
+			text.WriteString(messages.FormatMySubsClient(*sub.ClientName) + "\n")
 		}
 
 		if tariff.TrafficLimitGB != nil {
-			text.WriteString(c.l10n.Get(user.Language, "my_subs.traffic_limit", map[string]interface{}{
-				"gb": *tariff.TrafficLimitGB,
-			}) + "\n")
+			text.WriteString(messages.FormatMySubsTrafficLimit(*tariff.TrafficLimitGB) + "\n")
 		} else {
-			text.WriteString(c.l10n.Get(user.Language, "my_subs.traffic_unlimited", nil) + "\n")
+			text.WriteString(messages.MySubsTrafficUnlimited + "\n")
 		}
 
 		if sub.ExpiresAt != nil {
 			daysLeft := int(time.Until(*sub.ExpiresAt).Hours() / 24)
 			if daysLeft > 0 {
-				text.WriteString(c.l10n.Get(user.Language, "my_subs.days_left", map[string]interface{}{
-					"days": daysLeft,
-				}) + "\n")
-				text.WriteString(c.l10n.Get(user.Language, "my_subs.expires_at", map[string]interface{}{
-					"date": sub.ExpiresAt.Format("02.01.2006"),
-				}) + "\n")
+				text.WriteString(messages.FormatMySubsDaysLeft(daysLeft) + "\n")
+				text.WriteString(messages.FormatMySubsExpiresAt(sub.ExpiresAt.Format("02.01.2006")) + "\n")
 			} else {
-				text.WriteString(c.l10n.Get(user.Language, "my_subs.expires_today", nil) + "\n")
+				text.WriteString(messages.MySubsExpiresToday + "\n")
 			}
 		}
 
 		wgData, err := sub.GetWireGuardData()
-		if err == nil && wgData != nil && wgData.Config != "" {
-			text.WriteString("\n" + c.l10n.Get(user.Language, "my_subs.your_config", nil) + "\n```\n" + wgData.Config + "\n```\n")
+		if err == nil && wgData != nil && wgData.ConfigFile != "" {
+			text.WriteString("\n" + messages.MySubsYourConfig + "\n```\n" + wgData.ConfigFile + "\n```\n")
 		}
 
 		text.WriteString("\n")
 	}
 
-	text.WriteString("\n💡 " + c.l10n.Get(user.Language, "my_subs.renew_note", nil))
+	text.WriteString("\n💡 " + messages.MySubsRenewNote)
 
 	// Add navigation buttons if needed
-	keyboard := c.createNavigationKeyboard(user.Language, page, totalPages)
+	keyboard := c.createNavigationKeyboard(page, totalPages)
 
 	if isEdit {
 		editMsg := tgbotapi.NewEditMessageText(chatID, messageID, text.String())
-		editMsg.ParseMode = "Markdown"
 		if keyboard != nil {
 			editMsg.ReplyMarkup = keyboard
 		}
@@ -174,7 +155,6 @@ func (c *MySubsCommand) showPage(ctx context.Context, user *users.User, chatID i
 	}
 
 	msg := tgbotapi.NewMessage(chatID, text.String())
-	msg.ParseMode = "Markdown"
 	if keyboard != nil {
 		msg.ReplyMarkup = keyboard
 	}
@@ -182,7 +162,7 @@ func (c *MySubsCommand) showPage(ctx context.Context, user *users.User, chatID i
 	return err
 }
 
-func (c *MySubsCommand) createNavigationKeyboard(lang string, page, totalPages int) *tgbotapi.InlineKeyboardMarkup {
+func (c *MySubsCommand) createNavigationKeyboard(page, totalPages int) *tgbotapi.InlineKeyboardMarkup {
 	if totalPages <= 1 {
 		return nil
 	}

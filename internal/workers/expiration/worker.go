@@ -76,12 +76,12 @@ func (w *Worker) run(ctx context.Context) error {
 	expiredStatus := subs.StatusExpired
 	for _, sub := range subscriptions {
 		if sub.VPNType == string(subs.VPNTypeWireGuard) {
-			if err := w.wireguard.DisablePeer(ctx, sub); err != nil {
-				w.logger.Error("Failed to disable wireguard peer",
+			if err := w.wireguard.DisableClient(ctx, sub); err != nil {
+				w.logger.Error("Failed to disable wireguard client",
 					"subscription_id", sub.ID,
 					"error", err)
 			} else {
-				w.logger.Info("Disabled wireguard peer",
+				w.logger.Info("Disabled wireguard client",
 					"subscription_id", sub.ID)
 			}
 		}

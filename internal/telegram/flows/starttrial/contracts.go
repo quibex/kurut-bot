@@ -3,6 +3,7 @@ package starttrial
 import (
 	"context"
 
+	"kurut-bot/internal/storage"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 
@@ -26,8 +27,8 @@ type userService interface {
 	MarkTrialAsUsed(ctx context.Context, userID int64) error
 }
 
-type localizer interface {
-	Get(lang, key string, params map[string]interface{}) string
+type localStorage interface {
+	ListEnabledWGServers(ctx context.Context) ([]*storage.WGServer, error)
 }
 
 type configStore interface {

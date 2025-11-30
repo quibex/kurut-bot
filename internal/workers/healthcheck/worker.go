@@ -25,15 +25,15 @@ type serverStatus struct {
 }
 
 type Worker struct {
-	storage   Storage
-	telegram  TelegramNotifier
-	adminIDs  []int64
-	logger    *slog.Logger
+	storage    Storage
+	telegram   TelegramNotifier
+	adminIDs   []int64
+	logger     *slog.Logger
 	httpClient *http.Client
-	
+
 	statusMu sync.RWMutex
 	statuses map[int64]*serverStatus
-	
+
 	stopCh chan struct{}
 	doneCh chan struct{}
 }
@@ -66,7 +66,7 @@ func (w *Worker) Start() error {
 	w.logger.Info("Starting health check worker",
 		"interval", checkInterval,
 		"admin_count", len(w.adminIDs))
-	
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -86,13 +86,12 @@ func (w *Worker) Stop() {
 
 func (w *Worker) run() {
 	defer close(w.doneCh)
-	
+
 	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
-	
+
 	ctx := context.Background()
-	w.checkServers(ctx)
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -109,27 +108,27 @@ func (w *Worker) checkServers(ctx context.Context) {
 		w.logger.Error("Failed to list enabled WG servers", "error", err)
 		return
 	}
-	
+
 	w.logger.Debug("Checking health of WG servers", "count", len(servers))
-	
+
 	for _, server := range servers {
 		w.checkServer(server)
 	}
 }
 
 func (w *Worker) checkServer(server *storage.WGServer) {
-	endpoint := server.Endpoint
+	// Используем HealthEndpoint если задан, иначе пропускаем проверку
+	if server.HealthEndpoint == "" {
+		w.logger.Debug("Skipping health check - no health endpoint configured",
+			"server", server.Name)
+		return
+	}
+
+	endpoint := server.HealthEndpoint
 	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
 		endpoint = "http://" + endpoint
 	}
-	if !strings.HasSuffix(endpoint, "/health") {
-		if strings.HasSuffix(endpoint, "/") {
-			endpoint += "health"
-		} else {
-			endpoint += "/health"
-		}
-	}
-	
+
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		w.logger.Error("Failed to create health check request",
@@ -138,14 +137,14 @@ func (w *Worker) checkServer(server *storage.WGServer) {
 		w.updateStatus(server, false)
 		return
 	}
-	
+
 	resp, err := w.httpClient.Do(req)
 	isHealthy := err == nil && resp != nil && resp.StatusCode == http.StatusOK
-	
+
 	if resp != nil {
 		resp.Body.Close()
 	}
-	
+
 	if err != nil {
 		w.logger.Warn("Health check failed",
 			"server", server.Name,
@@ -161,17 +160,17 @@ func (w *Worker) checkServer(server *storage.WGServer) {
 			"server", server.Name,
 			"endpoint", endpoint)
 	}
-	
+
 	w.updateStatus(server, isHealthy)
 }
 
 func (w *Worker) updateStatus(server *storage.WGServer, isUp bool) {
 	w.statusMu.Lock()
 	defer w.statusMu.Unlock()
-	
+
 	prevStatus, exists := w.statuses[server.ID]
 	now := time.Now()
-	
+
 	if !exists {
 		w.statuses[server.ID] = &serverStatus{
 			isUp:       isUp,
@@ -183,7 +182,7 @@ func (w *Worker) updateStatus(server *storage.WGServer, isUp bool) {
 		}
 		return
 	}
-	
+
 	if prevStatus.isUp && !isUp {
 		prevStatus.isUp = false
 		prevStatus.failureCount = 1
@@ -212,12 +211,12 @@ func (w *Worker) notifyServerDown(server *storage.WGServer, failureCount int) {
 			"Status: ❌ *FAILED*\n"+
 			"Failed checks: `%d`\n"+
 			"Time: `%s`",
-		escapeMarkdownV2(server.Name),
-		escapeMarkdownV2(server.Endpoint),
+		server.Name,
+		server.Endpoint,
 		failureCount,
-		escapeMarkdownV2(time.Now().Format("2006-01-02 15:04:05")),
+		time.Now().Format("2006-01-02 15:04:05"),
 	)
-	
+
 	w.sendToAdminsAndSaveMessageID(server.ID, message)
 }
 
@@ -229,12 +228,12 @@ func (w *Worker) updateServerStillDown(server *storage.WGServer, status *serverS
 			"Status: ❌ *FAILED*\n"+
 			"Failed checks: `%d`\n"+
 			"Time: `%s`",
-		escapeMarkdownV2(server.Name),
-		escapeMarkdownV2(server.Endpoint),
+		server.Name,
+		server.Endpoint,
 		status.failureCount,
-		escapeMarkdownV2(time.Now().Format("2006-01-02 15:04:05")),
+		time.Now().Format("2006-01-02 15:04:05"),
 	)
-	
+
 	w.updateAdminMessages(server.ID, status.messageIDs, message)
 }
 
@@ -244,7 +243,7 @@ func (w *Worker) notifyServerRecovered(server *storage.WGServer, downtime time.D
 	messageIDs := status.messageIDs
 	status.messageIDs = make(map[int64]int)
 	w.statusMu.Unlock()
-	
+
 	message := fmt.Sprintf(
 		"✅ *WG Server Recovered*\n\n"+
 			"Server: `%s`\n"+
@@ -252,12 +251,12 @@ func (w *Worker) notifyServerRecovered(server *storage.WGServer, downtime time.D
 			"Status: ✅ *OK*\n"+
 			"Downtime: `%s`\n"+
 			"Time: `%s`",
-		escapeMarkdownV2(server.Name),
-		escapeMarkdownV2(server.Endpoint),
-		escapeMarkdownV2(formatDuration(downtime)),
-		escapeMarkdownV2(time.Now().Format("2006-01-02 15:04:05")),
+		server.Name,
+		server.Endpoint,
+		formatDuration(downtime),
+		time.Now().Format("2006-01-02 15:04:05"),
 	)
-	
+
 	w.updateAdminMessages(server.ID, messageIDs, message)
 }
 
@@ -287,30 +286,6 @@ func (w *Worker) updateAdminMessages(serverID int64, messageIDs map[int64]int, m
 	}
 }
 
-func escapeMarkdownV2(text string) string {
-	replacer := strings.NewReplacer(
-		"_", "\\_",
-		"*", "\\*",
-		"[", "\\[",
-		"]", "\\]",
-		"(", "\\(",
-		")", "\\)",
-		"~", "\\~",
-		"`", "\\`",
-		">", "\\>",
-		"#", "\\#",
-		"+", "\\+",
-		"-", "\\-",
-		"=", "\\=",
-		"|", "\\|",
-		"{", "\\{",
-		"}", "\\}",
-		".", "\\.",
-		"!", "\\!",
-	)
-	return replacer.Replace(text)
-}
-
 func formatDuration(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%d sec", int(d.Seconds()))
@@ -320,4 +295,3 @@ func formatDuration(d time.Duration) string {
 	}
 	return fmt.Sprintf("%d h %d min", int(d.Hours()), int(d.Minutes())%60)
 }
-
