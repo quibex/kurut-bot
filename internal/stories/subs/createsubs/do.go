@@ -2,7 +2,6 @@ package createsubs
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"kurut-bot/internal/stories/subs"
@@ -12,20 +11,18 @@ import (
 )
 
 type Service struct {
-	storage      storage
-	wireguardSvc wireguardService
-	now          func() time.Time
+	storage storage
+	now     func() time.Time
 }
 
-func NewService(storage storage, wireguardSvc wireguardService, now func() time.Time) *Service {
+func NewService(storage storage, now func() time.Time) *Service {
 	return &Service{
-		storage:      storage,
-		wireguardSvc: wireguardSvc,
-		now:          now,
+		storage: storage,
+		now:     now,
 	}
 }
 
-func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscriptionRequest) (*subs.Subscription, error) {
+func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscriptionRequest) (*subs.CreateSubscriptionResult, error) {
 	tariff, err := s.storage.GetTariff(ctx, tariffs.GetCriteria{ID: &req.TariffID})
 	if err != nil {
 		return nil, errors.Errorf("failed to get tariff: %v", err)
@@ -34,44 +31,49 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 		return nil, errors.Errorf("tariff not found")
 	}
 
-	expiresAt := s.now().AddDate(0, 0, tariff.DurationDays)
+	// Получаем доступный сервер
+	server, err := s.storage.GetAvailableServer(ctx)
+	if err != nil {
+		return nil, errors.Errorf("failed to get available server: %v", err)
+	}
+	if server == nil {
+		return nil, errors.Errorf("no available servers")
+	}
+
 	now := s.now()
-
-	clientID := fmt.Sprintf("user_%d_%d", req.UserID, now.Unix())
-	clientConfig, err := s.wireguardSvc.CreateClient(ctx, clientID)
-	if err != nil {
-		return nil, errors.Errorf("failed to create wireguard client: %v", err)
-	}
-
-	wgData := subs.WireGuardData{
-		ServerID:     clientConfig.ServerID,
-		UserID:       clientConfig.UserID,
-		ConfigFile:   clientConfig.ConfigFile,
-		QRCodeBase64: clientConfig.QRCodeBase64,
-		DeepLink:     clientConfig.DeepLink,
-		ClientIP:     clientConfig.ClientIP,
-	}
-
-	vpnData, err := subs.MarshalWireGuardData(wgData)
-	if err != nil {
-		return nil, errors.Errorf("failed to marshal wireguard data: %v", err)
-	}
+	expiresAt := now.AddDate(0, 0, tariff.DurationDays)
 
 	subscription := subs.Subscription{
-		UserID:      req.UserID,
-		TariffID:    req.TariffID,
-		VPNType:     string(subs.VPNTypeWireGuard),
-		VPNData:     vpnData,
-		Status:      subs.StatusActive,
-		ClientName:  req.ClientName,
-		ActivatedAt: &now,
-		ExpiresAt:   &expiresAt,
+		UserID:              req.UserID,
+		TariffID:            req.TariffID,
+		ServerID:            &server.ID,
+		Status:              subs.StatusActive,
+		ClientWhatsApp:      &req.ClientWhatsApp,
+		CreatedByTelegramID: &req.CreatedByTelegramID,
+		ActivatedAt:         &now,
+		ExpiresAt:           &expiresAt,
 	}
 
 	created, err := s.storage.CreateSubscription(ctx, subscription)
 	if err != nil {
 		return nil, errors.Errorf("failed to create subscription in database: %v", err)
 	}
+
+	// Увеличиваем счетчик пользователей на сервере
+	err = s.storage.IncrementServerUsers(ctx, server.ID)
+	if err != nil {
+		return nil, errors.Errorf("failed to increment server users: %v", err)
+	}
+
+	// Генерируем user_id после создания подписки (когда уже есть ID)
+	generatedUserID := subs.GenerateUserID(created.ID, req.CreatedByTelegramID, req.ClientWhatsApp)
+
+	// Обновляем подписку с generated_user_id
+	err = s.storage.UpdateSubscriptionGeneratedUserID(ctx, created.ID, generatedUserID)
+	if err != nil {
+		return nil, errors.Errorf("failed to update subscription with generated user id: %v", err)
+	}
+	created.GeneratedUserID = &generatedUserID
 
 	if req.PaymentID != nil {
 		err = s.storage.LinkPaymentToSubscriptions(ctx, *req.PaymentID, []int64{created.ID})
@@ -80,5 +82,10 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 		}
 	}
 
-	return created, nil
+	return &subs.CreateSubscriptionResult{
+		Subscription:     created,
+		GeneratedUserID:  generatedUserID,
+		ServerUIURL:      &server.UIURL,
+		ServerUIPassword: &server.UIPassword,
+	}, nil
 }

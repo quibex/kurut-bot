@@ -18,17 +18,18 @@ type CreateSubFlowData struct {
 	TariffName string
 }
 
-// CreateSubForClientFlowData - data for admin creating sub for client
+// CreateSubForClientFlowData - data for assistant creating sub for client
 type CreateSubForClientFlowData struct {
-	AdminUserID int64
-	ClientName  string
-	TariffID    int64
-	TariffName  string
-	Price       float64
-	TotalAmount float64
-	PaymentID   *int64
-	PaymentURL  *string
-	MessageID   *int // ID сообщения для бесшовного редактирования
+	AdminUserID         int64
+	AssistantTelegramID int64
+	ClientWhatsApp      string
+	TariffID            int64
+	TariffName          string
+	Price               float64
+	TotalAmount         float64
+	PaymentID           *int64
+	PaymentURL          *string
+	MessageID           *int // ID сообщения для бесшовного редактирования
 }
 
 // DisableSubFlowData - data for disable sub
@@ -67,4 +68,13 @@ type RenewSubFlowData struct {
 // WelcomeFlowData - data for welcome/start flow
 type WelcomeFlowData struct {
 	MessageID int
+}
+
+// AddServerFlowData - data for adding server
+type AddServerFlowData struct {
+	Name         string
+	UIURL        string
+	UIPassword   string
+	CurrentUsers int
+	MaxUsers     int
 }

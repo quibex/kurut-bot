@@ -9,8 +9,3 @@ type Storage interface {
 	GetSubscription(ctx context.Context, criteria GetCriteria) (*Subscription, error)
 	ExtendSubscription(ctx context.Context, subscriptionID int64, additionalDays int) error
 }
-
-type WireguardService interface {
-	DisableClient(ctx context.Context, subscription *Subscription) error
-	EnableClient(ctx context.Context, subscription *Subscription) error
-}

@@ -7,14 +7,11 @@ import (
 	"kurut-bot/internal/stories/users"
 	"kurut-bot/internal/telegram/cmds"
 	"kurut-bot/internal/telegram/flows"
-	"kurut-bot/internal/telegram/flows/buysub"
+	"kurut-bot/internal/telegram/flows/addserver"
 	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
 	"kurut-bot/internal/telegram/flows/disabletariff"
 	"kurut-bot/internal/telegram/flows/enabletariff"
-	"kurut-bot/internal/telegram/flows/renewsub"
-	"kurut-bot/internal/telegram/flows/starttrial"
-	"kurut-bot/internal/telegram/flows/wgserver"
 	"kurut-bot/internal/telegram/messages"
 	"kurut-bot/internal/telegram/states"
 
@@ -27,17 +24,18 @@ type Router struct {
 	userService  userService
 	adminChecker adminChecker
 
-	// Handler для флоу покупки подписки
-	buySubHandler             *buysub.Handler
+	// Handlers
 	createSubForClientHandler *createsubforclient.Handler
 	createTariffHandler       *createtariff.Handler
 	disableTariffHandler      *disabletariff.Handler
 	enableTariffHandler       *enabletariff.Handler
-	startTrialHandler         *starttrial.Handler
-	renewSubHandler           *renewsub.Handler
-	wgServerHandler           *wgserver.Handler
+	addServerHandler          *addserver.Handler
 	mySubsCommand             *cmds.MySubsCommand
 	statsCommand              *cmds.StatsCommand
+	expirationCommand         *cmds.ExpirationCommand
+
+	// Workers for manual run
+	expirationRunner expirationRunner
 }
 
 type stateManager interface {
@@ -54,6 +52,10 @@ type userService interface {
 
 type adminChecker interface {
 	IsAdmin(telegramID int64) bool
+}
+
+type expirationRunner interface {
+	RunNow(ctx context.Context) error
 }
 
 func (r *Router) Route(update *tgbotapi.Update) error {
@@ -96,44 +98,20 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		switch {
 		case callbackData == "cancel" || callbackData == "main_menu":
 			return r.handleGlobalCancelWithInternalID(update, user)
-		case callbackData == "start_trial":
-			return r.handleStartTrial(update, user)
-		case callbackData == "view_tariffs":
-			chatID := extractChatID(update)
-			// Получаем MessageID из welcome flow для бесшовного редактирования
-			welcomeData, _ := r.stateManager.GetWelcomeData(chatID)
-			var messageID *int
-			if welcomeData != nil {
-				messageID = &welcomeData.MessageID
-			}
-			// Отвечаем на callback query
-			callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-			_, _ = r.bot.Request(callbackConfig)
-			return r.buySubHandler.Start(user.ID, chatID, messageID)
 		case callbackData == "my_subscriptions":
-			return r.mySubsCommand.Execute(ctx, user, extractChatID(update))
-		case strings.HasPrefix(callbackData, "my_subs_page:"):
-			return r.mySubsCommand.HandleCallback(ctx, user, extractChatID(update), update.CallbackQuery.Message.MessageID, callbackData)
-		case callbackData == "my_subs_noop":
-			// Ignore noop callback (page indicator button)
-			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-			_, _ = r.bot.Request(callback)
-			return nil
-		case strings.HasPrefix(callbackData, "wg_archive:"):
-			if !r.adminChecker.IsAdmin(telegramID) {
+			return r.mySubsCommand.Execute(ctx, user.TelegramID, extractChatID(update))
+		case strings.HasPrefix(callbackData, "exp_"):
+			// Expiration callbacks (exp_dis, exp_pay, exp_chk)
+			if !r.adminChecker.IsAdmin(user.TelegramID) {
+				callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ Нет прав")
+				_, _ = r.bot.Request(callback)
 				return nil
 			}
-			ctx := context.Background()
-			chatID := extractChatID(update)
-			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-			_, _ = r.bot.Request(callback)
-			return r.wgServerHandler.HandleArchiveCallback(ctx, chatID, update.CallbackQuery.ID, callbackData)
+			return r.expirationCommand.HandleCallback(ctx, update.CallbackQuery)
+		case strings.HasPrefix(callbackData, "pay_"):
+			// Payment callbacks (pay_check, pay_refresh, pay_cancel) - работают независимо от состояния
+			return r.createSubForClientHandler.HandlePaymentCallback(update)
 		}
-	}
-
-	// Проверяем состояние флоу покупки подписки
-	if strings.HasPrefix(string(state), "ubs_") {
-		return r.buySubHandler.Handle(update, state)
 	}
 
 	// Проверяем состояние флоу создания подписки для клиента
@@ -156,14 +134,9 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		return r.enableTariffHandler.Handle(update, state)
 	}
 
-	// Проверяем состояние флоу продления подписки
-	if strings.HasPrefix(string(state), "urs_") {
-		return r.renewSubHandler.Handle(update, state)
-	}
-
-	// Проверяем состояние флоу управления WG серверами
-	if strings.HasPrefix(string(state), "wgserver_") {
-		return r.wgServerHandler.Handle(ctx, update, string(state))
+	// Проверяем состояние флоу добавления сервера
+	if strings.HasPrefix(string(state), "asv_") {
+		return r.addServerHandler.Handle(update, state)
 	}
 
 	// Если нет активного состояния - обрабатываем как обычное сообщение
@@ -178,19 +151,11 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 	switch update.Message.Command() {
 	case "start":
 		return r.sendWelcome(update.Message.Chat.ID, user)
-	case "buy":
-		return r.buySubHandler.Start(
-			user.ID,
-			update.Message.Chat.ID,
-			nil, // Команда /buy не имеет MessageID для редактирования
-		)
 	case "create_sub":
-		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для создания подписок клиентам"))
-			return r.sendHelp(update.Message.Chat.ID)
-		}
+		// Любой пользователь может создавать подписки для клиентов (ассистенты)
 		return r.createSubForClientHandler.Start(
 			user.ID,
+			user.TelegramID,
 			update.Message.Chat.ID,
 		)
 	case "create_tariff":
@@ -217,31 +182,17 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 		return r.enableTariffHandler.Start(
 			update.Message.Chat.ID,
 		)
-	case "wg_servers":
-		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для управления серверами"))
-			return r.sendHelp(update.Message.Chat.ID)
-		}
-		ctx := context.Background()
-		return r.wgServerHandler.ListServers(ctx, update.Message.Chat.ID)
-	case "add_wg_server":
+	case "add_server":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
 			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для добавления серверов"))
 			return r.sendHelp(update.Message.Chat.ID)
 		}
-		return r.wgServerHandler.StartAddServer(update.Message.Chat.ID)
-	case "archive_wg_server":
-		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для архивирования серверов"))
-			return r.sendHelp(update.Message.Chat.ID)
-		}
-		ctx := context.Background()
-		return r.wgServerHandler.StartArchiveServer(ctx, update.Message.Chat.ID)
+		return r.addServerHandler.Start(
+			update.Message.Chat.ID,
+		)
 	case "my_subs":
 		ctx := context.Background()
-		return r.mySubsCommand.Execute(ctx, user, update.Message.Chat.ID)
-	case "renew":
-		return r.renewSubHandler.Start(user.ID, update.Message.Chat.ID)
+		return r.mySubsCommand.Execute(ctx, user.TelegramID, update.Message.Chat.ID)
 	case "stats":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
 			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для просмотра статистики"))
@@ -249,44 +200,56 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 		}
 		ctx := context.Background()
 		return r.statsCommand.Execute(ctx, update.Message.Chat.ID)
+	case "run_expiration":
+		if !r.adminChecker.IsAdmin(user.TelegramID) {
+			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав"))
+			return r.sendHelp(update.Message.Chat.ID)
+		}
+		return r.runExpirationWorker(update.Message.Chat.ID)
+	case "overdue":
+		if !r.adminChecker.IsAdmin(user.TelegramID) {
+			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав"))
+			return r.sendHelp(update.Message.Chat.ID)
+		}
+		ctx := context.Background()
+		return r.expirationCommand.ExecuteOverdue(ctx, update.Message.Chat.ID)
+	case "expiring":
+		if !r.adminChecker.IsAdmin(user.TelegramID) {
+			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав"))
+			return r.sendHelp(update.Message.Chat.ID)
+		}
+		ctx := context.Background()
+		return r.expirationCommand.ExecuteExpiring(ctx, update.Message.Chat.ID)
 	default:
 		return r.sendHelp(update.Message.Chat.ID)
 	}
 }
 
 func (r *Router) sendWelcome(chatID int64, user *users.User) error {
-	text := messages.WelcomeTitle + "\n\n" + messages.WelcomeDescription
+	text := "👋 Добро пожаловать!\n\nЭтот бот помогает ассистентам управлять подписками клиентов."
 
-	// Создаем кнопки
+	// Создаем кнопки для ассистентов
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(
-				messages.ButtonStartTrial,
-				"start_trial",
-			),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(
-				messages.ButtonViewTariffs,
-				"view_tariffs",
+				"📋 Мои подписки",
+				"my_subscriptions",
 			),
 		),
 	)
 
 	if r.adminChecker.IsAdmin(chatID) {
-		text += "\n\nКоманды для администратора:\n" +
-			"/create_sub — Создать подписку для клиента\n" +
+		text += "\n\n🔧 Команды администратора:\n" +
 			"/create_tariff — Создать тариф\n" +
 			"/disable_tariff — Архивировать тариф\n" +
-			"/enable_tariff — Восстановить тариф из архива\n" +
-			"/wg_servers — Список WireGuard серверов\n" +
-			"/add_wg_server — Добавить WireGuard сервер\n" +
-			"/archive_wg_server — Архивировать WireGuard сервер\n" +
+			"/enable_tariff — Восстановить тариф\n" +
+			"/add_server — Добавить сервер\n" +
 			"/stats — Просмотр статистики"
 	}
 
-	// Добавляем "Выберите действие:" в самый конец
-	text += "\n\n" + messages.WelcomeChooseAction
+	text += "\n\n📱 Команды ассистента:\n" +
+		"/create_sub — Создать подписку для клиента\n" +
+		"/my_subs — Список подписок"
 
 	// Проверяем есть ли сохраненное сообщение для редактирования
 	welcomeData, _ := r.stateManager.GetWelcomeData(chatID)
@@ -314,37 +277,21 @@ func (r *Router) sendWelcome(chatID int64, user *users.User) error {
 	return nil
 }
 
-func (r *Router) handleStartTrial(update *tgbotapi.Update, user *users.User) error {
-	if update.CallbackQuery == nil || update.CallbackQuery.Message == nil {
-		return nil
-	}
-	chatID := update.CallbackQuery.Message.Chat.ID
-	ctx := context.Background()
-
-	// Отвечаем на callback query
-	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Активируем пробный период...")
-	_, err := r.bot.Request(callbackConfig)
-	if err != nil {
-		return err
-	}
-
-	return r.startTrialHandler.Start(ctx, user, chatID)
-}
-
 func (r *Router) sendHelp(chatID int64) error {
 	if chatID == 0 {
 		return nil // Не можем отправить сообщение
 	}
-	text := messages.CommandsHelp
+	text := "📱 Доступные команды:\n\n" +
+		"/start — Главное меню\n" +
+		"/create_sub — Создать подписку для клиента\n" +
+		"/my_subs — Список подписок"
+
 	if r.adminChecker.IsAdmin(chatID) {
-		text += "\n\nКоманды для администратора:\n" +
-			"/create_sub — Создать подписку для клиента\n" +
+		text += "\n\n🔧 Команды администратора:\n" +
 			"/create_tariff — Создать тариф\n" +
 			"/disable_tariff — Архивировать тариф\n" +
-			"/enable_tariff — Восстановить тариф из архива\n" +
-			"/wg_servers — Список WireGuard серверов\n" +
-			"/add_wg_server — Добавить WireGuard сервер\n" +
-			"/archive_wg_server — Архивировать WireGuard сервер\n" +
+			"/enable_tariff — Восстановить тариф\n" +
+			"/add_server — Добавить сервер\n" +
 			"/stats — Просмотр статистики"
 	}
 	msg := tgbotapi.NewMessage(chatID, text)
@@ -378,6 +325,30 @@ func extractChatID(update *tgbotapi.Update) int64 {
 	return 0
 }
 
+// runExpirationWorker запускает воркер истечения подписок вручную
+func (r *Router) runExpirationWorker(chatID int64) error {
+	if r.expirationRunner == nil {
+		msg := tgbotapi.NewMessage(chatID, "❌ Воркер не настроен")
+		_, _ = r.bot.Send(msg)
+		return nil
+	}
+
+	msg := tgbotapi.NewMessage(chatID, "⏳ Запускаю проверку подписок...")
+	_, _ = r.bot.Send(msg)
+
+	ctx := context.Background()
+	err := r.expirationRunner.RunNow(ctx)
+	if err != nil {
+		errMsg := tgbotapi.NewMessage(chatID, "❌ Ошибка: "+err.Error())
+		_, _ = r.bot.Send(errMsg)
+		return err
+	}
+
+	successMsg := tgbotapi.NewMessage(chatID, "✅ Проверка подписок завершена")
+	_, _ = r.bot.Send(successMsg)
+	return nil
+}
+
 // handleGlobalCancelWithInternalID обрабатывает глобальную отмену из любого состояния
 func (r *Router) handleGlobalCancelWithInternalID(update *tgbotapi.Update, user *users.User) error {
 	if update.CallbackQuery == nil || update.CallbackQuery.Message == nil {
@@ -400,106 +371,58 @@ func (r *Router) handleGlobalCancelWithInternalID(update *tgbotapi.Update, user 
 }
 
 // NewRouter создает новый роутер с зависимостями
-func NewRouter(bot *tgbotapi.BotAPI, stateManager stateManager, userService userService, adminChecker adminChecker, buySubHandler *buysub.Handler, createSubForClientHandler *createsubforclient.Handler, createTariffHandler *createtariff.Handler, disableTariffHandler *disabletariff.Handler, enableTariffHandler *enabletariff.Handler, startTrialHandler *starttrial.Handler, renewSubHandler *renewsub.Handler, wgServerHandler *wgserver.Handler, mySubsCommand *cmds.MySubsCommand, statsCommand *cmds.StatsCommand) *Router {
+func NewRouter(
+	bot *tgbotapi.BotAPI,
+	stateManager stateManager,
+	userService userService,
+	adminChecker adminChecker,
+	createSubForClientHandler *createsubforclient.Handler,
+	createTariffHandler *createtariff.Handler,
+	disableTariffHandler *disabletariff.Handler,
+	enableTariffHandler *enabletariff.Handler,
+	addServerHandler *addserver.Handler,
+	mySubsCommand *cmds.MySubsCommand,
+	statsCommand *cmds.StatsCommand,
+	expirationCommand *cmds.ExpirationCommand,
+	expirationRunner expirationRunner,
+) *Router {
 	return &Router{
 		bot:                       bot,
 		stateManager:              stateManager,
 		userService:               userService,
-		buySubHandler:             buySubHandler,
 		adminChecker:              adminChecker,
 		createSubForClientHandler: createSubForClientHandler,
 		createTariffHandler:       createTariffHandler,
 		disableTariffHandler:      disableTariffHandler,
 		enableTariffHandler:       enableTariffHandler,
-		startTrialHandler:         startTrialHandler,
-		renewSubHandler:           renewSubHandler,
-		wgServerHandler:           wgServerHandler,
+		addServerHandler:          addServerHandler,
 		mySubsCommand:             mySubsCommand,
 		statsCommand:              statsCommand,
+		expirationCommand:         expirationCommand,
+		expirationRunner:          expirationRunner,
 	}
 }
 
-// SetupBotCommands устанавливает команды для меню бота (для обычных пользователей)
+// SetupBotCommands устанавливает команды для меню бота
 func (r *Router) SetupBotCommands() error {
-	// Устанавливаем только клиентские команды в панель по умолчанию
+	// Команды для всех пользователей (ассистентов)
 	commands := []tgbotapi.BotCommand{
 		{
 			Command:     "start",
-			Description: "Начать работу с ботом",
+			Description: "Главное меню",
 		},
 		{
-			Command:     "buy",
-			Description: "Купить ключ доступа",
-		},
-		{
-			Command:     "renew",
-			Description: "Продлить подписку",
+			Command:     "create_sub",
+			Description: "Создать подписку для клиента",
 		},
 		{
 			Command:     "my_subs",
-			Description: "Мои активные подписки",
+			Description: "Список подписок",
 		},
 	}
 
 	setCommandsConfig := tgbotapi.NewSetMyCommands(commands...)
 	_, err := r.bot.Request(setCommandsConfig)
-	if err != nil {
-		return err
-	}
-
-	// Устанавливаем описание бота (отображается до нажатия START)
-	return r.SetupBotDescription()
-}
-
-// SetupBotDescription устанавливает описание бота
-func (r *Router) SetupBotDescription() error {
-	// Русское описание
-	descriptionRu := `🇰🇬 Кыргызская разработка - поддержите своих!
-
-‼️ 7 дней подписки бесплатно ‼️
-
-🚀 Высокая скорость
-💎 Стабильность подключения
-💬 Отзывчивая поддержка
-📱 Для телефонов и компьютеров
-💳 Оплата картами РФ и СБП`
-
-	// Кыргызское описание
-	descriptionKy := `🇰🇬 Кыргыз иштеп чыгаруусу - өзүбүздүкүн колдойлу!
-
-‼️ 7 күн акысыз жазылуу ‼️
-
-🚀 Жогорку ылдамдык
-💎 Туруктуу байланыш
-💬 Тез жооп берүүчү колдоо
-📱 Телефондор жана компьютерлер үчүн
-💳 РФ карталары жана СБП менен төлөө`
-
-	// Устанавливаем описание для русского языка
-	paramsRu := tgbotapi.Params{
-		"description":   descriptionRu,
-		"language_code": "ru",
-	}
-	_, err := r.bot.MakeRequest("setMyDescription", paramsRu)
-	if err != nil {
-		return err
-	}
-
-	// Устанавливаем описание для кыргызского языка
-	paramsKy := tgbotapi.Params{
-		"description":   descriptionKy,
-		"language_code": "ky",
-	}
-	_, err = r.bot.MakeRequest("setMyDescription", paramsKy)
-	if err != nil {
-		return err
-	}
-
-	// Устанавливаем дефолтное описание (для всех остальных языков)
-	paramsDefault := tgbotapi.Params{
-		"description": descriptionRu,
-	}
-	_, err = r.bot.MakeRequest("setMyDescription", paramsDefault)
 	return err
 }
 
@@ -508,19 +431,23 @@ func (r *Router) setupAdminCommands(chatID int64) {
 	commands := []tgbotapi.BotCommand{
 		{
 			Command:     "start",
-			Description: "Начать работу с ботом",
-		},
-		{
-			Command:     "buy",
-			Description: "Купить ключ доступа",
-		},
-		{
-			Command:     "my_subs",
-			Description: "Мои активные подписки",
+			Description: "Главное меню",
 		},
 		{
 			Command:     "create_sub",
 			Description: "Создать подписку для клиента",
+		},
+		{
+			Command:     "my_subs",
+			Description: "Список подписок",
+		},
+		{
+			Command:     "overdue",
+			Description: "Просроченные подписки",
+		},
+		{
+			Command:     "expiring",
+			Description: "Истекающие завтра",
 		},
 		{
 			Command:     "create_tariff",
@@ -535,20 +462,16 @@ func (r *Router) setupAdminCommands(chatID int64) {
 			Description: "Восстановить тариф",
 		},
 		{
+			Command:     "add_server",
+			Description: "Добавить сервер",
+		},
+		{
 			Command:     "stats",
 			Description: "Просмотр статистики",
 		},
 		{
-			Command:     "wg_servers",
-			Description: "Список WireGuard серверов",
-		},
-		{
-			Command:     "add_wg_server",
-			Description: "Добавить WireGuard сервер",
-		},
-		{
-			Command:     "archive_wg_server",
-			Description: "Архивировать WireGuard сервер",
+			Command:     "run_expiration",
+			Description: "Запустить проверку подписок",
 		},
 	}
 

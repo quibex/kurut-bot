@@ -5,6 +5,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"kurut-bot/internal/stories/orders"
 	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
@@ -29,7 +30,7 @@ type (
 	}
 
 	subscriptionService interface {
-		CreateSubscription(ctx context.Context, req *subs.CreateSubscriptionRequest) (*subs.Subscription, error)
+		CreateSubscription(ctx context.Context, req *subs.CreateSubscriptionRequest) (*subs.CreateSubscriptionResult, error)
 	}
 
 	paymentService interface {
@@ -37,7 +38,12 @@ type (
 		CheckPaymentStatus(ctx context.Context, paymentID int64) (*payment.Payment, error)
 	}
 
-	configStore interface {
-		Store(config string, qrCode string) string
+	orderService interface {
+		CreatePendingOrder(ctx context.Context, order orders.PendingOrder) (*orders.PendingOrder, error)
+		GetPendingOrderByID(ctx context.Context, id int64) (*orders.PendingOrder, error)
+		UpdateMessageID(ctx context.Context, id int64, messageID int) error
+		UpdatePaymentID(ctx context.Context, id int64, paymentID int64) error
+		UpdateStatus(ctx context.Context, id int64, status orders.Status) error
+		DeletePendingOrder(ctx context.Context, id int64) error
 	}
 )

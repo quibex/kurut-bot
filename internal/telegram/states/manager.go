@@ -151,3 +151,21 @@ func (m *Manager) GetWelcomeData(chatID int64) (*flows.WelcomeFlowData, error) {
 
 	return flowData, nil
 }
+
+// GetAddServerData получает данные флоу добавления сервера
+func (m *Manager) GetAddServerData(chatID int64) (*flows.AddServerFlowData, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	data, exists := m.userData[chatID]
+	if !exists {
+		return nil, fmt.Errorf("no data for chat %d", chatID)
+	}
+
+	flowData, ok := data.(*flows.AddServerFlowData)
+	if !ok {
+		return nil, fmt.Errorf("invalid data type for chat %d", chatID)
+	}
+
+	return flowData, nil
+}

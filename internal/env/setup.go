@@ -42,15 +42,6 @@ func Setup(ctx context.Context) (*Env, error) {
 		return nil, fmt.Errorf("initLogger: %w", err)
 	}
 
-	if err := cfg.WireGuard.PrepareCertFiles(); err != nil {
-		return nil, fmt.Errorf("prepare TLS certificates: %w", err)
-	}
-	logger.Info("TLS certificates prepared",
-		"ca_cert", cfg.WireGuard.GetCACertPath(),
-		"client_cert", cfg.WireGuard.GetClientCertPath(),
-		"client_key", cfg.WireGuard.GetClientKeyPath(),
-		"server_name", cfg.WireGuard.TLSServerName)
-
 	clients, err := newClients(ctx, cfg, logger)
 	if err != nil {
 		return nil, fmt.Errorf("newClients: %w", err)

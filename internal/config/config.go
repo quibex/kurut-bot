@@ -12,9 +12,7 @@ type Config struct {
 	ShutdownDuration time.Duration           `env:"SHUTDOWN_DURATION,default=30s"`
 	DB               SQLiteConfig            `env:",prefix=DB_"`
 	Telegram         TelegramConfig          `env:",prefix=TELEGRAM_"`
-	MarzbanClient    MarzbanConfig           `env:",prefix=MARZBAN_"`
 	YooKassa         YooKassaConfig          `env:",prefix=YOOKASSA_"`
-	WireGuard        WireGuardConfig         `env:",prefix=WIREGUARD_"`
 	Metrics          struct {
 		Collector struct {
 			Timeout time.Duration `env:"COLLECTOR_TIMEOUT,default=10s"`
@@ -26,11 +24,6 @@ type TelegramConfig struct {
 	BotToken         string        `env:"BOT_TOKEN,required"`
 	Timeout          time.Duration `env:"TIMEOUT,default=30s"`
 	AdminTelegramIDs []int64       `env:"ADMIN_TELEGRAM_IDS"`
-}
-
-type MarzbanConfig struct {
-	Token  string `env:"TOKEN,required"`
-	APIURL string `env:"API_URL,required"`
 }
 
 type YooKassaConfig struct {
@@ -78,13 +71,4 @@ type SQLiteConfig struct {
 	MaxOpenConns int    `env:"MAX_OPEN_CONNS,default=25"`
 	MaxIdleConns int    `env:"MAX_IDLE_CONNS,default=5"`
 	MaxLifetime  string `env:"MAX_LIFETIME,default=5m"`
-}
-
-type WireGuardConfig struct {
-	TLSCACert     string `env:"TLS_CA_CERT"`
-	TLSClientCert string `env:"TLS_CLIENT_CERT"`
-	TLSClientKey  string `env:"TLS_CLIENT_KEY"`
-	TLSServerName string `env:"TLS_SERVER_NAME"`
-	TLSCertsDir   string `env:"TLS_CERTS_DIR,default=/tmp/kurut-bot-certs"`
-	WebAppBaseURL string `env:"WEB_APP_BASE_URL,default=https://connect.kurutvpn.com:8080"`
 }

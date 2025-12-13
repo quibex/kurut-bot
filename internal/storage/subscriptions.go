@@ -16,32 +16,34 @@ const subscriptionsTable = "subscriptions"
 var subscriptionRowFields = fields(subscriptionRow{})
 
 type subscriptionRow struct {
-	ID          int64      `db:"id"`
-	UserID      int64      `db:"user_id"`
-	TariffID    int64      `db:"tariff_id"`
-	VPNType     string     `db:"vpn_type"`
-	VPNData     *string    `db:"vpn_data"`
-	Status      string     `db:"status"`
-	ClientName  *string    `db:"client_name"`
-	ActivatedAt *time.Time `db:"activated_at"`
-	ExpiresAt   *time.Time `db:"expires_at"`
-	CreatedAt   time.Time  `db:"created_at"`
-	UpdatedAt   time.Time  `db:"updated_at"`
+	ID                  int64      `db:"id"`
+	UserID              int64      `db:"user_id"`
+	TariffID            int64      `db:"tariff_id"`
+	ServerID            *int64     `db:"server_id"`
+	Status              string     `db:"status"`
+	ClientWhatsApp      *string    `db:"client_whatsapp"`
+	GeneratedUserID     *string    `db:"generated_user_id"`
+	CreatedByTelegramID *int64     `db:"created_by_telegram_id"`
+	ActivatedAt         *time.Time `db:"activated_at"`
+	ExpiresAt           *time.Time `db:"expires_at"`
+	CreatedAt           time.Time  `db:"created_at"`
+	UpdatedAt           time.Time  `db:"updated_at"`
 }
 
 func (s subscriptionRow) ToModel() *subs.Subscription {
 	return &subs.Subscription{
-		ID:          s.ID,
-		UserID:      s.UserID,
-		TariffID:    s.TariffID,
-		VPNType:     s.VPNType,
-		VPNData:     s.VPNData,
-		Status:      subs.Status(s.Status),
-		ClientName:  s.ClientName,
-		ActivatedAt: s.ActivatedAt,
-		ExpiresAt:   s.ExpiresAt,
-		CreatedAt:   s.CreatedAt,
-		UpdatedAt:   s.UpdatedAt,
+		ID:                  s.ID,
+		UserID:              s.UserID,
+		TariffID:            s.TariffID,
+		ServerID:            s.ServerID,
+		Status:              subs.Status(s.Status),
+		ClientWhatsApp:      s.ClientWhatsApp,
+		GeneratedUserID:     s.GeneratedUserID,
+		CreatedByTelegramID: s.CreatedByTelegramID,
+		ActivatedAt:         s.ActivatedAt,
+		ExpiresAt:           s.ExpiresAt,
+		CreatedAt:           s.CreatedAt,
+		UpdatedAt:           s.UpdatedAt,
 	}
 }
 
@@ -49,16 +51,17 @@ func (s *storageImpl) CreateSubscription(ctx context.Context, subscription subs.
 	now := s.now()
 
 	params := map[string]interface{}{
-		"user_id":     subscription.UserID,
-		"tariff_id":   subscription.TariffID,
-		"vpn_type":    subscription.VPNType,
-		"vpn_data":    subscription.VPNData,
-		"status":      string(subscription.Status),
-		"client_name": subscription.ClientName,
-		"activated_at": subscription.ActivatedAt,
-		"expires_at":  subscription.ExpiresAt,
-		"created_at":  now,
-		"updated_at":  now,
+		"user_id":                subscription.UserID,
+		"tariff_id":              subscription.TariffID,
+		"server_id":              subscription.ServerID,
+		"status":                 string(subscription.Status),
+		"client_whatsapp":        subscription.ClientWhatsApp,
+		"generated_user_id":      subscription.GeneratedUserID,
+		"created_by_telegram_id": subscription.CreatedByTelegramID,
+		"activated_at":           subscription.ActivatedAt,
+		"expires_at":             subscription.ExpiresAt,
+		"created_at":             now,
+		"updated_at":             now,
 	}
 
 	q, args, err := s.stmpBuilder().
@@ -125,6 +128,9 @@ func (s *storageImpl) ListSubscriptions(ctx context.Context, criteria subs.ListC
 	}
 	if len(criteria.Status) > 0 {
 		query = query.Where(sq.Eq{"status": criteria.Status})
+	}
+	if criteria.CreatedByTelegramID != nil {
+		query = query.Where(sq.Eq{"created_by_telegram_id": *criteria.CreatedByTelegramID})
 	}
 
 	if criteria.Limit > 0 {
@@ -300,4 +306,143 @@ func (s *storageImpl) UpdateSubscription(ctx context.Context, criteria subs.GetC
 	}
 
 	return s.GetSubscription(ctx, criteria)
+}
+
+// UpdateSubscriptionGeneratedUserID updates the generated_user_id field
+func (s *storageImpl) UpdateSubscriptionGeneratedUserID(ctx context.Context, subscriptionID int64, generatedUserID string) error {
+	params := map[string]interface{}{
+		"generated_user_id": generatedUserID,
+		"updated_at":        s.now(),
+	}
+
+	q, args, err := s.stmpBuilder().
+		Update(subscriptionsTable).
+		SetMap(params).
+		Where(sq.Eq{"id": subscriptionID}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build sql query: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("db.ExecContext: %w", err)
+	}
+
+	return nil
+}
+
+// ListExpiringTodayGroupedByAssistant returns subscriptions expiring today grouped by assistant telegram ID
+func (s *storageImpl) ListExpiringTodayGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error) {
+	subscriptions, err := s.ListExpiringSubscriptions(ctx, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[int64][]*subs.Subscription)
+	for _, sub := range subscriptions {
+		if sub.CreatedByTelegramID != nil {
+			result[*sub.CreatedByTelegramID] = append(result[*sub.CreatedByTelegramID], sub)
+		}
+	}
+
+	return result, nil
+}
+
+// ListOverdueSubscriptionsGroupedByAssistant returns expired subscriptions grouped by assistant telegram ID
+func (s *storageImpl) ListOverdueSubscriptionsGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error) {
+	subscriptions, err := s.ListExpiredSubscriptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[int64][]*subs.Subscription)
+	for _, sub := range subscriptions {
+		if sub.CreatedByTelegramID != nil {
+			result[*sub.CreatedByTelegramID] = append(result[*sub.CreatedByTelegramID], sub)
+		}
+	}
+
+	return result, nil
+}
+
+// ListExpiringTomorrowGroupedByAssistant returns subscriptions expiring tomorrow grouped by assistant telegram ID
+func (s *storageImpl) ListExpiringTomorrowGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error) {
+	subscriptions, err := s.ListExpiringSubscriptions(ctx, 1) // 1 день = завтра
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[int64][]*subs.Subscription)
+	for _, sub := range subscriptions {
+		if sub.CreatedByTelegramID != nil {
+			result[*sub.CreatedByTelegramID] = append(result[*sub.CreatedByTelegramID], sub)
+		}
+	}
+
+	return result, nil
+}
+
+// AssistantStats holds statistics for an assistant
+type AssistantStats struct {
+	TotalActive      int
+	CreatedToday     int
+	CreatedYesterday int
+}
+
+// GetAssistantStats returns subscription statistics for an assistant
+func (s *storageImpl) GetAssistantStats(ctx context.Context, assistantTelegramID int64) (*AssistantStats, error) {
+	now := s.now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	yesterdayStart := todayStart.AddDate(0, 0, -1)
+
+	stats := &AssistantStats{}
+
+	// Count total active subscriptions
+	activeQuery := s.stmpBuilder().
+		Select("COUNT(*)").
+		From(subscriptionsTable).
+		Where(sq.Eq{"created_by_telegram_id": assistantTelegramID}).
+		Where(sq.Eq{"status": string(subs.StatusActive)})
+
+	q, args, err := activeQuery.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build active count query: %w", err)
+	}
+	if err := s.db.GetContext(ctx, &stats.TotalActive, q, args...); err != nil {
+		return nil, fmt.Errorf("count active: %w", err)
+	}
+
+	// Count created today
+	todayQuery := s.stmpBuilder().
+		Select("COUNT(*)").
+		From(subscriptionsTable).
+		Where(sq.Eq{"created_by_telegram_id": assistantTelegramID}).
+		Where(sq.GtOrEq{"created_at": todayStart})
+
+	q, args, err = todayQuery.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build today count query: %w", err)
+	}
+	if err := s.db.GetContext(ctx, &stats.CreatedToday, q, args...); err != nil {
+		return nil, fmt.Errorf("count today: %w", err)
+	}
+
+	// Count created yesterday
+	yesterdayQuery := s.stmpBuilder().
+		Select("COUNT(*)").
+		From(subscriptionsTable).
+		Where(sq.Eq{"created_by_telegram_id": assistantTelegramID}).
+		Where(sq.GtOrEq{"created_at": yesterdayStart}).
+		Where(sq.Lt{"created_at": todayStart})
+
+	q, args, err = yesterdayQuery.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build yesterday count query: %w", err)
+	}
+	if err := s.db.GetContext(ctx, &stats.CreatedYesterday, q, args...); err != nil {
+		return nil, fmt.Errorf("count yesterday: %w", err)
+	}
+
+	return stats, nil
 }

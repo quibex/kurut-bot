@@ -2,12 +2,14 @@ package createsubforclient
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
+	"kurut-bot/internal/stories/orders"
 	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
@@ -23,8 +25,7 @@ type Handler struct {
 	tariffService       tariffService
 	subscriptionService subscriptionService
 	paymentService      paymentService
-	configStore         configStore
-	webAppBaseURL       string
+	orderService        orderService
 	logger              *slog.Logger
 }
 
@@ -34,8 +35,7 @@ func NewHandler(
 	ts tariffService,
 	ss subscriptionService,
 	ps paymentService,
-	configStore configStore,
-	webAppBaseURL string,
+	os orderService,
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
@@ -44,21 +44,21 @@ func NewHandler(
 		tariffService:       ts,
 		subscriptionService: ss,
 		paymentService:      ps,
-		configStore:         configStore,
-		webAppBaseURL:       webAppBaseURL,
+		orderService:        os,
 		logger:              logger,
 	}
 }
 
 // Start начинает flow создания подписки для клиента
-func (h *Handler) Start(adminUserID, chatID int64) error {
-	// Инициализируем данные флоу с ID админа
+func (h *Handler) Start(userID, assistantTelegramID, chatID int64) error {
+	// Инициализируем данные флоу
 	flowData := &flows.CreateSubForClientFlowData{
-		AdminUserID: adminUserID,
+		AdminUserID:         userID,
+		AssistantTelegramID: assistantTelegramID,
 	}
 	h.stateManager.SetState(chatID, states.AdminCreateSubWaitClientName, flowData)
 
-	msg := tgbotapi.NewMessage(chatID, "👤 Введите имя клиента (например: Тимур87-45):")
+	msg := tgbotapi.NewMessage(chatID, "📱 Введите номер WhatsApp клиента (например: +996555123456):")
 	_, err := h.bot.Send(msg)
 	return err
 }
@@ -69,7 +69,7 @@ func (h *Handler) Handle(update *tgbotapi.Update, state states.State) error {
 
 	switch state {
 	case states.AdminCreateSubWaitClientName:
-		return h.handleClientNameInput(ctx, update)
+		return h.handleWhatsAppInput(ctx, update)
 	case states.AdminCreateSubWaitTariff:
 		return h.handleTariffSelection(ctx, update)
 	case states.AdminCreateSubWaitPayment:
@@ -79,18 +79,19 @@ func (h *Handler) Handle(update *tgbotapi.Update, state states.State) error {
 	}
 }
 
-// handleClientNameInput обрабатывает ввод имени клиента
-func (h *Handler) handleClientNameInput(ctx context.Context, update *tgbotapi.Update) error {
+// handleWhatsAppInput обрабатывает ввод номера WhatsApp
+func (h *Handler) handleWhatsAppInput(ctx context.Context, update *tgbotapi.Update) error {
 	if update.Message == nil || update.Message.Text == "" {
 		chatID := extractChatID(update)
-		return h.sendError(chatID, "Пожалуйста, введите имя клиента текстом")
+		return h.sendError(chatID, "Пожалуйста, введите номер WhatsApp текстом")
 	}
 
 	chatID := update.Message.Chat.ID
-	clientName := strings.TrimSpace(update.Message.Text)
+	whatsapp := strings.TrimSpace(update.Message.Text)
 
-	if clientName == "" {
-		return h.sendError(chatID, "Имя клиента не может быть пустым")
+	// Валидация номера телефона (базовая)
+	if !isValidPhoneNumber(whatsapp) {
+		return h.sendError(chatID, "❌ Неверный формат номера. Введите номер в формате +996555123456")
 	}
 
 	// Получаем данные флоу
@@ -99,8 +100,8 @@ func (h *Handler) handleClientNameInput(ctx context.Context, update *tgbotapi.Up
 		return h.sendError(chatID, "Ошибка получения данных флоу")
 	}
 
-	// Сохраняем имя клиента
-	flowData.ClientName = clientName
+	// Сохраняем WhatsApp номер
+	flowData.ClientWhatsApp = whatsapp
 
 	// Переводим в состояние выбора тарифа
 	h.stateManager.SetState(chatID, states.AdminCreateSubWaitTariff, flowData)
@@ -109,14 +110,26 @@ func (h *Handler) handleClientNameInput(ctx context.Context, update *tgbotapi.Up
 	return h.showTariffs(chatID)
 }
 
+// isValidPhoneNumber проверяет что строка похожа на номер телефона
+func isValidPhoneNumber(phone string) bool {
+	// Убираем пробелы и тире
+	cleaned := strings.ReplaceAll(phone, " ", "")
+	cleaned = strings.ReplaceAll(cleaned, "-", "")
+
+	// Проверяем что это похоже на номер телефона
+	// Допускаем формат: +XXXXXXXXXXXX или 0XXXXXXXXX
+	match, _ := regexp.MatchString(`^[\+]?[0-9]{10,15}$`, cleaned)
+	return match
+}
+
 func (h *Handler) showTariffs(chatID int64) error {
 	ctx := context.Background()
-	tariffs, err := h.tariffService.GetActiveTariffs(ctx)
+	tariffsList, err := h.tariffService.GetActiveTariffs(ctx)
 	if err != nil {
 		return fmt.Errorf("ошибка получения тарифов: %w", err)
 	}
 
-	if len(tariffs) == 0 {
+	if len(tariffsList) == 0 {
 		// Очищаем состояние пользователя
 		h.stateManager.Clear(chatID)
 
@@ -129,7 +142,7 @@ func (h *Handler) showTariffs(chatID int64) error {
 	flowData, _ := h.stateManager.GetCreateSubForClientData(chatID)
 
 	// Создаем клавиатуру с тарифами
-	keyboard := h.createTariffsKeyboard(tariffs)
+	keyboard := h.createTariffsKeyboard(tariffsList)
 
 	msg := tgbotapi.NewMessage(chatID, "📅 Выберите тариф:")
 	msg.ReplyMarkup = keyboard
@@ -219,11 +232,28 @@ func (h *Handler) handlePaymentConfirmation(ctx context.Context, update *tgbotap
 	switch {
 	case callbackData == "payment_completed":
 		return h.handlePaymentCompleted(ctx, update, data)
+	case callbackData == "refresh_payment_link":
+		return h.handleRefreshPaymentLink(ctx, update, data)
 	case callbackData == "cancel_purchase" || callbackData == "cancel":
 		return h.handleCancel(ctx, update)
 	default:
 		return h.sendError(chatID, "Неизвестная команда")
 	}
+}
+
+// handleRefreshPaymentLink обрабатывает обновление ссылки на оплату
+func (h *Handler) handleRefreshPaymentLink(ctx context.Context, update *tgbotapi.Update, data *flows.CreateSubForClientFlowData) error {
+	chatID := update.CallbackQuery.Message.Chat.ID
+
+	// Отвечаем на callback query
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Создаём новую ссылку...")
+	_, err := h.bot.Request(callbackConfig)
+	if err != nil {
+		return err
+	}
+
+	// Создаем новый платеж и показываем новую ссылку
+	return h.createPaymentAndShow(ctx, chatID, data)
 }
 
 // createPaymentAndShow создает платеж и сразу показывает ссылку на оплату
@@ -245,33 +275,48 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 		return h.sendError(chatID, "❌ Ошибка генерации ссылки на оплату")
 	}
 
-	// Сохраняем данные платежа в флоу
-	data.PaymentID = &paymentObj.ID
-	data.PaymentURL = paymentObj.PaymentURL
+	// Создаем pending order для хранения контекста заказа
+	pendingOrder := orders.PendingOrder{
+		PaymentID:           paymentObj.ID,
+		AdminUserID:         data.AdminUserID,
+		AssistantTelegramID: data.AssistantTelegramID,
+		ChatID:              chatID,
+		ClientWhatsApp:      data.ClientWhatsApp,
+		TariffID:            data.TariffID,
+		TariffName:          data.TariffName,
+		TotalAmount:         data.TotalAmount,
+	}
+
+	createdOrder, err := h.orderService.CreatePendingOrder(ctx, pendingOrder)
+	if err != nil {
+		h.logger.Error("Failed to create pending order", "error", err)
+		return h.sendError(chatID, "❌ Ошибка создания заказа")
+	}
 
 	// Показываем сообщение с ссылкой на оплату
 	paymentMsg := fmt.Sprintf(
-		"💳 *Заказ создан!*\n\n"+
+		"💳 Заказ создан!\n\n"+
 			"📋 Заказ #%d\n"+
-			"👤 Клиент: %s\n"+
+			"📱 Клиент: %s\n"+
 			"📅 Тариф: %s\n"+
 			"💰 Сумма: %.2f ₽\n\n"+
-			"🔗 *Ссылка на оплату:*\n"+
-			"%s\n\n"+
-			"Отправьте эту ссылку клиенту.\n"+
-			"После оплаты нажмите «Проверить оплату».",
-		paymentObj.ID, data.ClientName, data.TariffName, data.TotalAmount, *paymentObj.PaymentURL)
+			"🔗 Ссылка на оплату:\n"+
+			"%s\n\n",
+		createdOrder.ID, data.ClientWhatsApp, data.TariffName, data.TotalAmount, *paymentObj.PaymentURL)
 
-	// Создаем кнопки без кнопки оплаты
-	checkButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить оплату", "payment_completed")
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", "cancel_purchase")
+	// Создаем кнопки с orderID для независимой работы каждого заказа
+	checkButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить оплату", fmt.Sprintf("pay_check:%d", createdOrder.ID))
+	refreshButton := tgbotapi.NewInlineKeyboardButtonData("🔗 Обновить ссылку", fmt.Sprintf("pay_refresh:%d", createdOrder.ID))
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", fmt.Sprintf("pay_cancel:%d", createdOrder.ID))
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(checkButton),
+		tgbotapi.NewInlineKeyboardRow(refreshButton),
 		tgbotapi.NewInlineKeyboardRow(cancelButton),
 	)
 
 	// Редактируем существующее сообщение, если MessageID есть
+	var messageID int
 	if data.MessageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, paymentMsg)
 		editMsg.ReplyMarkup = &keyboard
@@ -279,19 +324,26 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 		if err != nil {
 			return err
 		}
+		messageID = *data.MessageID
 	} else {
-		// Fallback: отправляем новое сообщение
+		// Отправляем новое сообщение
 		msg := tgbotapi.NewMessage(chatID, paymentMsg)
 		msg.ReplyMarkup = keyboard
 		sentMsg, err := h.bot.Send(msg)
 		if err != nil {
 			return err
 		}
-		data.MessageID = &sentMsg.MessageID
+		messageID = sentMsg.MessageID
 	}
 
-	// Сохраняем обновленное состояние с данными платежа
-	h.stateManager.SetState(chatID, states.AdminCreateSubWaitPayment, data)
+	// Сохраняем MessageID в pending order для последующего редактирования
+	if err := h.orderService.UpdateMessageID(ctx, createdOrder.ID, messageID); err != nil {
+		h.logger.Error("Failed to update message ID", "error", err, "orderID", createdOrder.ID)
+	}
+
+	// ВАЖНО: очищаем состояние, чтобы админ мог начать новый флоу
+	// Теперь кнопки работают независимо через orderID
+	h.stateManager.Clear(chatID)
 
 	return nil
 }
@@ -303,7 +355,7 @@ func (h *Handler) handleCancel(ctx context.Context, update *tgbotapi.Update) err
 	h.stateManager.Clear(chatID)
 
 	// Отвечаем на callback query
-	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Возвращаемся в главное меню")
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Отменено")
 	_, err := h.bot.Request(callbackConfig)
 	if err != nil {
 		return err
@@ -315,11 +367,9 @@ func (h *Handler) handleCancel(ctx context.Context, update *tgbotapi.Update) err
 
 // sendMainMenu отправляет главное меню
 func (h *Handler) sendMainMenu(chatID int64) error {
-	text := "Доступные команды:\n" +
+	text := "📱 Доступные команды:\n" +
 		"/create_sub — Создать подписку для клиента\n" +
-		"/create_tariff — Создать тариф\n" +
-		"/disable_tariff — Архивировать тариф\n" +
-		"/enable_tariff — Восстановить тариф"
+		"/my_subs — Список подписок"
 
 	msg := tgbotapi.NewMessage(chatID, text)
 	_, err := h.bot.Send(msg)
@@ -466,31 +516,123 @@ func (h *Handler) sendPaymentCheckError(chatID int64, data *flows.CreateSubForCl
 
 // handleSuccessfulPayment обрабатывает успешный платеж и создает подписку
 func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, data *flows.CreateSubForClientFlowData, paymentID int64) error {
-	// Создаем подписку после успешной оплаты с именем клиента
-	clientName := data.ClientName
+	// Создаем подписку после успешной оплаты
 	subReq := &subs.CreateSubscriptionRequest{
-		UserID:     data.AdminUserID,
-		TariffID:   data.TariffID,
-		PaymentID:  &paymentID,
-		ClientName: &clientName,
+		UserID:              data.AdminUserID,
+		TariffID:            data.TariffID,
+		PaymentID:           &paymentID,
+		ClientWhatsApp:      data.ClientWhatsApp,
+		CreatedByTelegramID: data.AssistantTelegramID,
 	}
 
-	subscription, err := h.subscriptionService.CreateSubscription(ctx, subReq)
+	result, err := h.subscriptionService.CreateSubscription(ctx, subReq)
 	if err != nil {
 		h.logger.Error("Failed to create subscription after payment", "error", err, "paymentID", paymentID)
 		return h.sendError(chatID, "❌ Ошибка создания подписки")
 	}
 
-	// Отправляем ключ администратору
-	err = h.SendConnectionKey(chatID, subscription, data.ClientName, data.MessageID)
-	if err != nil {
-		return h.sendError(chatID, "❌ Ошибка отправки ключа")
+	// Отправляем информацию о созданной подписке
+	return h.sendSubscriptionCreated(chatID, result, data)
+}
+
+// sendSubscriptionCreated отправляет сообщение об успешном создании подписки
+func (h *Handler) sendSubscriptionCreated(chatID int64, result *subs.CreateSubscriptionResult, data *flows.CreateSubForClientFlowData) error {
+	// Формируем пароль если есть
+	passwordLine := ""
+	if result.ServerUIPassword != nil && *result.ServerUIPassword != "" {
+		passwordLine = fmt.Sprintf("\n`%s`", *result.ServerUIPassword)
 	}
+
+	messageText := fmt.Sprintf(
+		"✅ *Подписка создана успешно!*\n\n"+
+			"📱 Клиент: `%s`\n"+
+			"📅 Тариф: %s\n"+
+			"🔢 ID: %d\n\n"+
+			"🔑 User ID:\n`%s`\n"+
+			"🔐 Пароль:%s",
+		data.ClientWhatsApp,
+		data.TariffName,
+		result.Subscription.ID,
+		result.GeneratedUserID,
+		passwordLine,
+	)
+
+	// Создаем кнопки
+	whatsappLink := generateWhatsAppLink(data.ClientWhatsApp, "Ваша подписка VPN активирована! Сейчас отправлю инструкции по подключению.")
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+
+	// Добавляем кнопку для открытия панели управления сервером
+	if result.ServerUIURL != nil && *result.ServerUIURL != "" {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("🖥 Открыть панель управления", *result.ServerUIURL),
+		))
+	}
+
+	// Добавляем кнопку для открытия WhatsApp
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonURL("💬 Написать клиенту", whatsappLink),
+	))
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	// Редактируем существующее сообщение, если MessageID есть
+	if data.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, messageText)
+		editMsg.ParseMode = "Markdown"
+		editMsg.ReplyMarkup = &keyboard
+		_, err := h.bot.Send(editMsg)
+		if err != nil {
+			// Fallback: отправляем новое сообщение
+			msg := tgbotapi.NewMessage(chatID, messageText)
+			msg.ParseMode = "Markdown"
+			msg.ReplyMarkup = keyboard
+			_, err = h.bot.Send(msg)
+		}
+		h.stateManager.Clear(chatID)
+		return err
+	}
+
+	msg := tgbotapi.NewMessage(chatID, messageText)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	_, err := h.bot.Send(msg)
 
 	// Очищаем состояние флоу
 	h.stateManager.Clear(chatID)
 
-	return nil
+	return err
+}
+
+// createFreeSubscription создает бесплатную подписку без оплаты
+func (h *Handler) createFreeSubscription(ctx context.Context, chatID int64, data *flows.CreateSubForClientFlowData) error {
+	// Создаем подписку без платежа
+	subReq := &subs.CreateSubscriptionRequest{
+		UserID:              data.AdminUserID,
+		TariffID:            data.TariffID,
+		PaymentID:           nil,
+		ClientWhatsApp:      data.ClientWhatsApp,
+		CreatedByTelegramID: data.AssistantTelegramID,
+	}
+
+	result, err := h.subscriptionService.CreateSubscription(ctx, subReq)
+	if err != nil {
+		h.logger.Error("Failed to create free subscription", "error", err)
+		return h.sendError(chatID, "❌ Ошибка создания подписки")
+	}
+
+	// Отправляем информацию о созданной подписке
+	return h.sendSubscriptionCreated(chatID, result, data)
+}
+
+// generateWhatsAppLink генерирует ссылку на WhatsApp с предзаполненным сообщением
+func generateWhatsAppLink(phone string, message string) string {
+	// Убираем + из начала номера для WhatsApp API
+	cleanPhone := strings.TrimPrefix(phone, "+")
+	cleanPhone = strings.ReplaceAll(cleanPhone, " ", "")
+	cleanPhone = strings.ReplaceAll(cleanPhone, "-", "")
+
+	return fmt.Sprintf("https://wa.me/%s?text=%s", cleanPhone, url.QueryEscape(message))
 }
 
 // TariffCallbackData - структура для данных тарифа из callback
@@ -554,112 +696,329 @@ func extractChatID(update *tgbotapi.Update) int64 {
 	return 0
 }
 
-// SendConnectionKey отправляет ключ подключения администратору
-func (h *Handler) SendConnectionKey(chatID int64, subscription *subs.Subscription, clientName string, messageID *int) error {
-	wgData, err := subscription.GetWireGuardData()
+// HandlePaymentCallback обрабатывает callbacks от кнопок оплаты (pay_check, pay_refresh, pay_cancel)
+// Эти callbacks работают независимо от состояния пользователя через orderID
+func (h *Handler) HandlePaymentCallback(update *tgbotapi.Update) error {
+	ctx := context.Background()
 
-	if err != nil || wgData == nil || wgData.ConfigFile == "" {
-		messageText := fmt.Sprintf(
-			"✅ *Подписка создана успешно!*\n\n"+
-				"👤 Клиент: *%s*\n"+
-				"🔢 ID подписки: *%d*\n\n"+
-				"⚠️ Конфигурация WireGuard не готова",
-			clientName, subscription.ID)
+	if update.CallbackQuery == nil {
+		return nil
+	}
 
-		if messageID != nil {
-			editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, messageText)
-			_, err := h.bot.Send(editMsg)
-			return err
-		}
+	callbackData := update.CallbackQuery.Data
+	chatID := update.CallbackQuery.Message.Chat.ID
 
-		msg := tgbotapi.NewMessage(chatID, messageText)
-		_, err = h.bot.Send(msg)
+	// Парсим callback: pay_check:123 → action="check", orderID=123
+	parts := strings.Split(callbackData, ":")
+	if len(parts) != 2 {
+		return h.sendError(chatID, "❌ Неверный формат callback")
+	}
+
+	action := strings.TrimPrefix(parts[0], "pay_")
+	orderID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return h.sendError(chatID, "❌ Неверный ID заказа")
+	}
+
+	// Загружаем заказ из БД
+	order, err := h.orderService.GetPendingOrderByID(ctx, orderID)
+	if err != nil {
+		h.logger.Error("Failed to get pending order", "error", err, "orderID", orderID)
+		return h.sendError(chatID, "❌ Ошибка получения заказа")
+	}
+	if order == nil {
+		return h.sendCallbackError(update, chatID, "❌ Заказ не найден или уже обработан")
+	}
+
+	switch action {
+	case "check":
+		return h.handlePaymentCheckFromOrder(ctx, update, order)
+	case "refresh":
+		return h.handlePaymentRefreshFromOrder(ctx, update, order)
+	case "cancel":
+		return h.handlePaymentCancelFromOrder(ctx, update, order)
+	default:
+		return h.sendError(chatID, "❌ Неизвестное действие")
+	}
+}
+
+// handlePaymentCheckFromOrder проверяет статус платежа и создает подписку если оплачено
+func (h *Handler) handlePaymentCheckFromOrder(ctx context.Context, update *tgbotapi.Update, order *orders.PendingOrder) error {
+	chatID := update.CallbackQuery.Message.Chat.ID
+
+	// Отвечаем на callback query
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Проверяем платеж...")
+	_, _ = h.bot.Request(callbackConfig)
+
+	// Проверяем статус платежа
+	paymentObj, err := h.paymentService.CheckPaymentStatus(ctx, order.PaymentID)
+	if err != nil {
+		h.logger.Error("Failed to check payment status", "error", err, "paymentID", order.PaymentID)
+		return h.sendPaymentCheckErrorForOrder(chatID, order, "❌ Ошибка проверки платежа. Попробуйте еще раз.")
+	}
+
+	switch paymentObj.Status {
+	case payment.StatusApproved:
+		// Платеж успешен - создаем подписку
+		return h.handleSuccessfulPaymentFromOrder(ctx, chatID, order)
+	case payment.StatusPending:
+		// Платеж еще обрабатывается
+		return h.sendPaymentPendingMessageForOrder(chatID, order)
+	case payment.StatusRejected, payment.StatusCancelled:
+		// Платеж отклонен или отменен
+		return h.sendPaymentCheckErrorForOrder(chatID, order, "❌ Платеж был отклонен или отменен")
+	default:
+		return h.sendPaymentCheckErrorForOrder(chatID, order, "❌ Неизвестный статус платежа. Попробуйте еще раз.")
+	}
+}
+
+// handleSuccessfulPaymentFromOrder создает подписку после успешной оплаты
+func (h *Handler) handleSuccessfulPaymentFromOrder(ctx context.Context, chatID int64, order *orders.PendingOrder) error {
+	// Создаем подписку
+	subReq := &subs.CreateSubscriptionRequest{
+		UserID:              order.AdminUserID,
+		TariffID:            order.TariffID,
+		PaymentID:           &order.PaymentID,
+		ClientWhatsApp:      order.ClientWhatsApp,
+		CreatedByTelegramID: order.AssistantTelegramID,
+	}
+
+	result, err := h.subscriptionService.CreateSubscription(ctx, subReq)
+	if err != nil {
+		h.logger.Error("Failed to create subscription after payment", "error", err, "paymentID", order.PaymentID)
+		return h.sendError(chatID, "❌ Ошибка создания подписки")
+	}
+
+	// Отправляем сообщение об успехе
+	if err := h.sendSubscriptionCreatedForOrder(chatID, result, order); err != nil {
 		return err
 	}
 
-	successText := fmt.Sprintf(
-		"✅ *Подписка создана успешно!*\n\n"+
-			"👤 Клиент: *%s*\n"+
-			"🔢 ID подписки: *%d*\n\n"+
-			"📋 Отправьте QR-код и конфигурацию клиенту для подключения.",
-		clientName, subscription.ID)
-
-	if messageID != nil {
-		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, successText)
-		_, _ = h.bot.Send(editMsg)
-	} else {
-		msg := tgbotapi.NewMessage(chatID, successText)
-		_, _ = h.bot.Send(msg)
-	}
-
-	qrBytes, err := base64.StdEncoding.DecodeString(wgData.QRCodeBase64)
-	if err != nil {
-		h.logger.Error("Failed to decode QR code", "error", err)
-	} else {
-		qrPhoto := tgbotapi.FileBytes{
-			Name:  "wireguard_qr.png",
-			Bytes: qrBytes,
-		}
-
-		photoMsg := tgbotapi.NewPhoto(chatID, qrPhoto)
-		photoMsg.Caption = fmt.Sprintf("QR-код для клиента: *%s*", clientName)
-		_, err = h.bot.Send(photoMsg)
-		if err != nil {
-			h.logger.Error("Failed to send QR code photo", "error", err)
-		}
-	}
-
-	configBytes := []byte(wgData.ConfigFile)
-	configFile := tgbotapi.FileBytes{
-		Name:  "wireguard.conf",
-		Bytes: configBytes,
-	}
-
-	configID := h.configStore.Store(wgData.ConfigFile, wgData.QRCodeBase64)
-	wgLink := fmt.Sprintf("%s/wg/connect?id=%s", h.webAppBaseURL, configID)
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonURL("🔗 Открыть страницу подключения", wgLink),
-		),
-	)
-
-	docMsg := tgbotapi.NewDocument(chatID, configFile)
-	docMsg.Caption = fmt.Sprintf("Файл конфигурации для клиента: *%s*", clientName)
-	docMsg.ReplyMarkup = keyboard
-	_, err = h.bot.Send(docMsg)
-	if err != nil {
-		h.logger.Error("Failed to send config file", "error", err)
+	// Удаляем pending order - он больше не нужен
+	if err := h.orderService.DeletePendingOrder(ctx, order.ID); err != nil {
+		h.logger.Error("Failed to delete pending order", "error", err, "orderID", order.ID)
 	}
 
 	return nil
 }
 
-// createFreeSubscription создает бесплатную подписку без оплаты
-func (h *Handler) createFreeSubscription(ctx context.Context, chatID int64, data *flows.CreateSubForClientFlowData) error {
-	// Создаем подписку без платежа
-	clientName := data.ClientName
-	subReq := &subs.CreateSubscriptionRequest{
-		UserID:     data.AdminUserID,
-		TariffID:   data.TariffID,
-		PaymentID:  nil,
-		ClientName: &clientName,
+// handlePaymentRefreshFromOrder создает новый платеж и обновляет сообщение
+func (h *Handler) handlePaymentRefreshFromOrder(ctx context.Context, update *tgbotapi.Update, order *orders.PendingOrder) error {
+	chatID := update.CallbackQuery.Message.Chat.ID
+
+	// Отвечаем на callback query
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Создаём новую ссылку...")
+	_, _ = h.bot.Request(callbackConfig)
+
+	// Создаем новый платеж
+	paymentEntity := payment.Payment{
+		UserID: order.AdminUserID,
+		Amount: order.TotalAmount,
+		Status: payment.StatusPending,
 	}
 
-	subscription, err := h.subscriptionService.CreateSubscription(ctx, subReq)
+	paymentObj, err := h.paymentService.CreatePayment(ctx, paymentEntity)
 	if err != nil {
-		h.logger.Error("Failed to create free subscription", "error", err)
-		return h.sendError(chatID, "❌ Ошибка создания подписки")
+		return h.sendError(chatID, "❌ Ошибка создания платежа")
 	}
 
-	// Отправляем ключ администратору
-	err = h.SendConnectionKey(chatID, subscription, data.ClientName, data.MessageID)
+	if paymentObj.PaymentURL == nil {
+		return h.sendError(chatID, "❌ Ошибка генерации ссылки на оплату")
+	}
+
+	// Обновляем paymentID в заказе
+	if err := h.orderService.UpdatePaymentID(ctx, order.ID, paymentObj.ID); err != nil {
+		h.logger.Error("Failed to update payment ID", "error", err, "orderID", order.ID)
+	}
+
+	// Формируем обновленное сообщение
+	paymentMsg := fmt.Sprintf(
+		"💳 *Заказ создан!*\n\n"+
+			"📋 Заказ #%d\n"+
+			"📱 Клиент: %s\n"+
+			"📅 Тариф: %s\n"+
+			"💰 Сумма: %.2f ₽\n\n"+
+			"🔗 *Ссылка на оплату:*\n"+
+			"%s\n\n"+
+			"Отправьте эту ссылку клиенту.\n"+
+			"После оплаты нажмите «Проверить оплату».",
+		order.ID, order.ClientWhatsApp, order.TariffName, order.TotalAmount, *paymentObj.PaymentURL)
+
+	// Создаем кнопки
+	checkButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить оплату", fmt.Sprintf("pay_check:%d", order.ID))
+	refreshButton := tgbotapi.NewInlineKeyboardButtonData("🔗 Обновить ссылку", fmt.Sprintf("pay_refresh:%d", order.ID))
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", fmt.Sprintf("pay_cancel:%d", order.ID))
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(checkButton),
+		tgbotapi.NewInlineKeyboardRow(refreshButton),
+		tgbotapi.NewInlineKeyboardRow(cancelButton),
+	)
+
+	// Редактируем сообщение
+	if order.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *order.MessageID, paymentMsg)
+		editMsg.ReplyMarkup = &keyboard
+		_, err = h.bot.Send(editMsg)
+		return err
+	}
+
+	// Fallback: отправляем новое сообщение
+	msg := tgbotapi.NewMessage(chatID, paymentMsg)
+	msg.ReplyMarkup = keyboard
+	sentMsg, err := h.bot.Send(msg)
 	if err != nil {
-		return h.sendError(chatID, "❌ Ошибка отправки ключа")
+		return err
 	}
 
-	// Очищаем состояние флоу
-	h.stateManager.Clear(chatID)
+	// Обновляем messageID в заказе
+	if err := h.orderService.UpdateMessageID(ctx, order.ID, sentMsg.MessageID); err != nil {
+		h.logger.Error("Failed to update message ID", "error", err, "orderID", order.ID)
+	}
 
+	return nil
+}
+
+// handlePaymentCancelFromOrder отменяет заказ
+func (h *Handler) handlePaymentCancelFromOrder(ctx context.Context, update *tgbotapi.Update, order *orders.PendingOrder) error {
+	chatID := update.CallbackQuery.Message.Chat.ID
+
+	// Отвечаем на callback query
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Отменено")
+	_, _ = h.bot.Request(callbackConfig)
+
+	// Удаляем pending order
+	if err := h.orderService.DeletePendingOrder(ctx, order.ID); err != nil {
+		h.logger.Error("Failed to delete pending order", "error", err, "orderID", order.ID)
+	}
+
+	// Редактируем сообщение чтобы показать что заказ отменен
+	if order.MessageID != nil {
+		cancelledMsg := fmt.Sprintf(
+			"❌ *Заказ #%d отменен*\n\n"+
+				"📱 Клиент: %s\n"+
+				"📅 Тариф: %s",
+			order.ID, order.ClientWhatsApp, order.TariffName)
+
+		editMsg := tgbotapi.NewEditMessageText(chatID, *order.MessageID, cancelledMsg)
+		editMsg.ParseMode = "Markdown"
+		_, _ = h.bot.Send(editMsg)
+	}
+
+	return nil
+}
+
+// sendPaymentPendingMessageForOrder отправляет сообщение о том, что платеж обрабатывается
+func (h *Handler) sendPaymentPendingMessageForOrder(chatID int64, order *orders.PendingOrder) error {
+	messageText := "⏳ Платеж еще обрабатывается.\n" +
+		"Пожалуйста, подождите немного и попробуйте еще раз."
+
+	checkButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить еще раз", fmt.Sprintf("pay_check:%d", order.ID))
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", fmt.Sprintf("pay_cancel:%d", order.ID))
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(checkButton),
+		tgbotapi.NewInlineKeyboardRow(cancelButton),
+	)
+
+	if order.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *order.MessageID, messageText)
+		editMsg.ReplyMarkup = &keyboard
+		_, err := h.bot.Send(editMsg)
+		return err
+	}
+
+	msg := tgbotapi.NewMessage(chatID, messageText)
+	msg.ReplyMarkup = keyboard
+	_, err := h.bot.Send(msg)
+	return err
+}
+
+// sendPaymentCheckErrorForOrder отправляет сообщение об ошибке проверки
+func (h *Handler) sendPaymentCheckErrorForOrder(chatID int64, order *orders.PendingOrder, errorMsg string) error {
+	retryButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Попробовать еще раз", fmt.Sprintf("pay_check:%d", order.ID))
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", fmt.Sprintf("pay_cancel:%d", order.ID))
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(retryButton),
+		tgbotapi.NewInlineKeyboardRow(cancelButton),
+	)
+
+	if order.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *order.MessageID, errorMsg)
+		editMsg.ReplyMarkup = &keyboard
+		_, err := h.bot.Send(editMsg)
+		return err
+	}
+
+	msg := tgbotapi.NewMessage(chatID, errorMsg)
+	msg.ReplyMarkup = keyboard
+	_, err := h.bot.Send(msg)
+	return err
+}
+
+// sendSubscriptionCreatedForOrder отправляет сообщение об успешном создании подписки
+func (h *Handler) sendSubscriptionCreatedForOrder(chatID int64, result *subs.CreateSubscriptionResult, order *orders.PendingOrder) error {
+	passwordLine := ""
+	if result.ServerUIPassword != nil && *result.ServerUIPassword != "" {
+		passwordLine = fmt.Sprintf("\n`%s`", *result.ServerUIPassword)
+	}
+
+	messageText := fmt.Sprintf(
+		"✅ *Подписка создана успешно!*\n\n"+
+			"📱 Клиент: `%s`\n"+
+			"📅 Тариф: %s\n"+
+			"🔢 ID: %d\n\n"+
+			"🔑 User ID:\n`%s`\n"+
+			"🔐 Пароль:%s",
+		order.ClientWhatsApp,
+		order.TariffName,
+		result.Subscription.ID,
+		result.GeneratedUserID,
+		passwordLine,
+	)
+
+	whatsappLink := generateWhatsAppLink(order.ClientWhatsApp, "Ваша подписка VPN активирована! Сейчас отправлю инструкции по подключению.")
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+
+	if result.ServerUIURL != nil && *result.ServerUIURL != "" {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("🖥 Открыть панель управления", *result.ServerUIURL),
+		))
+	}
+
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonURL("💬 Написать клиенту", whatsappLink),
+	))
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	if order.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *order.MessageID, messageText)
+		editMsg.ParseMode = "Markdown"
+		editMsg.ReplyMarkup = &keyboard
+		_, err := h.bot.Send(editMsg)
+		if err != nil {
+			// Fallback
+			msg := tgbotapi.NewMessage(chatID, messageText)
+			msg.ParseMode = "Markdown"
+			msg.ReplyMarkup = keyboard
+			_, err = h.bot.Send(msg)
+		}
+		return err
+	}
+
+	msg := tgbotapi.NewMessage(chatID, messageText)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	_, err := h.bot.Send(msg)
+	return err
+}
+
+// sendCallbackError отвечает на callback с ошибкой и отправляет сообщение
+func (h *Handler) sendCallbackError(update *tgbotapi.Update, chatID int64, errorMsg string) error {
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, errorMsg)
+	_, _ = h.bot.Request(callbackConfig)
 	return nil
 }

@@ -6,31 +6,25 @@ import (
 	"time"
 
 	"kurut-bot/internal/config"
-	"kurut-bot/internal/infra/wireguard"
 	"kurut-bot/internal/infra/yookassa"
 	"kurut-bot/internal/storage"
+	"kurut-bot/internal/stories/orders"
 	"kurut-bot/internal/stories/payment"
-	"kurut-bot/internal/stories/subs"
+	"kurut-bot/internal/stories/servers"
 	"kurut-bot/internal/stories/subs/createsubs"
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/stories/users"
 	"kurut-bot/internal/telegram"
 	"kurut-bot/internal/telegram/cmds"
-	"kurut-bot/internal/telegram/flows/buysub"
+	"kurut-bot/internal/telegram/flows/addserver"
 	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
 	"kurut-bot/internal/telegram/flows/disabletariff"
 	"kurut-bot/internal/telegram/flows/enabletariff"
-	"kurut-bot/internal/telegram/flows/renewsub"
-	"kurut-bot/internal/telegram/flows/starttrial"
-	"kurut-bot/internal/telegram/flows/wgserver"
 	"kurut-bot/internal/telegram/states"
-	wgService "kurut-bot/internal/wireguard"
 	"kurut-bot/internal/workers"
 	"kurut-bot/internal/workers/expiration"
-	"kurut-bot/internal/workers/healthcheck"
 	"kurut-bot/internal/workers/notification"
-	retrysubscription "kurut-bot/internal/workers/retry-subscription"
 
 	"github.com/pkg/errors"
 )
@@ -41,7 +35,7 @@ type Services struct {
 	WorkerManager       *workers.Manager
 }
 
-func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger *slog.Logger, configStore *telegram.ConfigStore) (*Services, error) {
+func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger *slog.Logger, _ *telegram.ConfigStore) (*Services, error) {
 	var s Services
 
 	// Инициализируем telegram сервисы
@@ -51,16 +45,11 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	// Создаем реальный storage
 	storageImpl := storage.New(clients.SQLiteDB.DB)
 
-	// Создаем WireGuard сервисы
-	wgBalancer := wireguard.NewBalancer(storageImpl, logger)
-	wgTLSAdapter := wgserver.NewTLSConfigAdapter(&cfg.WireGuard)
-	wireguardService := wgService.NewService(storageImpl, wgBalancer, wgTLSAdapter, logger)
-
 	// Создаем реальные сервисы
 	userService := users.NewService(storageImpl)
 	tariffService := tariffs.NewService(storageImpl)
-	subsService := subs.NewService(storageImpl, wireguardService)
-	createSubService := createsubs.NewService(storageImpl, wireguardService, time.Now)
+	serverService := servers.NewService(storageImpl)
+	createSubService := createsubs.NewService(storageImpl, time.Now)
 
 	// Создаем StateManager
 	stateManager := states.NewManager()
@@ -77,18 +66,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	// Создаем Payment service
 	paymentService := payment.NewService(storageImpl, yookassaClient, cfg.YooKassa.ReturnURL, cfg.YooKassa.MockPayment, logger)
 
-	// Создаем buySubHandler - наш клиент уже реализует botApi интерфейс
-	buySubHandler := buysub.NewHandler(
-		clients.TelegramBot,
-		stateManager,
-		tariffService,
-		createSubService,
-		paymentService,
-		storageImpl,
-		configStore,
-		cfg.WireGuard.WebAppBaseURL,
-		logger,
-	)
+	// Создаем Orders service
+	orderService := orders.NewService(storageImpl)
 
 	// Создаем createSubForClientHandler
 	createSubForClientHandler := createsubforclient.NewHandler(
@@ -97,8 +76,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		tariffService,
 		createSubService,
 		paymentService,
-		configStore,
-		cfg.WireGuard.WebAppBaseURL,
+		orderService,
 		logger,
 	)
 
@@ -127,23 +105,18 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
-	// Создаем startTrialHandler
-	startTrialHandler := starttrial.NewHandler(
+	// Создаем addServerHandler
+	addServerHandler := addserver.NewHandler(
 		clients.TelegramBot,
-		storageImpl,
-		tariffService,
-		createSubService,
-		userService,
-		configStore,
-		cfg.WireGuard.WebAppBaseURL,
+		stateManager,
+		serverService,
 		logger,
 	)
 
 	// Создаем mySubsCommand
 	mySubsCommand := cmds.NewMySubsCommand(
 		clients.TelegramBot.GetBotAPI(),
-		subsService,
-		tariffService,
+		storageImpl,
 	)
 
 	// Создаем statsCommand
@@ -152,56 +125,22 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		storageImpl,
 	)
 
-	// Создаем renewSubHandler
-	renewSubHandler := renewsub.NewHandler(
-		clients.TelegramBot,
-		stateManager,
-		subsService,
+	// Создаем expirationCommand
+	expirationCommand := cmds.NewExpirationCommand(
+		clients.TelegramBot.GetBotAPI(),
+		storageImpl,
+		storageImpl, // serverStorage
 		tariffService,
 		paymentService,
 		logger,
 	)
 
-	// Создаем wgServerHandler
-	wgServerAdapter := wgserver.NewStateManagerAdapter(stateManager)
-	wgTLSConfigAdapter := wgserver.NewTLSConfigAdapter(&cfg.WireGuard)
-	wgServerHandler := wgserver.NewHandler(
-		clients.TelegramBot,
-		wgServerAdapter,
-		storageImpl,
-		wgTLSConfigAdapter,
-		logger,
-	)
-
-	// Создаем роутер
-	s.TelegramRouter = telegram.NewRouter(
-		clients.TelegramBot.GetBotAPI(),
-		stateManager,
-		userService,
-		adminChecker,
-		buySubHandler,
-		createSubForClientHandler,
-		createTariffHandler,
-		disableTariffHandler,
-		enableTariffHandler,
-		startTrialHandler,
-		renewSubHandler,
-		wgServerHandler,
-		mySubsCommand,
-		statsCommand,
-	)
-
-	// Создаем воркеры
-	retrySubWorker := retrysubscription.NewWorker(
-		storageImpl,
-		createSubService,
-		clients.TelegramBot,
-		logger,
-	)
-
+	// Создаем воркеры (до роутера, чтобы передать в роутер)
 	expirationWorker := expiration.NewWorker(
 		storageImpl,
-		wireguardService,
+		storageImpl, // serverStorage
+		clients.TelegramBot,
+		tariffService,
 		logger,
 	)
 
@@ -212,20 +151,28 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
-	healthCheckWorker := healthcheck.NewWorker(
-		storageImpl,
-		clients.TelegramBot,
-		cfg.Telegram.AdminTelegramIDs,
-		logger,
+	// Создаем роутер
+	s.TelegramRouter = telegram.NewRouter(
+		clients.TelegramBot.GetBotAPI(),
+		stateManager,
+		userService,
+		adminChecker,
+		createSubForClientHandler,
+		createTariffHandler,
+		disableTariffHandler,
+		enableTariffHandler,
+		addServerHandler,
+		mySubsCommand,
+		statsCommand,
+		expirationCommand,
+		expirationWorker,
 	)
 
 	// Создаем менеджер воркеров
 	s.WorkerManager = workers.NewManager(
 		logger,
-		retrySubWorker,
 		expirationWorker,
 		notificationWorker,
-		healthCheckWorker,
 	)
 
 	return &s, nil

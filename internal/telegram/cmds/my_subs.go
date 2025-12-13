@@ -3,179 +3,48 @@ package cmds
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
 
-	"kurut-bot/internal/stories/subs"
-	"kurut-bot/internal/stories/tariffs"
-	"kurut-bot/internal/stories/users"
-	"kurut-bot/internal/telegram/messages"
+	"kurut-bot/internal/storage"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/samber/lo"
 )
 
 type MySubsCommand struct {
-	bot             *tgbotapi.BotAPI
-	subscriptionSvc SubscriptionService
-	tariffSvc       TariffService
+	bot     *tgbotapi.BotAPI
+	storage MySubsStorage
 }
 
-type SubscriptionService interface {
-	ListSubscriptions(ctx context.Context, criteria subs.ListCriteria) ([]*subs.Subscription, error)
+type MySubsStorage interface {
+	GetAssistantStats(ctx context.Context, assistantTelegramID int64) (*storage.AssistantStats, error)
 }
 
-type TariffService interface {
-	GetTariff(ctx context.Context, criteria tariffs.GetCriteria) (*tariffs.Tariff, error)
-}
-
-func NewMySubsCommand(bot *tgbotapi.BotAPI, subscriptionSvc SubscriptionService, tariffSvc TariffService) *MySubsCommand {
+func NewMySubsCommand(bot *tgbotapi.BotAPI, storage MySubsStorage) *MySubsCommand {
 	return &MySubsCommand{
-		bot:             bot,
-		subscriptionSvc: subscriptionSvc,
-		tariffSvc:       tariffSvc,
+		bot:     bot,
+		storage: storage,
 	}
 }
 
-const pageSize = 2
-
-func (c *MySubsCommand) Execute(ctx context.Context, user *users.User, chatID int64) error {
-	return c.showPage(ctx, user, chatID, 0, 0, false)
-}
-
-func (c *MySubsCommand) HandleCallback(ctx context.Context, user *users.User, chatID int64, messageID int, callbackData string) error {
-	if !strings.HasPrefix(callbackData, "my_subs_page:") {
-		return fmt.Errorf("invalid callback data")
-	}
-
-	parts := strings.Split(callbackData, ":")
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid callback format")
-	}
-
-	page, err := strconv.Atoi(parts[1])
+func (c *MySubsCommand) Execute(ctx context.Context, assistantTelegramID int64, chatID int64) error {
+	stats, err := c.storage.GetAssistantStats(ctx, assistantTelegramID)
 	if err != nil {
-		return fmt.Errorf("invalid page number: %w", err)
-	}
-
-	return c.showPage(ctx, user, chatID, page, messageID, true)
-}
-
-func (c *MySubsCommand) showPage(ctx context.Context, user *users.User, chatID int64, page, messageID int, isEdit bool) error {
-	activeStatus := []subs.Status{subs.StatusActive}
-	subscriptions, err := c.subscriptionSvc.ListSubscriptions(ctx, subs.ListCriteria{
-		UserIDs: []int64{user.ID},
-		Status:  activeStatus,
-		Limit:   50,
-	})
-	if err != nil {
-		msg := tgbotapi.NewMessage(chatID, messages.MySubsErrorLoading)
+		msg := tgbotapi.NewMessage(chatID, "❌ Ошибка загрузки статистики")
 		_, _ = c.bot.Send(msg)
-		return fmt.Errorf("list subscriptions: %w", err)
+		return fmt.Errorf("get assistant stats: %w", err)
 	}
 
-	if len(subscriptions) == 0 {
-		msg := tgbotapi.NewMessage(chatID, messages.MySubsNoSubscriptions)
-		_, _ = c.bot.Send(msg)
-		return nil
-	}
+	text := fmt.Sprintf(
+		"📊 *Ваша статистика*\n\n"+
+			"✅ Активных клиентов: *%d*\n\n"+
+			"📅 Подключено сегодня: *%d*\n"+
+			"📅 Подключено вчера: *%d*",
+		stats.TotalActive,
+		stats.CreatedToday,
+		stats.CreatedYesterday,
+	)
 
-	// Calculate pagination
-	totalPages := (len(subscriptions) + pageSize - 1) / pageSize
-	if page < 0 {
-		page = 0
-	}
-	if page >= totalPages {
-		page = totalPages - 1
-	}
-
-	startIdx := page * pageSize
-	endIdx := startIdx + pageSize
-	if endIdx > len(subscriptions) {
-		endIdx = len(subscriptions)
-	}
-
-	var text strings.Builder
-	text.WriteString(messages.MySubsTitle + "\n\n")
-
-	// Show only subscriptions for current page
-	for i := startIdx; i < endIdx; i++ {
-		sub := subscriptions[i]
-		tariff, err := c.tariffSvc.GetTariff(ctx, tariffs.GetCriteria{
-			ID: lo.ToPtr(sub.TariffID),
-		})
-		if err != nil {
-			continue
-		}
-
-		text.WriteString(messages.FormatMySubsSubscriptionID(sub.ID) + "\n")
-		text.WriteString(messages.FormatMySubsTariff(tariff.Name) + "\n")
-
-		if sub.ClientName != nil && *sub.ClientName != "" {
-			text.WriteString(messages.FormatMySubsClient(*sub.ClientName) + "\n")
-		}
-
-		if tariff.TrafficLimitGB != nil {
-			text.WriteString(messages.FormatMySubsTrafficLimit(*tariff.TrafficLimitGB) + "\n")
-		} else {
-			text.WriteString(messages.MySubsTrafficUnlimited + "\n")
-		}
-
-		if sub.ExpiresAt != nil {
-			daysLeft := int(time.Until(*sub.ExpiresAt).Hours() / 24)
-			if daysLeft > 0 {
-				text.WriteString(messages.FormatMySubsDaysLeft(daysLeft) + "\n")
-				text.WriteString(messages.FormatMySubsExpiresAt(sub.ExpiresAt.Format("02.01.2006")) + "\n")
-			} else {
-				text.WriteString(messages.MySubsExpiresToday + "\n")
-			}
-		}
-
-		wgData, err := sub.GetWireGuardData()
-		if err == nil && wgData != nil && wgData.ConfigFile != "" {
-			text.WriteString("\n" + messages.MySubsYourConfig + "\n```\n" + wgData.ConfigFile + "\n```\n")
-		}
-
-		text.WriteString("\n")
-	}
-
-	text.WriteString("\n💡 " + messages.MySubsRenewNote)
-
-	// Add navigation buttons if needed
-	keyboard := c.createNavigationKeyboard(page, totalPages)
-
-	if isEdit {
-		editMsg := tgbotapi.NewEditMessageText(chatID, messageID, text.String())
-		if keyboard != nil {
-			editMsg.ReplyMarkup = keyboard
-		}
-		_, err = c.bot.Send(editMsg)
-		return err
-	}
-
-	msg := tgbotapi.NewMessage(chatID, text.String())
-	if keyboard != nil {
-		msg.ReplyMarkup = keyboard
-	}
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
 	_, err = c.bot.Send(msg)
 	return err
-}
-
-func (c *MySubsCommand) createNavigationKeyboard(page, totalPages int) *tgbotapi.InlineKeyboardMarkup {
-	if totalPages <= 1 {
-		return nil
-	}
-
-	var navButtons []tgbotapi.InlineKeyboardButton
-	if page > 0 {
-		navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData("⬅️", fmt.Sprintf("my_subs_page:%d", page-1)))
-	}
-	navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("%d/%d", page+1, totalPages), "my_subs_noop"))
-	if page < totalPages-1 {
-		navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData("➡️", fmt.Sprintf("my_subs_page:%d", page+1)))
-	}
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(navButtons)
-	return &keyboard
 }

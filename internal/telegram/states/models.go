@@ -56,3 +56,13 @@ const (
 	UserRenewSubWaitTariff    State = "urs_wt_tariff"
 	UserRenewSubWaitPayment   State = "urs_wt_payment"
 )
+
+// admin server management states (asv -> admin server)
+const (
+	AdminServerWaitName         State = "asv_wt_name"
+	AdminServerWaitURL          State = "asv_wt_url"
+	AdminServerWaitPassword     State = "asv_wt_password"
+	AdminServerWaitCurrentUsers State = "asv_wt_current_users"
+	AdminServerWaitMaxUsers     State = "asv_wt_max_users"
+	AdminServerWaitConfirmation State = "asv_wt_confirmation"
+)
