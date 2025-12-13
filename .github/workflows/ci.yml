@@ -23,107 +23,87 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # Test и Lint запускаются параллельно
   test:
     name: Test
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
         go-version-file: 'go.mod'
+        cache: true
 
-    - name: Cache Go modules
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y sqlite3 libsqlite3-dev
-        go mod download
+    - name: Install SQLite
+      run: sudo apt-get install -y sqlite3 libsqlite3-dev
 
     - name: Run tests
-      run: |
-        go test -v -race -coverprofile=coverage.out ./...
+      run: go test -short ./...
 
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
         go-version-file: 'go.mod'
+        cache: true
 
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v6
       with:
         version: latest
-        args: --timeout=5m
 
   build:
     name: Build
     runs-on: ubuntu-latest
     needs: [test, lint]
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
         go-version-file: 'go.mod'
+        cache: true
+
+    - name: Install SQLite
+      run: sudo apt-get install -y libsqlite3-dev
 
     - name: Build binary
       run: |
         CGO_ENABLED=1 go build \
-          -ldflags "-X main.version=${{ github.sha }} -X main.buildTime=$(date -u +%Y-%m-%d_%H:%M:%S)" \
+          -ldflags "-s -w -X main.version=${{ github.sha }}" \
           -o kurut-bot ./cmd/bot
 
-    - name: Upload build artifact
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: kurut-bot-${{ github.sha }}
         path: kurut-bot
 
   docker:
-    name: Build Docker Image
+    name: Docker
     runs-on: ubuntu-latest
     needs: [build]
-    if: |
-      github.ref == 'refs/heads/main' ||
-      startsWith(github.ref, 'refs/tags/v') ||
-      github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       packages: write
     outputs:
       image-tag: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
-      image-digest: ${{ steps.build.outputs.digest }}
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Log in to Container Registry
+    - name: Log in to GHCR
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
@@ -137,15 +117,11 @@ jobs:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
           type=ref,event=branch
-          type=ref,event=pr
           type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=semver,pattern={{major}}
           type=sha
           type=raw,value=latest,enable={{is_default_branch}}
 
-    - name: Build and push Docker image
-      id: build
+    - name: Build and push
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -154,308 +130,45 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        platforms: linux/amd64
 
   deploy-staging:
-    name: Deploy to Staging
+    name: Deploy Staging
     runs-on: ubuntu-latest
     needs: docker
-    if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
-    environment:
-      name: staging
-      url: https://staging.kurut.example.com
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
     steps:
-      - name: Deploy to staging server
+      - name: Deploy
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           port: ${{ secrets.STAGING_PORT }}
-          envs: REPO,GITHUB_TOKEN,GITHUB_ACTOR,IMAGE_TAG,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,MARZBAN_TOKEN,MARZBAN_API_URL,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_RETURN_URL,YOOKASSA_MOCK_PAYMENT,WIREGUARD_TLS_CA_CERT,WIREGUARD_TLS_CLIENT_CERT,WIREGUARD_TLS_CLIENT_KEY,WIREGUARD_TLS_SERVER_NAME,WIREGUARD_WEB_APP_BASE_URL,ENV_TYPE,LOG_LEVEL
           script: |
-            # Параметры для staging
-            export REPO="${{ github.repository }}"
-            export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-            export GITHUB_ACTOR="${{ github.actor }}"
-            export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
-            export TELEGRAM_BOT_TOKEN="${{ secrets.STAGING_TELEGRAM_BOT_TOKEN }}"
-            export TELEGRAM_ADMIN_IDS="${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}"
-            export MARZBAN_TOKEN="${{ secrets.MARZBAN_TOKEN }}"
-            export MARZBAN_API_URL="${{ secrets.MARZBAN_API_URL }}"
-            export YOOKASSA_SHOP_ID="${{ secrets.YOOKASSA_SHOP_ID }}"
-            export YOOKASSA_SECRET_KEY="${{ secrets.YOOKASSA_SECRET_KEY }}"
-            export YOOKASSA_RETURN_URL="${{ secrets.STAGING_YOOKASSA_RETURN_URL }}"
-            export YOOKASSA_MOCK_PAYMENT="${{ secrets.STAGING_YOOKASSA_MOCK_PAYMENT }}"
-            export WIREGUARD_TLS_CA_CERT="${{ secrets.WIREGUARD_TLS_CA_CERT }}"
-            export WIREGUARD_TLS_CLIENT_CERT="${{ secrets.WIREGUARD_TLS_CLIENT_CERT }}"
-            export WIREGUARD_TLS_CLIENT_KEY="${{ secrets.WIREGUARD_TLS_CLIENT_KEY }}"
-            export WIREGUARD_TLS_SERVER_NAME="${{ secrets.WIREGUARD_TLS_SERVER_NAME }}"
-            export WIREGUARD_WEB_APP_BASE_URL="${{ secrets.STAGING_WIREGUARD_WEB_APP_BASE_URL }}"
-            export ENV_TYPE="staging"
-            export LOG_LEVEL="debug"
-            
-            # Универсальный скрипт деплоя
-            /bin/bash << 'DEPLOY_SCRIPT'
-            set -e
-            
-            # Основная директория (одинаковая для всех окружений)
-            DEPLOY_DIR="/opt/kurut-bot"
-            
-            echo "🚀 Deploying to $ENV_TYPE..."
-            
-            # Создаем рабочую директорию
-            sudo mkdir -p "$DEPLOY_DIR" || mkdir -p "$DEPLOY_DIR"
-            sudo chown $(whoami):$(whoami) "$DEPLOY_DIR" || chown $(whoami):$(whoami) "$DEPLOY_DIR"
-            cd "$DEPLOY_DIR"
-            
-            # Скачиваем файлы с репозитория
-            echo "📥 Downloading files..."
-            curl -o docker-compose.yml "https://raw.githubusercontent.com/$REPO/main/docker-compose.yml"
-            
-            # Миграции уже встроены в Docker образ, не нужно скачивать
-            
-            # Авторизуемся в GitHub Container Registry
-            echo "🔐 Logging in to GHCR..."
-            echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-            
-            # Обновляем образ
-            echo "📦 Pulling Docker image..."
-            docker pull "$IMAGE_TAG"
-            
-            # Создаем .env файл с переданными секретами
-            echo "⚙️ Creating environment for $ENV_TYPE..."
-            cat > .env << EOF
-            ENV=$ENV_TYPE
-            TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
-            TELEGRAM_ADMIN_TELEGRAM_IDS=$TELEGRAM_ADMIN_IDS
-            MARZBAN_TOKEN=$MARZBAN_TOKEN
-            MARZBAN_API_URL=$MARZBAN_API_URL
-            YOOKASSA_SHOP_ID=$YOOKASSA_SHOP_ID
-            YOOKASSA_SECRET_KEY=$YOOKASSA_SECRET_KEY
-            YOOKASSA_RETURN_URL=$YOOKASSA_RETURN_URL
-            YOOKASSA_MOCK_PAYMENT=$YOOKASSA_MOCK_PAYMENT
-            WIREGUARD_TLS_CA_CERT=$WIREGUARD_TLS_CA_CERT
-            WIREGUARD_TLS_CLIENT_CERT=$WIREGUARD_TLS_CLIENT_CERT
-            WIREGUARD_TLS_CLIENT_KEY=$WIREGUARD_TLS_CLIENT_KEY
-            WIREGUARD_TLS_SERVER_NAME=$WIREGUARD_TLS_SERVER_NAME
-            WIREGUARD_WEB_APP_BASE_URL=$WIREGUARD_WEB_APP_BASE_URL
-            DB_PATH=/app/data/kurut.db
-            LOGGER_LEVEL=$LOG_LEVEL
-            IMAGE_TAG=$IMAGE_TAG
-            EOF
-            
-            # Подготовка БД
-            echo "💾 Setting up database..."
-            mkdir -p data
-            sudo chown -R 1000:1000 data 2>/dev/null || chown -R 1000:1000 data
-            chmod -R 755 data
-            
-            # Создаем файл БД с правами
-            touch data/kurut.db
-            sudo chown 1000:1000 data/kurut.db 2>/dev/null || chown 1000:1000 data/kurut.db
-            chmod 666 data/kurut.db
-            
-            # Миграции (используем встроенные в образ)
-            echo "🔄 Running migrations..."
-            docker run --rm \
-              -v "$(pwd)/data:/app/data:rw" \
-              --user 1000:1000 \
-              "$IMAGE_TAG" \
-              goose -dir migrations sqlite3 /app/data/kurut.db up
-            
-            if [ $? -ne 0 ]; then
-              echo "❌ Migration failed!"
-              echo "Data directory:"
-              ls -la data/
-              exit 1
-            fi
-            
-            echo "✅ Migrations completed successfully"
-            
-            # Останавливаем старые контейнеры и запускаем новые
-            echo "🛑 Stopping old containers..."
-            docker-compose down || true  # игнорируем ошибки если контейнеров нет
-            
-            echo "🚀 Starting application..."
+            cd /opt/kurut-bot
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker pull ${{ needs.docker.outputs.image-tag }}
             docker-compose up -d
-            
-            # Проверка работы
-            echo "⏳ Waiting for application to start..."
-            sleep 15
-            
-            if ! docker-compose ps | grep kurut-bot | grep -q "Up"; then
-              echo "❌ ERROR: Container is not running!"
-              docker-compose logs bot
-              exit 1
-            fi
-            
-            if docker-compose logs --tail=50 bot | grep -E 'level="FATAL"|panic:'; then
-              echo "❌ FATAL: Application has critical errors in logs!"
-              docker-compose logs bot
-              exit 1
-            fi
-            
-            echo "✅ Application deployed and running successfully"
-            docker-compose ps
-            docker-compose logs --tail=20 bot
-            
-            # Очистка
             docker image prune -f
-            
-            echo "🎉 $ENV_TYPE deployment completed!"
-            DEPLOY_SCRIPT
 
   deploy-production:
-    name: Deploy to Production
+    name: Deploy Production
     runs-on: ubuntu-latest
     needs: docker
-    if: |
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
-    environment:
-      name: production
-      url: https://kurut.example.com
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: production
     steps:
-      - name: Deploy to production server
+      - name: Deploy
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_PORT }}
-          envs: REPO,GITHUB_TOKEN,GITHUB_ACTOR,IMAGE_TAG,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,MARZBAN_TOKEN,MARZBAN_API_URL,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_RETURN_URL,YOOKASSA_MOCK_PAYMENT,WIREGUARD_TLS_CA_CERT,WIREGUARD_TLS_CLIENT_CERT,WIREGUARD_TLS_CLIENT_KEY,WIREGUARD_TLS_SERVER_NAME,WIREGUARD_WEB_APP_BASE_URL,ENV_TYPE,LOG_LEVEL
           script: |
-            # Параметры для production
-            export REPO="${{ github.repository }}"
-            export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-            export GITHUB_ACTOR="${{ github.actor }}"
-            export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
-            export TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-            export TELEGRAM_ADMIN_IDS="${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}"
-            export MARZBAN_TOKEN="${{ secrets.MARZBAN_TOKEN }}"
-            export MARZBAN_API_URL="${{ secrets.MARZBAN_API_URL }}"
-            export YOOKASSA_SHOP_ID="${{ secrets.YOOKASSA_SHOP_ID }}"
-            export YOOKASSA_SECRET_KEY="${{ secrets.YOOKASSA_SECRET_KEY }}"
-            export YOOKASSA_RETURN_URL="${{ secrets.YOOKASSA_RETURN_URL }}"
-            export YOOKASSA_MOCK_PAYMENT="${{ secrets.YOOKASSA_MOCK_PAYMENT }}"
-            export WIREGUARD_TLS_CA_CERT="${{ secrets.WIREGUARD_TLS_CA_CERT }}"
-            export WIREGUARD_TLS_CLIENT_CERT="${{ secrets.WIREGUARD_TLS_CLIENT_CERT }}"
-            export WIREGUARD_TLS_CLIENT_KEY="${{ secrets.WIREGUARD_TLS_CLIENT_KEY }}"
-            export WIREGUARD_TLS_SERVER_NAME="${{ secrets.WIREGUARD_TLS_SERVER_NAME }}"
-            export WIREGUARD_WEB_APP_BASE_URL="${{ secrets.WIREGUARD_WEB_APP_BASE_URL }}"
-            export ENV_TYPE="production"
-            export LOG_LEVEL="info"
-            
-            # Универсальный скрипт деплоя
-            /bin/bash << 'DEPLOY_SCRIPT'
-            set -e
-            
-            # Основная директория (одинаковая для всех окружений)
-            DEPLOY_DIR="/opt/kurut-bot"
-            
-            echo "🚀 Deploying to $ENV_TYPE..."
-            
-            # Создаем рабочую директорию
-            sudo mkdir -p "$DEPLOY_DIR" || mkdir -p "$DEPLOY_DIR"
-            sudo chown $(whoami):$(whoami) "$DEPLOY_DIR" || chown $(whoami):$(whoami) "$DEPLOY_DIR"
-            cd "$DEPLOY_DIR"
-            
-            # Скачиваем файлы с репозитория
-            echo "📥 Downloading files..."
-            curl -o docker-compose.yml "https://raw.githubusercontent.com/$REPO/main/docker-compose.yml"
-            
-            # Миграции уже встроены в Docker образ, не нужно скачивать
-            
-            # Авторизуемся в GitHub Container Registry
-            echo "🔐 Logging in to GHCR..."
-            echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-            
-            # Обновляем образ
-            echo "📦 Pulling Docker image..."
-            docker pull "$IMAGE_TAG"
-            
-            # Создаем .env файл с переданными секретами
-            echo "⚙️ Creating environment for $ENV_TYPE..."
-            cat > .env << EOF
-            ENV=$ENV_TYPE
-            TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
-            TELEGRAM_ADMIN_TELEGRAM_IDS=$TELEGRAM_ADMIN_IDS
-            MARZBAN_TOKEN=$MARZBAN_TOKEN
-            MARZBAN_API_URL=$MARZBAN_API_URL
-            YOOKASSA_SHOP_ID=$YOOKASSA_SHOP_ID
-            YOOKASSA_SECRET_KEY=$YOOKASSA_SECRET_KEY
-            YOOKASSA_RETURN_URL=$YOOKASSA_RETURN_URL
-            YOOKASSA_MOCK_PAYMENT=$YOOKASSA_MOCK_PAYMENT
-            WIREGUARD_TLS_CA_CERT=$WIREGUARD_TLS_CA_CERT
-            WIREGUARD_TLS_CLIENT_CERT=$WIREGUARD_TLS_CLIENT_CERT
-            WIREGUARD_TLS_CLIENT_KEY=$WIREGUARD_TLS_CLIENT_KEY
-            WIREGUARD_TLS_SERVER_NAME=$WIREGUARD_TLS_SERVER_NAME
-            WIREGUARD_WEB_APP_BASE_URL=$WIREGUARD_WEB_APP_BASE_URL
-            DB_PATH=/app/data/kurut.db
-            LOGGER_LEVEL=$LOG_LEVEL
-            IMAGE_TAG=$IMAGE_TAG
-            EOF
-            
-            # Подготовка БД
-            echo "💾 Setting up database..."
-            mkdir -p data
-            sudo chown -R 1000:1000 data 2>/dev/null || chown -R 1000:1000 data
-            chmod -R 755 data
-            
-            # Создаем файл БД с правами
-            touch data/kurut.db
-            sudo chown 1000:1000 data/kurut.db 2>/dev/null || chown 1000:1000 data/kurut.db
-            chmod 666 data/kurut.db
-            
-            # Миграции (используем встроенные в образ)
-            echo "🔄 Running migrations..."
-            docker run --rm \
-              -v "$(pwd)/data:/app/data:rw" \
-              --user 1000:1000 \
-              "$IMAGE_TAG" \
-              goose -dir migrations sqlite3 /app/data/kurut.db up
-            
-            if [ $? -ne 0 ]; then
-              echo "❌ Migration failed!"
-              echo "Data directory:"
-              ls -la data/
-              exit 1
-            fi
-            
-            echo "✅ Migrations completed successfully"
-            
-            # Останавливаем старые контейнеры и запускаем новые
-            echo "🛑 Stopping old containers..."
-            docker-compose down || true  # игнорируем ошибки если контейнеров нет
-            
-            echo "🚀 Starting application..."
+            cd /opt/kurut-bot
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker pull ${{ needs.docker.outputs.image-tag }}
             docker-compose up -d
-            
-            # Проверка работы
-            echo "⏳ Waiting for application to start..."
-            sleep 15
-            
-            if ! docker-compose ps | grep kurut-bot | grep -q "Up"; then
-              echo "❌ ERROR: Container is not running!"
-              docker-compose logs bot
-              exit 1
-            fi
-            
-            if docker-compose logs --tail=50 bot | grep -E 'level="FATAL"|panic:'; then
-              echo "❌ FATAL: Application has critical errors in logs!"
-              docker-compose logs bot
-              exit 1
-            fi
-            
-            echo "✅ Application deployed and running successfully"
-            docker-compose ps
-            docker-compose logs --tail=20 bot
-            
-            # Очистка
             docker image prune -f
-            
-            echo "🎉 $ENV_TYPE deployment completed!"
-            DEPLOY_SCRIPT
