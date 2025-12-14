@@ -30,7 +30,7 @@ FROM alpine:3.19
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates sqlite
+RUN apk add --no-cache ca-certificates sqlite procps
 
 # Create non-root user
 RUN addgroup -g 1000 appuser && \

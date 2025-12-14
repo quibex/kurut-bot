@@ -51,8 +51,11 @@ jobs:
         go-version-file: 'go.mod'
         cache: true
 
-    - name: Run lint
-      run: make lint
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: v1.64.8
+        args: --timeout 5m
 
   build:
     name: Build
@@ -156,12 +159,19 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           port: ${{ secrets.STAGING_PORT }}
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_TELEGRAM_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
           script: |
             cd /opt/kurut-bot
             mkdir -p data
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker pull ${{ needs.docker.outputs.image-tag }}
+
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
+            export TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
+            export TELEGRAM_ADMIN_TELEGRAM_IDS="$TELEGRAM_ADMIN_TELEGRAM_IDS"
+            export YOOKASSA_SHOP_ID="$YOOKASSA_SHOP_ID"
+            export YOOKASSA_SECRET_KEY="$YOOKASSA_SECRET_KEY"
+
             docker-compose up -d
             docker image prune -f
 
@@ -183,6 +193,11 @@ jobs:
             echo "Timeout waiting for healthy status"
             docker logs kurut-bot --tail 50
             exit 1
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_TELEGRAM_IDS: ${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
+          YOOKASSA_SHOP_ID: ${{ secrets.YOOKASSA_SHOP_ID }}
+          YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
 
   deploy-production:
     name: Deploy Production
@@ -210,12 +225,19 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_PORT }}
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_TELEGRAM_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
           script: |
             cd /opt/kurut-bot
             mkdir -p data
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker pull ${{ needs.docker.outputs.image-tag }}
+
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
+            export TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
+            export TELEGRAM_ADMIN_TELEGRAM_IDS="$TELEGRAM_ADMIN_TELEGRAM_IDS"
+            export YOOKASSA_SHOP_ID="$YOOKASSA_SHOP_ID"
+            export YOOKASSA_SECRET_KEY="$YOOKASSA_SECRET_KEY"
+
             docker-compose up -d
             docker image prune -f
 
@@ -237,3 +259,8 @@ jobs:
             echo "Timeout waiting for healthy status"
             docker logs kurut-bot --tail 50
             exit 1
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_TELEGRAM_IDS: ${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
+          YOOKASSA_SHOP_ID: ${{ secrets.YOOKASSA_SHOP_ID }}
+          YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
