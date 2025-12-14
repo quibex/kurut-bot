@@ -89,6 +89,15 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Download binary artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: kurut-bot-${{ github.sha }}
+        path: .
+
+    - name: Make binary executable
+      run: chmod +x kurut-bot
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
@@ -114,6 +123,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
+        file: Dockerfile.ci
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
@@ -154,10 +164,25 @@ jobs:
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
             docker-compose up -d
             docker image prune -f
-            # Open dozzle port if ufw is active
-            if command -v ufw &> /dev/null && ufw status | grep -q "active"; then
-              ufw allow 8888/tcp || true
-            fi
+
+            # Wait for container to be healthy
+            echo "Waiting for container to be healthy..."
+            for i in {1..30}; do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' kurut-bot 2>/dev/null || echo "starting")
+              if [ "$STATUS" = "healthy" ]; then
+                echo "Container is healthy!"
+                exit 0
+              elif [ "$STATUS" = "unhealthy" ]; then
+                echo "Container is unhealthy!"
+                docker logs kurut-bot --tail 50
+                exit 1
+              fi
+              echo "Status: $STATUS, waiting..."
+              sleep 2
+            done
+            echo "Timeout waiting for healthy status"
+            docker logs kurut-bot --tail 50
+            exit 1
 
   deploy-production:
     name: Deploy Production
@@ -193,7 +218,22 @@ jobs:
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
             docker-compose up -d
             docker image prune -f
-            # Open dozzle port if ufw is active
-            if command -v ufw &> /dev/null && ufw status | grep -q "active"; then
-              ufw allow 8888/tcp || true
-            fi
+
+            # Wait for container to be healthy
+            echo "Waiting for container to be healthy..."
+            for i in {1..30}; do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' kurut-bot 2>/dev/null || echo "starting")
+              if [ "$STATUS" = "healthy" ]; then
+                echo "Container is healthy!"
+                exit 0
+              elif [ "$STATUS" = "unhealthy" ]; then
+                echo "Container is unhealthy!"
+                docker logs kurut-bot --tail 50
+                exit 1
+              fi
+              echo "Status: $STATUS, waiting..."
+              sleep 2
+            done
+            echo "Timeout waiting for healthy status"
+            docker logs kurut-bot --tail 50
+            exit 1
