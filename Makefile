@@ -99,9 +99,15 @@ vendor:
 .PHONY: install
 install: | ./bin ./bin/golangci-lint ./bin/ogen ./bin/mockgen ./bin/gowrap
 
+# Читаем Go версию из go.mod
+GO_VERSION := $(shell grep '^go ' go.mod | cut -d' ' -f2)
+
 .PHONY: docker
-docker-build: vendor
-	docker build -t $(SERVICE_NAME) .
+docker-build:
+	docker build \
+		--build-arg GO_VERSION=$(GO_VERSION) \
+		--build-arg GOOSE_VERSION=$(GOOSE_VERSION) \
+		-t $(SERVICE_NAME) .
 
 docker-run:
 	docker run -p $(SERVICE_PORT):8080 $(SERVICE_NAME)

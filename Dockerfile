@@ -1,5 +1,9 @@
 # Multi-stage build
-FROM golang:1.23-alpine AS builder
+# Версии берутся из Makefile через --build-arg
+ARG GO_VERSION=1.25.4
+ARG GOOSE_VERSION=3.24.3
+
+FROM golang:${GO_VERSION}-alpine AS builder
 
 WORKDIR /app
 
@@ -17,7 +21,8 @@ COPY . .
 RUN CGO_ENABLED=1 go build -ldflags="-w -s" -o kurut-bot cmd/bot/main.go
 
 # Install goose for migrations
-RUN go install github.com/pressly/goose/v3/cmd/goose@v3.24.3
+ARG GOOSE_VERSION
+RUN go install github.com/pressly/goose/v3/cmd/goose@v${GOOSE_VERSION}
 
 # Final stage
 FROM alpine:3.19

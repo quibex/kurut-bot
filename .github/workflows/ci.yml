@@ -36,11 +36,8 @@ jobs:
         go-version-file: 'go.mod'
         cache: true
 
-    - name: Install SQLite
-      run: sudo apt-get install -y sqlite3 libsqlite3-dev
-
     - name: Run tests
-      run: go test -short ./...
+      run: make test
 
   lint:
     name: Lint
@@ -54,10 +51,8 @@ jobs:
         go-version-file: 'go.mod'
         cache: true
 
-    - name: Install and run golangci-lint
-      run: |
-        go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-        golangci-lint run --timeout=5m
+    - name: Run lint
+      run: make lint
 
   build:
     name: Build
@@ -72,20 +67,14 @@ jobs:
         go-version-file: 'go.mod'
         cache: true
 
-    - name: Install SQLite
-      run: sudo apt-get install -y libsqlite3-dev
-
-    - name: Build binary
-      run: |
-        CGO_ENABLED=1 go build \
-          -ldflags "-s -w -X main.version=${{ github.sha }}" \
-          -o kurut-bot ./cmd/bot
+    - name: Build
+      run: make build
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: kurut-bot-${{ github.sha }}
-        path: kurut-bot
+        path: bin/kurut-bot
 
   docker:
     name: Docker
