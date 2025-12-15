@@ -113,12 +113,11 @@ jobs:
             docker pull ${{ needs.docker.outputs.image-tag }}
 
             echo "=== Create Dozzle users file ==="
-            cat > data/dozzle-users.yml << EOF
-            users:
-              admin:
-                name: "Admin"
-                password: "$DOZZLE_PASSWORD_HASH"
-            EOF
+            rm -rf data/dozzle-users.yml
+            echo 'users:' > data/dozzle-users.yml
+            echo '  admin:' >> data/dozzle-users.yml
+            echo '    name: "Admin"' >> data/dozzle-users.yml
+            echo "    password: \"$DOZZLE_PASSWORD_HASH\"" >> data/dozzle-users.yml
 
             echo "=== Deploy ==="
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
@@ -189,12 +188,11 @@ jobs:
             docker pull ${{ needs.docker.outputs.image-tag }}
 
             echo "=== Create Dozzle users file ==="
-            cat > data/dozzle-users.yml << EOF
-            users:
-              admin:
-                name: "Admin"
-                password: "$DOZZLE_PASSWORD_HASH"
-            EOF
+            rm -rf data/dozzle-users.yml
+            echo 'users:' > data/dozzle-users.yml
+            echo '  admin:' >> data/dozzle-users.yml
+            echo '    name: "Admin"' >> data/dozzle-users.yml
+            echo "    password: \"$DOZZLE_PASSWORD_HASH\"" >> data/dozzle-users.yml
 
             echo "=== Deploy ==="
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
