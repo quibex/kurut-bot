@@ -162,9 +162,18 @@ jobs:
           port: ${{ secrets.STAGING_PORT }}
           envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_TELEGRAM_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
           script: |
+            set -e
             cd /opt/kurut-bot
+
+            echo "=== Checking files ==="
+            ls -la
+
             mkdir -p data
+
+            echo "=== Docker login ==="
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            echo "=== Pulling image ==="
             docker pull ${{ needs.docker.outputs.image-tag }}
 
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
@@ -173,19 +182,29 @@ jobs:
             export YOOKASSA_SHOP_ID="$YOOKASSA_SHOP_ID"
             export YOOKASSA_SECRET_KEY="$YOOKASSA_SECRET_KEY"
 
-            docker-compose up -d
+            echo "=== Starting containers ==="
+            docker-compose up -d 2>&1 || { echo "docker-compose failed!"; docker-compose logs; exit 1; }
+
+            echo "=== Running containers ==="
+            docker ps -a
+
             docker image prune -f
 
             # Wait for container to be healthy
-            echo "Waiting for container to be healthy..."
+            echo "=== Waiting for container to be healthy ==="
             for i in {1..30}; do
-              STATUS=$(docker inspect --format='{{.State.Health.Status}}' kurut-bot 2>/dev/null || echo "starting")
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' kurut-bot 2>/dev/null || echo "not_found")
               if [ "$STATUS" = "healthy" ]; then
                 echo "Container is healthy!"
                 exit 0
               elif [ "$STATUS" = "unhealthy" ]; then
                 echo "Container is unhealthy!"
                 docker logs kurut-bot --tail 50
+                exit 1
+              elif [ "$STATUS" = "not_found" ]; then
+                echo "Container not found! Checking docker-compose..."
+                docker-compose ps
+                docker-compose logs
                 exit 1
               fi
               echo "Status: $STATUS, waiting..."
