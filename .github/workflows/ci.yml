@@ -120,7 +120,9 @@ jobs:
             export YOOKASSA_SECRET_KEY="$YOOKASSA_SECRET_KEY"
 
             docker compose up -d
-            docker image prune -f
+
+            echo "=== Wait for container ==="
+            sleep 5
 
             echo "=== Migrations ==="
             docker exec kurut-bot goose -dir /app/migrations sqlite3 /app/data/kurut.db up
@@ -129,7 +131,7 @@ jobs:
             for i in $(seq 1 30); do
               STATUS=$(docker inspect --format='{{.State.Health.Status}}' kurut-bot 2>/dev/null || echo "starting")
               echo "[$i/30] $STATUS"
-              [ "$STATUS" = "healthy" ] && echo "OK!" && exit 0
+              [ "$STATUS" = "healthy" ] && echo "OK!" && docker image prune -f && exit 0
               [ "$STATUS" = "unhealthy" ] && docker logs kurut-bot --tail 30 && exit 1
               sleep 2
             done
@@ -185,7 +187,9 @@ jobs:
             export YOOKASSA_SECRET_KEY="$YOOKASSA_SECRET_KEY"
 
             docker compose up -d
-            docker image prune -f
+
+            echo "=== Wait for container ==="
+            sleep 5
 
             echo "=== Migrations ==="
             docker exec kurut-bot goose -dir /app/migrations sqlite3 /app/data/kurut.db up
@@ -194,7 +198,7 @@ jobs:
             for i in $(seq 1 30); do
               STATUS=$(docker inspect --format='{{.State.Health.Status}}' kurut-bot 2>/dev/null || echo "starting")
               echo "[$i/30] $STATUS"
-              [ "$STATUS" = "healthy" ] && echo "OK!" && exit 0
+              [ "$STATUS" = "healthy" ] && echo "OK!" && docker image prune -f && exit 0
               [ "$STATUS" = "unhealthy" ] && docker logs kurut-bot --tail 30 && exit 1
               sleep 2
             done
