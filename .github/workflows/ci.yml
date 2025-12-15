@@ -100,7 +100,7 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           port: ${{ secrets.STAGING_PORT }}
-          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_TELEGRAM_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_TELEGRAM_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,DOZZLE_PASSWORD_HASH
           script: |
             set -e
             cd /opt/kurut-bot
@@ -111,6 +111,14 @@ jobs:
 
             echo "=== Pull ==="
             docker pull ${{ needs.docker.outputs.image-tag }}
+
+            echo "=== Create Dozzle users file ==="
+            cat > data/dozzle-users.yml << EOF
+            users:
+              admin:
+                name: "Admin"
+                password: "$DOZZLE_PASSWORD_HASH"
+            EOF
 
             echo "=== Deploy ==="
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
@@ -141,6 +149,7 @@ jobs:
           TELEGRAM_ADMIN_TELEGRAM_IDS: ${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
           YOOKASSA_SHOP_ID: ${{ secrets.YOOKASSA_SHOP_ID }}
           YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
+          DOZZLE_PASSWORD_HASH: ${{ secrets.DOZZLE_PASSWORD_HASH }}
 
   deploy-production:
     runs-on: ubuntu-latest
@@ -167,7 +176,7 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_PORT }}
-          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_TELEGRAM_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_TELEGRAM_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,DOZZLE_PASSWORD_HASH
           script: |
             set -e
             cd /opt/kurut-bot
@@ -178,6 +187,14 @@ jobs:
 
             echo "=== Pull ==="
             docker pull ${{ needs.docker.outputs.image-tag }}
+
+            echo "=== Create Dozzle users file ==="
+            cat > data/dozzle-users.yml << EOF
+            users:
+              admin:
+                name: "Admin"
+                password: "$DOZZLE_PASSWORD_HASH"
+            EOF
 
             echo "=== Deploy ==="
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
@@ -208,3 +225,4 @@ jobs:
           TELEGRAM_ADMIN_TELEGRAM_IDS: ${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
           YOOKASSA_SHOP_ID: ${{ secrets.YOOKASSA_SHOP_ID }}
           YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
+          DOZZLE_PASSWORD_HASH: ${{ secrets.DOZZLE_PASSWORD_HASH }}
