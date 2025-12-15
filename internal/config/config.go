@@ -21,9 +21,10 @@ type Config struct {
 }
 
 type TelegramConfig struct {
-	BotToken         string        `env:"BOT_TOKEN,required"`
-	Timeout          time.Duration `env:"TIMEOUT,default=30s"`
-	AdminTelegramIDs []int64       `env:"ADMIN_TELEGRAM_IDS"`
+	BotToken     string        `env:"BOT_TOKEN,required"`
+	Timeout      time.Duration `env:"TIMEOUT,default=30s"`
+	AdminIDs     []int64       `env:"ADMIN_IDS"`
+	AssistantIDs []int64       `env:"ASSISTANT_IDS"`
 }
 
 type YooKassaConfig struct {

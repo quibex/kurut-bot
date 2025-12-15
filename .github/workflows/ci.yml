@@ -86,21 +86,21 @@ jobs:
       - name: Copy docker-compose.yml
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          port: ${{ secrets.STAGING_PORT }}
+          host: ${{ vars.HOST }}
+          username: ${{ vars.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ vars.PORT }}
           source: docker-compose.yml
           target: /opt/kurut-bot
 
       - name: Deploy
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          port: ${{ secrets.STAGING_PORT }}
-          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_TELEGRAM_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
+          host: ${{ vars.HOST }}
+          username: ${{ vars.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ vars.PORT }}
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,TELEGRAM_ASSISTANT_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_MOCK_PAYMENT,YOOKASSA_RETURN_URL
           script: |
             set -e
             cd /opt/kurut-bot
@@ -115,9 +115,12 @@ jobs:
             echo "=== Deploy ==="
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
             export TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
-            export TELEGRAM_ADMIN_TELEGRAM_IDS="$TELEGRAM_ADMIN_TELEGRAM_IDS"
+            export TELEGRAM_ADMIN_IDS="$TELEGRAM_ADMIN_IDS"
+            export TELEGRAM_ASSISTANT_IDS="$TELEGRAM_ASSISTANT_IDS"
             export YOOKASSA_SHOP_ID="$YOOKASSA_SHOP_ID"
             export YOOKASSA_SECRET_KEY="$YOOKASSA_SECRET_KEY"
+            export YOOKASSA_MOCK_PAYMENT="$YOOKASSA_MOCK_PAYMENT"
+            export YOOKASSA_RETURN_URL="$YOOKASSA_RETURN_URL"
 
             docker compose up -d
 
@@ -138,9 +141,12 @@ jobs:
             echo "Timeout!" && docker logs kurut-bot --tail 30 && exit 1
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_ADMIN_TELEGRAM_IDS: ${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
+          TELEGRAM_ADMIN_IDS: ${{ vars.TELEGRAM_ADMIN_IDS }}
+          TELEGRAM_ASSISTANT_IDS: ${{ vars.TELEGRAM_ASSISTANT_IDS }}
           YOOKASSA_SHOP_ID: ${{ secrets.YOOKASSA_SHOP_ID }}
           YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
+          YOOKASSA_MOCK_PAYMENT: ${{ vars.YOOKASSA_MOCK_PAYMENT }}
+          YOOKASSA_RETURN_URL: ${{ vars.YOOKASSA_RETURN_URL }}
 
   deploy-production:
     runs-on: ubuntu-latest
@@ -153,21 +159,21 @@ jobs:
       - name: Copy docker-compose.yml
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.PRODUCTION_HOST }}
-          username: ${{ secrets.PRODUCTION_USER }}
-          key: ${{ secrets.PRODUCTION_SSH_KEY }}
-          port: ${{ secrets.PRODUCTION_PORT }}
+          host: ${{ vars.HOST }}
+          username: ${{ vars.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ vars.PORT }}
           source: docker-compose.yml
           target: /opt/kurut-bot
 
       - name: Deploy
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.PRODUCTION_HOST }}
-          username: ${{ secrets.PRODUCTION_USER }}
-          key: ${{ secrets.PRODUCTION_SSH_KEY }}
-          port: ${{ secrets.PRODUCTION_PORT }}
-          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_TELEGRAM_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
+          host: ${{ vars.HOST }}
+          username: ${{ vars.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ vars.PORT }}
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,TELEGRAM_ASSISTANT_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_RETURN_URL
           script: |
             set -e
             cd /opt/kurut-bot
@@ -182,9 +188,11 @@ jobs:
             echo "=== Deploy ==="
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
             export TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
-            export TELEGRAM_ADMIN_TELEGRAM_IDS="$TELEGRAM_ADMIN_TELEGRAM_IDS"
+            export TELEGRAM_ADMIN_IDS="$TELEGRAM_ADMIN_IDS"
+            export TELEGRAM_ASSISTANT_IDS="$TELEGRAM_ASSISTANT_IDS"
             export YOOKASSA_SHOP_ID="$YOOKASSA_SHOP_ID"
             export YOOKASSA_SECRET_KEY="$YOOKASSA_SECRET_KEY"
+            export YOOKASSA_RETURN_URL="$YOOKASSA_RETURN_URL"
 
             docker compose up -d
 
@@ -205,6 +213,8 @@ jobs:
             echo "Timeout!" && docker logs kurut-bot --tail 30 && exit 1
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_ADMIN_TELEGRAM_IDS: ${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
+          TELEGRAM_ADMIN_IDS: ${{ vars.TELEGRAM_ADMIN_IDS }}
+          TELEGRAM_ASSISTANT_IDS: ${{ vars.TELEGRAM_ASSISTANT_IDS }}
           YOOKASSA_SHOP_ID: ${{ secrets.YOOKASSA_SHOP_ID }}
           YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
+          YOOKASSA_RETURN_URL: ${{ vars.YOOKASSA_RETURN_URL }}

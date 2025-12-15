@@ -47,6 +47,7 @@ type userService interface {
 
 type adminChecker interface {
 	IsAdmin(telegramID int64) bool
+	IsAllowedUser(telegramID int64) bool
 }
 
 func (r *Router) Route(update *tgbotapi.Update) error {
@@ -56,6 +57,11 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 	telegramID := extractUserID(update)
 	if telegramID == 0 {
 		return nil // Некорректный update
+	}
+
+	// Проверяем доступ к боту
+	if !r.adminChecker.IsAllowedUser(telegramID) {
+		return r.sendAccessDenied(extractChatID(update))
 	}
 
 	// Получаем или создаем пользователя для получения внутреннего ID
@@ -279,6 +285,17 @@ func (r *Router) sendHelp(chatID int64) error {
 
 func (r *Router) sendError(chatID int64) error {
 	msg := tgbotapi.NewMessage(chatID, messages.Error)
+	_, err := r.bot.Send(msg)
+	return err
+}
+
+func (r *Router) sendAccessDenied(chatID int64) error {
+	if chatID == 0 {
+		return nil
+	}
+	text := "Мяу~ К сожалению, этот бот только для своих, котик! " +
+		"Если ты потерялся — напиши админу, может он тебя приютит~ "
+	msg := tgbotapi.NewMessage(chatID, text)
 	_, err := r.bot.Send(msg)
 	return err
 }
