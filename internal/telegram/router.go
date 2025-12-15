@@ -293,10 +293,13 @@ func (r *Router) sendAccessDenied(chatID int64) error {
 	if chatID == 0 {
 		return nil
 	}
-	text := "Ня~? (・ω・) Гомен, но этот бот только для избранных, сенпай! ♡\n\n" +
-		"Если хочешь попасть в наш кавайный клуб — напиши админу-куну, " +
-		"может он добавит тебя в список~ (◕‿◕✿)\n\n" +
-		"Гамбатте не! ٩(◕‿◕｡)۶"
+
+	// Отправляем стикер
+	stickerMsg := tgbotapi.NewSticker(chatID, tgbotapi.FileID("AAMCBAADGQEAAT9JeWlAaj1MCG953ZuRdwTuNS7FLaoPAAIHEAACJ6EYUkzS_lZxKO1MAQAHbQADNgQ"))
+	_, _ = r.bot.Send(stickerMsg)
+
+	// Отправляем текст
+	text := "В небе и на земле достойный лишь Я.."
 	msg := tgbotapi.NewMessage(chatID, text)
 	_, err := r.bot.Send(msg)
 	return err

@@ -106,10 +106,6 @@ jobs:
             cd /opt/kurut-bot
             mkdir -p data
 
-            echo "=== Debug: check env vars ==="
-            echo "ADMIN_IDS length: ${#TELEGRAM_ADMIN_IDS}"
-            echo "ASSISTANT_IDS length: ${#TELEGRAM_ASSISTANT_IDS}"
-
             echo "=== Login ==="
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
