@@ -265,11 +265,11 @@ func (h *Handler) showConfirmation(chatID int64, data *flows.AddServerFlowData) 
 	messageText := fmt.Sprintf("📋 *Подтверждение добавления сервера*\n\n"+
 		"🖥 Название: %s\n"+
 		"🌐 URL: %s\n"+
-		"🔑 Пароль: `%s`\n"+
+		"🔑 Пароль: `***`\n"+
 		"👥 Текущих пользователей: %d\n"+
 		"🔢 Максимум пользователей: %d\n\n"+
 		"✅ Все данные корректны?",
-		data.Name, data.UIURL, data.UIPassword, data.CurrentUsers, data.MaxUsers)
+		data.Name, data.UIURL, data.CurrentUsers, data.MaxUsers)
 
 	keyboard := h.createConfirmationKeyboard()
 
