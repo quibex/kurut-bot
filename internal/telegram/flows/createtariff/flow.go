@@ -73,6 +73,7 @@ func (h *Handler) showNameInput(chatID int64) error {
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ReplyMarkup = keyboard
+	msg.ParseMode = "Markdown"
 
 	_, err := h.bot.Send(msg)
 	return err
@@ -128,6 +129,7 @@ func (h *Handler) showPriceInput(chatID int64, tariffName string) error {
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ReplyMarkup = keyboard
+	msg.ParseMode = "Markdown"
 
 	_, err := h.bot.Send(msg)
 	return err
@@ -178,7 +180,7 @@ func (h *Handler) handlePriceInput(ctx context.Context, update *tgbotapi.Update)
 
 func (h *Handler) showDurationInput(chatID int64, tariffName string, price float64) error {
 	messageText := fmt.Sprintf("📝 *Создание тарифа: %s*\n\n"+
-		"💰 Цена: %.2f ₽\n"+
+		"💰 *Цена:* %.2f ₽\n"+
 		"⏰ Введите продолжительность тарифа в днях:\n\n"+
 		"• От 1 до 365 дней\n"+
 		"• Только целые числа",
@@ -188,6 +190,7 @@ func (h *Handler) showDurationInput(chatID int64, tariffName string, price float
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ReplyMarkup = keyboard
+	msg.ParseMode = "Markdown"
 
 	_, err := h.bot.Send(msg)
 	return err
@@ -238,9 +241,9 @@ func (h *Handler) handleDurationInput(ctx context.Context, update *tgbotapi.Upda
 
 func (h *Handler) showConfirmation(chatID int64, data *flows.CreateTariffFlowData) error {
 	messageText := fmt.Sprintf("📋 *Подтверждение создания тарифа*\n\n"+
-		"📅 **Название:** %s\n"+
-		"💰 **Цена:** %.2f ₽\n"+
-		"⏰ **Продолжительность:** %d дней\n\n"+
+		"📅 *Название:* %s\n"+
+		"💰 *Цена:* %.2f ₽\n"+
+		"⏰ *Продолжительность:* %d дней\n\n"+
 		"✅ Все данные корректны?",
 		data.Name, data.Price, data.DurationDays)
 
@@ -248,6 +251,7 @@ func (h *Handler) showConfirmation(chatID int64, data *flows.CreateTariffFlowDat
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ReplyMarkup = keyboard
+	msg.ParseMode = "Markdown"
 
 	_, err := h.bot.Send(msg)
 	return err
@@ -304,16 +308,17 @@ func (h *Handler) createTariffAndFinish(ctx context.Context, update *tgbotapi.Up
 
 	// Отправляем сообщение об успешном создании
 	successMsg := fmt.Sprintf("✅ *Тариф создан успешно!*\n\n"+
-		"📅 **Название:** %s\n"+
-		"💰 **Цена:** %.2f ₽\n"+
-		"⏰ **Продолжительность:** %d дней\n"+
-		"📅 **Создан:** %s",
+		"📅 *Название:* %s\n"+
+		"💰 *Цена:* %.2f ₽\n"+
+		"⏰ *Продолжительность:* %d дней\n"+
+		"📅 *Создан:* %s",
 		createdTariff.Name,
 		createdTariff.Price,
 		createdTariff.DurationDays,
 		createdTariff.CreatedAt.Format("02.01.2006 15:04"))
 
 	msg := tgbotapi.NewMessage(chatID, successMsg)
+	msg.ParseMode = "Markdown"
 
 	_, err = h.bot.Send(msg)
 	if err != nil {

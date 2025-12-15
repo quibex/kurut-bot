@@ -10,8 +10,6 @@ import (
 	"kurut-bot/internal/telegram/flows/addserver"
 	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
-	"kurut-bot/internal/telegram/flows/disabletariff"
-	"kurut-bot/internal/telegram/flows/enabletariff"
 	"kurut-bot/internal/telegram/messages"
 	"kurut-bot/internal/telegram/states"
 
@@ -27,15 +25,12 @@ type Router struct {
 	// Handlers
 	createSubForClientHandler *createsubforclient.Handler
 	createTariffHandler       *createtariff.Handler
-	disableTariffHandler      *disabletariff.Handler
-	enableTariffHandler       *enabletariff.Handler
 	addServerHandler          *addserver.Handler
 	mySubsCommand             *cmds.MySubsCommand
 	statsCommand              *cmds.StatsCommand
 	expirationCommand         *cmds.ExpirationCommand
-
-	// Workers for manual run
-	expirationRunner expirationRunner
+	tariffsCommand            *cmds.TariffsCommand
+	serversCommand            *cmds.ServersCommand
 }
 
 type stateManager interface {
@@ -52,10 +47,6 @@ type userService interface {
 
 type adminChecker interface {
 	IsAdmin(telegramID int64) bool
-}
-
-type expirationRunner interface {
-	RunNow(ctx context.Context) error
 }
 
 func (r *Router) Route(update *tgbotapi.Update) error {
@@ -111,6 +102,34 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		case strings.HasPrefix(callbackData, "pay_"):
 			// Payment callbacks (pay_check, pay_refresh, pay_cancel) - работают независимо от состояния
 			return r.createSubForClientHandler.HandlePaymentCallback(update)
+		case strings.HasPrefix(callbackData, "trf_"):
+			// Tariff callbacks
+			if !r.adminChecker.IsAdmin(user.TelegramID) {
+				callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ Нет прав")
+				_, _ = r.bot.Request(callback)
+				return nil
+			}
+			// Специальная обработка для создания тарифа
+			if callbackData == "trf_create" {
+				callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+				_, _ = r.bot.Request(callback)
+				return r.createTariffHandler.Start(extractChatID(update))
+			}
+			return r.tariffsCommand.HandleCallback(ctx, update.CallbackQuery)
+		case strings.HasPrefix(callbackData, "srv_"):
+			// Server callbacks
+			if !r.adminChecker.IsAdmin(user.TelegramID) {
+				callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ Нет прав")
+				_, _ = r.bot.Request(callback)
+				return nil
+			}
+			// Специальная обработка для добавления сервера
+			if callbackData == "srv_add" {
+				callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+				_, _ = r.bot.Request(callback)
+				return r.addServerHandler.Start(extractChatID(update))
+			}
+			return r.serversCommand.HandleCallback(ctx, update.CallbackQuery)
 		}
 	}
 
@@ -122,16 +141,6 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 	// Проверяем состояние флоу создания тарифа
 	if strings.HasPrefix(string(state), "act_") {
 		return r.createTariffHandler.Handle(update, state)
-	}
-
-	// Проверяем состояние флоу архивации тарифа
-	if strings.HasPrefix(string(state), "adt_") {
-		return r.disableTariffHandler.Handle(update, state)
-	}
-
-	// Проверяем состояние флоу восстановления тарифа
-	if strings.HasPrefix(string(state), "aet_") {
-		return r.enableTariffHandler.Handle(update, state)
 	}
 
 	// Проверяем состояние флоу добавления сервера
@@ -148,106 +157,75 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 		return r.sendHelp(extractChatID(update))
 	}
 
+	ctx := context.Background()
+	chatID := update.Message.Chat.ID
+
 	switch update.Message.Command() {
 	case "start":
-		return r.sendWelcome(update.Message.Chat.ID, user)
+		return r.sendWelcome(chatID, user)
 	case "create_sub":
 		// Любой пользователь может создавать подписки для клиентов (ассистенты)
-		return r.createSubForClientHandler.Start(
-			user.ID,
-			user.TelegramID,
-			update.Message.Chat.ID,
-		)
-	case "create_tariff":
+		return r.createSubForClientHandler.Start(user.ID, user.TelegramID, chatID)
+	case "tariffs":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для создания тарифов"))
-			return r.sendHelp(update.Message.Chat.ID)
+			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав для управления тарифами"))
+			return r.sendHelp(chatID)
 		}
-		return r.createTariffHandler.Start(
-			update.Message.Chat.ID,
-		)
-	case "disable_tariff":
+		return r.tariffsCommand.Execute(ctx, chatID)
+	case "servers":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для архивации тарифов"))
-			return r.sendHelp(update.Message.Chat.ID)
+			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав для управления серверами"))
+			return r.sendHelp(chatID)
 		}
-		return r.disableTariffHandler.Start(
-			update.Message.Chat.ID,
-		)
-	case "enable_tariff":
-		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для восстановления тарифов"))
-			return r.sendHelp(update.Message.Chat.ID)
-		}
-		return r.enableTariffHandler.Start(
-			update.Message.Chat.ID,
-		)
-	case "add_server":
-		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для добавления серверов"))
-			return r.sendHelp(update.Message.Chat.ID)
-		}
-		return r.addServerHandler.Start(
-			update.Message.Chat.ID,
-		)
+		return r.serversCommand.Execute(ctx, chatID)
 	case "my_subs":
-		ctx := context.Background()
-		return r.mySubsCommand.Execute(ctx, user.TelegramID, update.Message.Chat.ID)
+		return r.mySubsCommand.Execute(ctx, user.TelegramID, chatID)
 	case "stats":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для просмотра статистики"))
-			return r.sendHelp(update.Message.Chat.ID)
+			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав для просмотра статистики"))
+			return r.sendHelp(chatID)
 		}
-		ctx := context.Background()
-		return r.statsCommand.Execute(ctx, update.Message.Chat.ID)
-	case "run_expiration":
-		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав"))
-			return r.sendHelp(update.Message.Chat.ID)
-		}
-		return r.runExpirationWorker(update.Message.Chat.ID)
+		return r.statsCommand.Execute(ctx, chatID)
 	case "overdue":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав"))
-			return r.sendHelp(update.Message.Chat.ID)
+			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав"))
+			return r.sendHelp(chatID)
 		}
-		ctx := context.Background()
-		return r.expirationCommand.ExecuteOverdue(ctx, update.Message.Chat.ID)
+		return r.expirationCommand.ExecuteOverdue(ctx, chatID)
 	case "expiring":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав"))
-			return r.sendHelp(update.Message.Chat.ID)
+			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав"))
+			return r.sendHelp(chatID)
 		}
-		ctx := context.Background()
-		return r.expirationCommand.ExecuteExpiring(ctx, update.Message.Chat.ID)
+		return r.expirationCommand.ExecuteExpiring(ctx, chatID)
 	default:
-		return r.sendHelp(update.Message.Chat.ID)
+		return r.sendHelp(chatID)
 	}
 }
 
 func (r *Router) sendWelcome(chatID int64, user *users.User) error {
-	text := "👋 Добро пожаловать!\n\nЭтот бот помогает ассистентам управлять подписками клиентов."
+	text := "Добро пожаловать!\n\nЭтот бот помогает ассистентам управлять подписками клиентов."
 
 	// Создаем кнопки для ассистентов
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(
-				"📋 Мои подписки",
+				"Мои подписки",
 				"my_subscriptions",
 			),
 		),
 	)
 
 	if r.adminChecker.IsAdmin(chatID) {
-		text += "\n\n🔧 Команды администратора:\n" +
-			"/create_tariff — Создать тариф\n" +
-			"/disable_tariff — Архивировать тариф\n" +
-			"/enable_tariff — Восстановить тариф\n" +
-			"/add_server — Добавить сервер\n" +
-			"/stats — Просмотр статистики"
+		text += "\n\nКоманды администратора:\n" +
+			"/tariffs — Управление тарифами\n" +
+			"/servers — Управление серверами\n" +
+			"/stats — Просмотр статистики\n" +
+			"/overdue — Просроченные подписки\n" +
+			"/expiring — Истекающие подписки"
 	}
 
-	text += "\n\n📱 Команды ассистента:\n" +
+	text += "\n\nКоманды ассистента:\n" +
 		"/create_sub — Создать подписку для клиента\n" +
 		"/my_subs — Список подписок"
 
@@ -281,18 +259,18 @@ func (r *Router) sendHelp(chatID int64) error {
 	if chatID == 0 {
 		return nil // Не можем отправить сообщение
 	}
-	text := "📱 Доступные команды:\n\n" +
+	text := "Доступные команды:\n\n" +
 		"/start — Главное меню\n" +
 		"/create_sub — Создать подписку для клиента\n" +
 		"/my_subs — Список подписок"
 
 	if r.adminChecker.IsAdmin(chatID) {
-		text += "\n\n🔧 Команды администратора:\n" +
-			"/create_tariff — Создать тариф\n" +
-			"/disable_tariff — Архивировать тариф\n" +
-			"/enable_tariff — Восстановить тариф\n" +
-			"/add_server — Добавить сервер\n" +
-			"/stats — Просмотр статистики"
+		text += "\n\nКоманды администратора:\n" +
+			"/tariffs — Управление тарифами\n" +
+			"/servers — Управление серверами\n" +
+			"/stats — Просмотр статистики\n" +
+			"/overdue — Просроченные подписки\n" +
+			"/expiring — Истекающие подписки"
 	}
 	msg := tgbotapi.NewMessage(chatID, text)
 	_, err := r.bot.Send(msg)
@@ -325,30 +303,6 @@ func extractChatID(update *tgbotapi.Update) int64 {
 	return 0
 }
 
-// runExpirationWorker запускает воркер истечения подписок вручную
-func (r *Router) runExpirationWorker(chatID int64) error {
-	if r.expirationRunner == nil {
-		msg := tgbotapi.NewMessage(chatID, "❌ Воркер не настроен")
-		_, _ = r.bot.Send(msg)
-		return nil
-	}
-
-	msg := tgbotapi.NewMessage(chatID, "⏳ Запускаю проверку подписок...")
-	_, _ = r.bot.Send(msg)
-
-	ctx := context.Background()
-	err := r.expirationRunner.RunNow(ctx)
-	if err != nil {
-		errMsg := tgbotapi.NewMessage(chatID, "❌ Ошибка: "+err.Error())
-		_, _ = r.bot.Send(errMsg)
-		return err
-	}
-
-	successMsg := tgbotapi.NewMessage(chatID, "✅ Проверка подписок завершена")
-	_, _ = r.bot.Send(successMsg)
-	return nil
-}
-
 // handleGlobalCancelWithInternalID обрабатывает глобальную отмену из любого состояния
 func (r *Router) handleGlobalCancelWithInternalID(update *tgbotapi.Update, user *users.User) error {
 	if update.CallbackQuery == nil || update.CallbackQuery.Message == nil {
@@ -378,13 +332,12 @@ func NewRouter(
 	adminChecker adminChecker,
 	createSubForClientHandler *createsubforclient.Handler,
 	createTariffHandler *createtariff.Handler,
-	disableTariffHandler *disabletariff.Handler,
-	enableTariffHandler *enabletariff.Handler,
 	addServerHandler *addserver.Handler,
 	mySubsCommand *cmds.MySubsCommand,
 	statsCommand *cmds.StatsCommand,
 	expirationCommand *cmds.ExpirationCommand,
-	expirationRunner expirationRunner,
+	tariffsCommand *cmds.TariffsCommand,
+	serversCommand *cmds.ServersCommand,
 ) *Router {
 	return &Router{
 		bot:                       bot,
@@ -393,13 +346,12 @@ func NewRouter(
 		adminChecker:              adminChecker,
 		createSubForClientHandler: createSubForClientHandler,
 		createTariffHandler:       createTariffHandler,
-		disableTariffHandler:      disableTariffHandler,
-		enableTariffHandler:       enableTariffHandler,
 		addServerHandler:          addServerHandler,
 		mySubsCommand:             mySubsCommand,
 		statsCommand:              statsCommand,
 		expirationCommand:         expirationCommand,
-		expirationRunner:          expirationRunner,
+		tariffsCommand:            tariffsCommand,
+		serversCommand:            serversCommand,
 	}
 }
 
@@ -442,36 +394,24 @@ func (r *Router) setupAdminCommands(chatID int64) {
 			Description: "Список подписок",
 		},
 		{
-			Command:     "overdue",
-			Description: "Просроченные подписки",
+			Command:     "tariffs",
+			Description: "Управление тарифами",
 		},
 		{
-			Command:     "expiring",
-			Description: "Истекающие завтра",
-		},
-		{
-			Command:     "create_tariff",
-			Description: "Создать тариф",
-		},
-		{
-			Command:     "disable_tariff",
-			Description: "Архивировать тариф",
-		},
-		{
-			Command:     "enable_tariff",
-			Description: "Восстановить тариф",
-		},
-		{
-			Command:     "add_server",
-			Description: "Добавить сервер",
+			Command:     "servers",
+			Description: "Управление серверами",
 		},
 		{
 			Command:     "stats",
 			Description: "Просмотр статистики",
 		},
 		{
-			Command:     "run_expiration",
-			Description: "Запустить проверку подписок",
+			Command:     "overdue",
+			Description: "Просроченные подписки",
+		},
+		{
+			Command:     "expiring",
+			Description: "Истекающие завтра",
 		},
 	}
 

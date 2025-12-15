@@ -19,8 +19,6 @@ import (
 	"kurut-bot/internal/telegram/flows/addserver"
 	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
-	"kurut-bot/internal/telegram/flows/disabletariff"
-	"kurut-bot/internal/telegram/flows/enabletariff"
 	"kurut-bot/internal/telegram/states"
 	"kurut-bot/internal/workers"
 	"kurut-bot/internal/workers/expiration"
@@ -89,22 +87,6 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	)
 	s.CreateTariffHandler = createTariffHandler
 
-	// Создаем disableTariffHandler
-	disableTariffHandler := disabletariff.NewHandler(
-		clients.TelegramBot,
-		stateManager,
-		tariffService,
-		logger,
-	)
-
-	// Создаем enableTariffHandler
-	enableTariffHandler := enabletariff.NewHandler(
-		clients.TelegramBot,
-		stateManager,
-		tariffService,
-		logger,
-	)
-
 	// Создаем addServerHandler
 	addServerHandler := addserver.NewHandler(
 		clients.TelegramBot,
@@ -135,6 +117,21 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
+	// Создаем tariffsCommand
+	tariffsCommand := cmds.NewTariffsCommand(
+		clients.TelegramBot.GetBotAPI(),
+		tariffService,
+		storageImpl,
+		logger,
+	)
+
+	// Создаем serversCommand
+	serversCommand := cmds.NewServersCommand(
+		clients.TelegramBot.GetBotAPI(),
+		serverService,
+		logger,
+	)
+
 	// Создаем воркеры (до роутера, чтобы передать в роутер)
 	expirationWorker := expiration.NewWorker(
 		storageImpl,
@@ -159,13 +156,12 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		adminChecker,
 		createSubForClientHandler,
 		createTariffHandler,
-		disableTariffHandler,
-		enableTariffHandler,
 		addServerHandler,
 		mySubsCommand,
 		statsCommand,
 		expirationCommand,
-		expirationWorker,
+		tariffsCommand,
+		serversCommand,
 	)
 
 	// Создаем менеджер воркеров

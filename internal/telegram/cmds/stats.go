@@ -30,15 +30,24 @@ func NewStatsCommand(bot *tgbotapi.BotAPI, storage StatisticsStorage) *StatsComm
 func (c *StatsCommand) Execute(ctx context.Context, chatID int64) error {
 	stats, err := c.storage.GetStatistics(ctx)
 	if err != nil {
-		msg := tgbotapi.NewMessage(chatID, "❌ Ошибка при получении статистики")
+		msg := tgbotapi.NewMessage(chatID, "Ошибка при получении статистики")
 		_, _ = c.bot.Send(msg)
 		return fmt.Errorf("get statistics: %w", err)
 	}
 
 	text := c.formatStatistics(stats)
 
+	// Добавляем кнопки навигации
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Тарифы", "trf_list"),
+			tgbotapi.NewInlineKeyboardButtonData("Серверы", "srv_list"),
+		),
+	)
+
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
 	_, err = c.bot.Send(msg)
 	return err
 }
@@ -77,10 +86,6 @@ func (c *StatsCommand) formatStatistics(stats *storage.StatisticsData) string {
 	text.WriteString("*Выручка:*\n")
 	text.WriteString(fmt.Sprintf("• За %s: *%.2f ₽*\n", previousMonth, stats.PreviousMonthRevenue))
 	text.WriteString(fmt.Sprintf("• За %s: *%.2f ₽*\n", currentMonth, stats.CurrentMonthRevenue))
-	text.WriteString("\n")
-
-	text.WriteString("*Конверсия:*\n")
-	text.WriteString(fmt.Sprintf("• Пользователей купивших после пробного периода: *%.1f%%*\n", stats.TrialConversionPercent))
 
 	return text.String()
 }

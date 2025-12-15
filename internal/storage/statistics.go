@@ -22,7 +22,6 @@ type StatisticsData struct {
 	ArchivedTariffStats      []TariffStats
 	PreviousMonthRevenue     float64
 	CurrentMonthRevenue      float64
-	TrialConversionPercent   float64
 }
 
 func (s *storageImpl) GetActiveSubscriptionsCount(ctx context.Context) (int, error) {
@@ -157,50 +156,6 @@ func (s *storageImpl) GetRevenueForMonth(ctx context.Context, year int, month ti
 	return revenue, nil
 }
 
-func (s *storageImpl) GetTrialConversionRate(ctx context.Context) (float64, error) {
-	// Count users who used trial
-	usedTrialQuery := s.stmpBuilder().
-		Select("COUNT(*)").
-		From(usersTable).
-		Where(sq.Eq{"used_trial": true})
-
-	q1, args1, err := usedTrialQuery.ToSql()
-	if err != nil {
-		return 0, fmt.Errorf("build sql query for used trial: %w", err)
-	}
-
-	var usedTrialCount int
-	err = s.db.GetContext(ctx, &usedTrialCount, q1, args1...)
-	if err != nil {
-		return 0, fmt.Errorf("db.GetContext for used trial: %w", err)
-	}
-
-	if usedTrialCount == 0 {
-		return 0, nil
-	}
-
-	// Count users who used trial AND made at least one successful payment
-	convertedQuery := s.stmpBuilder().
-		Select("COUNT(DISTINCT u.id)").
-		From(usersTable + " u").
-		Join(paymentsTable + " p ON u.id = p.user_id").
-		Where(sq.Eq{"u.used_trial": true}).
-		Where(sq.Eq{"p.status": "approved"})
-
-	q2, args2, err := convertedQuery.ToSql()
-	if err != nil {
-		return 0, fmt.Errorf("build sql query for converted users: %w", err)
-	}
-
-	var convertedCount int
-	err = s.db.GetContext(ctx, &convertedCount, q2, args2...)
-	if err != nil {
-		return 0, fmt.Errorf("db.GetContext for converted users: %w", err)
-	}
-
-	return float64(convertedCount) / float64(usedTrialCount) * 100, nil
-}
-
 func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error) {
 	now := s.now()
 	currentYear, currentMonth, _ := now.Date()
@@ -246,11 +201,6 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		return nil, fmt.Errorf("get current month revenue: %w", err)
 	}
 
-	trialConversionPercent, err := s.GetTrialConversionRate(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get trial conversion rate: %w", err)
-	}
-
 	return &StatisticsData{
 		ActiveSubscriptionsCount: activeSubsCount,
 		ActiveUsersCount:         activeUsersCount,
@@ -259,6 +209,5 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		ArchivedTariffStats:      archivedTariffStats,
 		PreviousMonthRevenue:     previousMonthRevenue,
 		CurrentMonthRevenue:      currentMonthRevenue,
-		TrialConversionPercent:   trialConversionPercent,
 	}, nil
 }

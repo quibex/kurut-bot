@@ -267,7 +267,11 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 
 	paymentObj, err := h.paymentService.CreatePayment(ctx, paymentEntity)
 	if err != nil {
-		return h.sendError(chatID, "❌ Ошибка создания платежа")
+		h.logger.Error("Failed to create payment",
+			"error", err,
+			"user_id", data.AdminUserID,
+			"amount", data.TotalAmount)
+		return h.sendError(chatID, "Ошибка создания платежа. Попробуйте позже или обратитесь к администратору.")
 	}
 
 	// Проверяем что ссылка на оплату была создана
@@ -819,11 +823,15 @@ func (h *Handler) handlePaymentRefreshFromOrder(ctx context.Context, update *tgb
 
 	paymentObj, err := h.paymentService.CreatePayment(ctx, paymentEntity)
 	if err != nil {
-		return h.sendError(chatID, "❌ Ошибка создания платежа")
+		h.logger.Error("Failed to create payment for refresh",
+			"error", err,
+			"user_id", order.AdminUserID,
+			"amount", order.TotalAmount)
+		return h.sendError(chatID, "Ошибка создания платежа. Попробуйте позже или обратитесь к администратору.")
 	}
 
 	if paymentObj.PaymentURL == nil {
-		return h.sendError(chatID, "❌ Ошибка генерации ссылки на оплату")
+		return h.sendError(chatID, "Ошибка генерации ссылки на оплату")
 	}
 
 	// Обновляем paymentID в заказе
