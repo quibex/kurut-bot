@@ -1,157 +1,97 @@
-name: CI/CD Pipeline
+name: CI/CD
 
 on:
   push:
-    branches: [ main, develop ]
-    tags:
-      - 'v*'
+    branches: [main]
+    tags: ['v*']
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy to'
-        required: true
-        default: 'production'
-        type: choice
-        options:
-          - production
-          - staging
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # Test и Lint запускаются параллельно
   test:
-    name: Test
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: 'go.mod'
-        cache: true
-
-    - name: Run tests
-      run: make test
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - run: make test
 
   lint:
-    name: Lint
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: 'go.mod'
-        cache: true
-
-    - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v6
-      with:
-        version: v1.64.8
-        install-mode: goinstall
-        args: --timeout 5m
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: [test, lint]
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: 'go.mod'
-        cache: true
-
-    - name: Build
-      run: make build
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: kurut-bot-${{ github.sha }}
-        path: bin/kurut-bot
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+          install-mode: goinstall
+          args: --timeout 5m
 
   docker:
-    name: Docker
     runs-on: ubuntu-latest
-    needs: [build]
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [test, lint]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: read
       packages: write
     outputs:
-      image-tag: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+      image-tag: ${{ steps.meta.outputs.tags }}
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Download binary artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: kurut-bot-${{ github.sha }}
-        path: .
+      - uses: docker/setup-buildx-action@v3
 
-    - name: Make binary executable
-      run: chmod +x kurut-bot
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
 
-    - name: Log in to GHCR
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-          type=semver,pattern={{version}}
-          type=sha
-          type=raw,value=latest,enable={{is_default_branch}}
-
-    - name: Build and push
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: Dockerfile.ci
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy-staging:
-    name: Deploy Staging
     runs-on: ubuntu-latest
     needs: docker
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    if: github.ref == 'refs/heads/main'
     environment: staging
     steps:
       - uses: actions/checkout@v4
 
-      - name: Copy files to server
+      - name: Copy docker-compose.yml
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           port: ${{ secrets.STAGING_PORT }}
-          source: "docker-compose.yml,migrations/"
-          target: "/opt/kurut-bot"
+          source: docker-compose.yml
+          target: /opt/kurut-bot
 
       - name: Deploy
         uses: appleboy/ssh-action@v1.2.0
@@ -164,55 +104,33 @@ jobs:
           script: |
             set -e
             cd /opt/kurut-bot
-
-            echo "=== Checking files ==="
-            ls -la
-
             mkdir -p data
 
-            echo "=== Docker login ==="
+            echo "=== Login ==="
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            echo "=== Pulling image ==="
+            echo "=== Pull ==="
             docker pull ${{ needs.docker.outputs.image-tag }}
 
+            echo "=== Deploy ==="
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
             export TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
             export TELEGRAM_ADMIN_TELEGRAM_IDS="$TELEGRAM_ADMIN_TELEGRAM_IDS"
             export YOOKASSA_SHOP_ID="$YOOKASSA_SHOP_ID"
             export YOOKASSA_SECRET_KEY="$YOOKASSA_SECRET_KEY"
 
-            echo "=== Starting containers ==="
-            docker-compose up -d 2>&1 || { echo "docker-compose failed!"; docker-compose logs; exit 1; }
-
-            echo "=== Running containers ==="
-            docker ps -a
-
+            docker compose up -d
             docker image prune -f
 
-            # Wait for container to be healthy
-            echo "=== Waiting for container to be healthy ==="
-            for i in {1..30}; do
-              STATUS=$(docker inspect --format='{{.State.Health.Status}}' kurut-bot 2>/dev/null || echo "not_found")
-              if [ "$STATUS" = "healthy" ]; then
-                echo "Container is healthy!"
-                exit 0
-              elif [ "$STATUS" = "unhealthy" ]; then
-                echo "Container is unhealthy!"
-                docker logs kurut-bot --tail 50
-                exit 1
-              elif [ "$STATUS" = "not_found" ]; then
-                echo "Container not found! Checking docker-compose..."
-                docker-compose ps
-                docker-compose logs
-                exit 1
-              fi
-              echo "Status: $STATUS, waiting..."
+            echo "=== Healthcheck ==="
+            for i in $(seq 1 30); do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' kurut-bot 2>/dev/null || echo "starting")
+              echo "[$i/30] $STATUS"
+              [ "$STATUS" = "healthy" ] && echo "OK!" && exit 0
+              [ "$STATUS" = "unhealthy" ] && docker logs kurut-bot --tail 30 && exit 1
               sleep 2
             done
-            echo "Timeout waiting for healthy status"
-            docker logs kurut-bot --tail 50
-            exit 1
+            echo "Timeout!" && docker logs kurut-bot --tail 30 && exit 1
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ADMIN_TELEGRAM_IDS: ${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
@@ -220,23 +138,22 @@ jobs:
           YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
 
   deploy-production:
-    name: Deploy Production
     runs-on: ubuntu-latest
     needs: docker
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    if: startsWith(github.ref, 'refs/tags/v')
     environment: production
     steps:
       - uses: actions/checkout@v4
 
-      - name: Copy files to server
+      - name: Copy docker-compose.yml
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_PORT }}
-          source: "docker-compose.yml,migrations/"
-          target: "/opt/kurut-bot"
+          source: docker-compose.yml
+          target: /opt/kurut-bot
 
       - name: Deploy
         uses: appleboy/ssh-action@v1.2.0
@@ -247,38 +164,35 @@ jobs:
           port: ${{ secrets.PRODUCTION_PORT }}
           envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_TELEGRAM_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
           script: |
+            set -e
             cd /opt/kurut-bot
             mkdir -p data
+
+            echo "=== Login ==="
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            echo "=== Pull ==="
             docker pull ${{ needs.docker.outputs.image-tag }}
 
+            echo "=== Deploy ==="
             export IMAGE_TAG="${{ needs.docker.outputs.image-tag }}"
             export TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
             export TELEGRAM_ADMIN_TELEGRAM_IDS="$TELEGRAM_ADMIN_TELEGRAM_IDS"
             export YOOKASSA_SHOP_ID="$YOOKASSA_SHOP_ID"
             export YOOKASSA_SECRET_KEY="$YOOKASSA_SECRET_KEY"
 
-            docker-compose up -d
+            docker compose up -d
             docker image prune -f
 
-            # Wait for container to be healthy
-            echo "Waiting for container to be healthy..."
-            for i in {1..30}; do
+            echo "=== Healthcheck ==="
+            for i in $(seq 1 30); do
               STATUS=$(docker inspect --format='{{.State.Health.Status}}' kurut-bot 2>/dev/null || echo "starting")
-              if [ "$STATUS" = "healthy" ]; then
-                echo "Container is healthy!"
-                exit 0
-              elif [ "$STATUS" = "unhealthy" ]; then
-                echo "Container is unhealthy!"
-                docker logs kurut-bot --tail 50
-                exit 1
-              fi
-              echo "Status: $STATUS, waiting..."
+              echo "[$i/30] $STATUS"
+              [ "$STATUS" = "healthy" ] && echo "OK!" && exit 0
+              [ "$STATUS" = "unhealthy" ] && docker logs kurut-bot --tail 30 && exit 1
               sleep 2
             done
-            echo "Timeout waiting for healthy status"
-            docker logs kurut-bot --tail 50
-            exit 1
+            echo "Timeout!" && docker logs kurut-bot --tail 30 && exit 1
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ADMIN_TELEGRAM_IDS: ${{ secrets.TELEGRAM_ADMIN_TELEGRAM_IDS }}
