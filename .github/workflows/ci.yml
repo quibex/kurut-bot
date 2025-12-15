@@ -122,6 +122,9 @@ jobs:
             docker compose up -d
             docker image prune -f
 
+            echo "=== Migrations ==="
+            docker exec kurut-bot goose -dir /app/migrations sqlite3 /app/data/kurut.db up
+
             echo "=== Healthcheck ==="
             for i in $(seq 1 30); do
               STATUS=$(docker inspect --format='{{.State.Health.Status}}' kurut-bot 2>/dev/null || echo "starting")
@@ -183,6 +186,9 @@ jobs:
 
             docker compose up -d
             docker image prune -f
+
+            echo "=== Migrations ==="
+            docker exec kurut-bot goose -dir /app/migrations sqlite3 /app/data/kurut.db up
 
             echo "=== Healthcheck ==="
             for i in $(seq 1 30); do
