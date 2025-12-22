@@ -461,37 +461,6 @@ func (h *Handler) handlePaymentCompleted(ctx context.Context, update *tgbotapi.U
 	}
 }
 
-// sendPaymentPendingMessage отправляет сообщение о том, что платеж еще обрабатывается
-func (h *Handler) sendPaymentPendingMessage(chatID int64, data *flows.CreateSubForClientFlowData) error {
-	messageText := "⏳ Платеж еще обрабатывается.\n" +
-		"Пожалуйста, подождите немного и попробуйте еще раз."
-
-	checkButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить еще раз", "payment_completed")
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", "cancel_purchase")
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(checkButton),
-		tgbotapi.NewInlineKeyboardRow(cancelButton),
-	)
-
-	// Редактируем существующее сообщение, если MessageID есть
-	if data.MessageID != nil {
-		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, messageText)
-		editMsg.ReplyMarkup = &keyboard
-		_, err := h.bot.Send(editMsg)
-		return err
-	}
-
-	// Fallback: отправляем новое сообщение
-	msg := tgbotapi.NewMessage(chatID, messageText)
-	msg.ReplyMarkup = keyboard
-	sentMsg, err := h.bot.Send(msg)
-	if err == nil {
-		data.MessageID = &sentMsg.MessageID
-	}
-	return err
-}
-
 // sendPaymentCheckError отправляет сообщение об ошибке проверки с возможностью повторить
 func (h *Handler) sendPaymentCheckError(chatID int64, data *flows.CreateSubForClientFlowData, errorMsg string) error {
 	retryButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Попробовать еще раз", "payment_completed")
@@ -916,32 +885,6 @@ func (h *Handler) handlePaymentCancelFromOrder(ctx context.Context, update *tgbo
 	}
 
 	return nil
-}
-
-// sendPaymentPendingMessageForOrder отправляет сообщение о том, что платеж обрабатывается
-func (h *Handler) sendPaymentPendingMessageForOrder(chatID int64, order *orders.PendingOrder) error {
-	messageText := "⏳ Платеж еще обрабатывается.\n" +
-		"Пожалуйста, подождите немного и попробуйте еще раз."
-
-	checkButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить еще раз", fmt.Sprintf("pay_check:%d", order.ID))
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", fmt.Sprintf("pay_cancel:%d", order.ID))
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(checkButton),
-		tgbotapi.NewInlineKeyboardRow(cancelButton),
-	)
-
-	if order.MessageID != nil {
-		editMsg := tgbotapi.NewEditMessageText(chatID, *order.MessageID, messageText)
-		editMsg.ReplyMarkup = &keyboard
-		_, err := h.bot.Send(editMsg)
-		return err
-	}
-
-	msg := tgbotapi.NewMessage(chatID, messageText)
-	msg.ReplyMarkup = keyboard
-	_, err := h.bot.Send(msg)
-	return err
 }
 
 // sendPaymentCheckErrorForOrder отправляет сообщение об ошибке проверки
