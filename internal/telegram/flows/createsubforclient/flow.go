@@ -304,8 +304,7 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 			"📱 Клиент: %s\n"+
 			"📅 Тариф: %s\n"+
 			"💰 Сумма: %.2f ₽\n\n"+
-			"🔗 Ссылка на оплату:\n"+
-			"%s\n\n",
+			"🔗 Ссылка на оплату: [link](%s)\n\n",
 		createdOrder.ID, data.ClientWhatsApp, data.TariffName, data.TotalAmount, *paymentObj.PaymentURL)
 
 	// Создаем кнопки с orderID для независимой работы каждого заказа
@@ -323,6 +322,7 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	var messageID int
 	if data.MessageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, paymentMsg)
+		editMsg.ParseMode = "Markdown"
 		editMsg.ReplyMarkup = &keyboard
 		_, err = h.bot.Send(editMsg)
 		if err != nil {
@@ -332,6 +332,7 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	} else {
 		// Отправляем новое сообщение
 		msg := tgbotapi.NewMessage(chatID, paymentMsg)
+		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = keyboard
 		sentMsg, err := h.bot.Send(msg)
 		if err != nil {
@@ -550,13 +551,11 @@ func (h *Handler) sendSubscriptionCreated(chatID int64, result *subs.CreateSubsc
 	messageText := fmt.Sprintf(
 		"✅ *Подписка создана успешно!*\n\n"+
 			"📱 Клиент: `%s`\n"+
-			"📅 Тариф: %s\n"+
-			"🔢 ID: %d\n\n"+
+			"📅 Тариф: %s\n\n"+
 			"🔑 User ID:\n`%s`\n"+
 			"🔐 Пароль:%s",
 		data.ClientWhatsApp,
 		data.TariffName,
-		result.Subscription.ID,
 		result.GeneratedUserID,
 		passwordLine,
 	)
@@ -846,8 +845,7 @@ func (h *Handler) handlePaymentRefreshFromOrder(ctx context.Context, update *tgb
 			"📱 Клиент: %s\n"+
 			"📅 Тариф: %s\n"+
 			"💰 Сумма: %.2f ₽\n\n"+
-			"🔗 *Ссылка на оплату:*\n"+
-			"%s\n\n"+
+			"🔗 Ссылка на оплату: [link](%s)\n\n"+
 			"Отправьте эту ссылку клиенту.\n"+
 			"После оплаты нажмите «Проверить оплату».",
 		order.ID, order.ClientWhatsApp, order.TariffName, order.TotalAmount, *paymentObj.PaymentURL)
@@ -866,6 +864,7 @@ func (h *Handler) handlePaymentRefreshFromOrder(ctx context.Context, update *tgb
 	// Редактируем сообщение
 	if order.MessageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *order.MessageID, paymentMsg)
+		editMsg.ParseMode = "Markdown"
 		editMsg.ReplyMarkup = &keyboard
 		_, err = h.bot.Send(editMsg)
 		return err
@@ -873,6 +872,7 @@ func (h *Handler) handlePaymentRefreshFromOrder(ctx context.Context, update *tgb
 
 	// Fallback: отправляем новое сообщение
 	msg := tgbotapi.NewMessage(chatID, paymentMsg)
+	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
 	sentMsg, err := h.bot.Send(msg)
 	if err != nil {
@@ -975,13 +975,11 @@ func (h *Handler) sendSubscriptionCreatedForOrder(chatID int64, result *subs.Cre
 	messageText := fmt.Sprintf(
 		"✅ *Подписка создана успешно!*\n\n"+
 			"📱 Клиент: `%s`\n"+
-			"📅 Тариф: %s\n"+
-			"🔢 ID: %d\n\n"+
+			"📅 Тариф: %s\n\n"+
 			"🔑 User ID:\n`%s`\n"+
 			"🔐 Пароль:%s",
 		order.ClientWhatsApp,
 		order.TariffName,
-		result.Subscription.ID,
 		result.GeneratedUserID,
 		passwordLine,
 	)

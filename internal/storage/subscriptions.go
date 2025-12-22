@@ -26,6 +26,7 @@ type subscriptionRow struct {
 	CreatedByTelegramID *int64     `db:"created_by_telegram_id"`
 	ActivatedAt         *time.Time `db:"activated_at"`
 	ExpiresAt           *time.Time `db:"expires_at"`
+	LastRenewedAt       *time.Time `db:"last_renewed_at"`
 	CreatedAt           time.Time  `db:"created_at"`
 	UpdatedAt           time.Time  `db:"updated_at"`
 }
@@ -42,6 +43,7 @@ func (s subscriptionRow) ToModel() *subs.Subscription {
 		CreatedByTelegramID: s.CreatedByTelegramID,
 		ActivatedAt:         s.ActivatedAt,
 		ExpiresAt:           s.ExpiresAt,
+		LastRenewedAt:       s.LastRenewedAt,
 		CreatedAt:           s.CreatedAt,
 		UpdatedAt:           s.UpdatedAt,
 	}
@@ -60,6 +62,7 @@ func (s *storageImpl) CreateSubscription(ctx context.Context, subscription subs.
 		"created_by_telegram_id": subscription.CreatedByTelegramID,
 		"activated_at":           subscription.ActivatedAt,
 		"expires_at":             subscription.ExpiresAt,
+		"last_renewed_at":        now,
 		"created_at":             now,
 		"updated_at":             now,
 	}
@@ -246,9 +249,11 @@ func (s *storageImpl) ExtendSubscription(ctx context.Context, subscriptionID int
 	}
 
 	// Update subscription
+	now := s.now()
 	params := map[string]interface{}{
-		"expires_at": newExpiresAt,
-		"updated_at": s.now(),
+		"expires_at":      newExpiresAt,
+		"last_renewed_at": now,
+		"updated_at":      now,
 	}
 
 	q, args, err := s.stmpBuilder().
@@ -388,6 +393,8 @@ type AssistantStats struct {
 	TotalActive      int
 	CreatedToday     int
 	CreatedYesterday int
+	CreatedThisWeek  int
+	CreatedLastWeek  int
 }
 
 // GetAssistantStats returns subscription statistics for an assistant
@@ -395,6 +402,14 @@ func (s *storageImpl) GetAssistantStats(ctx context.Context, assistantTelegramID
 	now := s.now()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	yesterdayStart := todayStart.AddDate(0, 0, -1)
+
+	// Calculate this week start (Monday)
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7 // Sunday is 7
+	}
+	thisWeekStart := todayStart.AddDate(0, 0, -(weekday - 1))
+	lastWeekStart := thisWeekStart.AddDate(0, 0, -7)
 
 	stats := &AssistantStats{}
 
@@ -413,12 +428,12 @@ func (s *storageImpl) GetAssistantStats(ctx context.Context, assistantTelegramID
 		return nil, fmt.Errorf("count active: %w", err)
 	}
 
-	// Count created today
+	// Count renewed/created today (uses last_renewed_at to include renewals)
 	todayQuery := s.stmpBuilder().
 		Select("COUNT(*)").
 		From(subscriptionsTable).
 		Where(sq.Eq{"created_by_telegram_id": assistantTelegramID}).
-		Where(sq.GtOrEq{"created_at": todayStart})
+		Where(sq.GtOrEq{"last_renewed_at": todayStart})
 
 	q, args, err = todayQuery.ToSql()
 	if err != nil {
@@ -428,13 +443,13 @@ func (s *storageImpl) GetAssistantStats(ctx context.Context, assistantTelegramID
 		return nil, fmt.Errorf("count today: %w", err)
 	}
 
-	// Count created yesterday
+	// Count renewed/created yesterday
 	yesterdayQuery := s.stmpBuilder().
 		Select("COUNT(*)").
 		From(subscriptionsTable).
 		Where(sq.Eq{"created_by_telegram_id": assistantTelegramID}).
-		Where(sq.GtOrEq{"created_at": yesterdayStart}).
-		Where(sq.Lt{"created_at": todayStart})
+		Where(sq.GtOrEq{"last_renewed_at": yesterdayStart}).
+		Where(sq.Lt{"last_renewed_at": todayStart})
 
 	q, args, err = yesterdayQuery.ToSql()
 	if err != nil {
@@ -444,5 +459,132 @@ func (s *storageImpl) GetAssistantStats(ctx context.Context, assistantTelegramID
 		return nil, fmt.Errorf("count yesterday: %w", err)
 	}
 
+	// Count renewed/created this week (Monday to now)
+	thisWeekQuery := s.stmpBuilder().
+		Select("COUNT(*)").
+		From(subscriptionsTable).
+		Where(sq.Eq{"created_by_telegram_id": assistantTelegramID}).
+		Where(sq.GtOrEq{"last_renewed_at": thisWeekStart})
+
+	q, args, err = thisWeekQuery.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build this week count query: %w", err)
+	}
+	if err := s.db.GetContext(ctx, &stats.CreatedThisWeek, q, args...); err != nil {
+		return nil, fmt.Errorf("count this week: %w", err)
+	}
+
+	// Count renewed/created last week (Monday to Sunday)
+	lastWeekQuery := s.stmpBuilder().
+		Select("COUNT(*)").
+		From(subscriptionsTable).
+		Where(sq.Eq{"created_by_telegram_id": assistantTelegramID}).
+		Where(sq.GtOrEq{"last_renewed_at": lastWeekStart}).
+		Where(sq.Lt{"last_renewed_at": thisWeekStart})
+
+	q, args, err = lastWeekQuery.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build last week count query: %w", err)
+	}
+	if err := s.db.GetContext(ctx, &stats.CreatedLastWeek, q, args...); err != nil {
+		return nil, fmt.Errorf("count last week: %w", err)
+	}
+
 	return stats, nil
+}
+
+// ListExpiringSubscriptionsByAssistant returns expiring subscriptions for a specific assistant
+// If assistantTelegramID is nil, returns all expiring subscriptions (for admins)
+func (s *storageImpl) ListExpiringSubscriptionsByAssistant(ctx context.Context, assistantTelegramID *int64, daysUntilExpiry int) ([]*subs.Subscription, error) {
+	startTime := s.now().AddDate(0, 0, daysUntilExpiry)
+	endTime := startTime.Add(24 * time.Hour)
+
+	query := s.stmpBuilder().
+		Select(subscriptionRowFields).
+		From(subscriptionsTable).
+		Where(sq.Eq{"status": string(subs.StatusActive)}).
+		Where(sq.GtOrEq{"expires_at": startTime}).
+		Where(sq.Lt{"expires_at": endTime}).
+		OrderBy("expires_at ASC")
+
+	if assistantTelegramID != nil {
+		query = query.Where(sq.Eq{"created_by_telegram_id": *assistantTelegramID})
+	}
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var rows []subscriptionRow
+	err = s.db.SelectContext(ctx, &rows, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("db.SelectContext: %w", err)
+	}
+
+	var subscriptions []*subs.Subscription
+	for _, row := range rows {
+		subscriptions = append(subscriptions, row.ToModel())
+	}
+
+	return subscriptions, nil
+}
+
+// ListExpiredSubscriptionsByAssistant returns expired subscriptions for a specific assistant
+// If assistantTelegramID is nil, returns all expired subscriptions (for admins)
+func (s *storageImpl) ListExpiredSubscriptionsByAssistant(ctx context.Context, assistantTelegramID *int64) ([]*subs.Subscription, error) {
+	now := s.now()
+
+	query := s.stmpBuilder().
+		Select(subscriptionRowFields).
+		From(subscriptionsTable).
+		Where(sq.Eq{"status": string(subs.StatusActive)}).
+		Where(sq.Lt{"expires_at": now}).
+		OrderBy("expires_at ASC")
+
+	if assistantTelegramID != nil {
+		query = query.Where(sq.Eq{"created_by_telegram_id": *assistantTelegramID})
+	}
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var rows []subscriptionRow
+	err = s.db.SelectContext(ctx, &rows, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("db.SelectContext: %w", err)
+	}
+
+	var subscriptions []*subs.Subscription
+	for _, row := range rows {
+		subscriptions = append(subscriptions, row.ToModel())
+	}
+
+	return subscriptions, nil
+}
+
+// UpdateSubscriptionTariff updates the tariff for a subscription
+func (s *storageImpl) UpdateSubscriptionTariff(ctx context.Context, subscriptionID int64, tariffID int64) error {
+	params := map[string]interface{}{
+		"tariff_id":  tariffID,
+		"updated_at": s.now(),
+	}
+
+	q, args, err := s.stmpBuilder().
+		Update(subscriptionsTable).
+		SetMap(params).
+		Where(sq.Eq{"id": subscriptionID}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build sql query: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("db.ExecContext: %w", err)
+	}
+
+	return nil
 }

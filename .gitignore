@@ -32,6 +32,7 @@ go.work.sum
 .idea/
 .vscode/
 .cursor/
+./.claude
 
 data/
 .DS_Store

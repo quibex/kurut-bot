@@ -98,12 +98,8 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		case callbackData == "my_subscriptions":
 			return r.mySubsCommand.Execute(ctx, user.TelegramID, extractChatID(update))
 		case strings.HasPrefix(callbackData, "exp_"):
-			// Expiration callbacks (exp_dis, exp_pay, exp_chk)
-			if !r.adminChecker.IsAdmin(user.TelegramID) {
-				callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ Нет прав")
-				_, _ = r.bot.Request(callback)
-				return nil
-			}
+			// Expiration callbacks (exp_dis, exp_link, exp_paid, exp_tariff, etc.)
+			// Доступны для всех пользователей с доступом к боту (ассистентов и админов)
 			return r.expirationCommand.HandleCallback(ctx, update.CallbackQuery)
 		case strings.HasPrefix(callbackData, "pay_"):
 			// Payment callbacks (pay_check, pay_refresh, pay_cancel) - работают независимо от состояния
@@ -193,17 +189,19 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 		}
 		return r.statsCommand.Execute(ctx, chatID)
 	case "overdue":
+		// Админы видят все подписки, ассистенты - только свои
+		var assistantID *int64
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав"))
-			return r.sendHelp(chatID)
+			assistantID = &user.TelegramID
 		}
-		return r.expirationCommand.ExecuteOverdue(ctx, chatID)
+		return r.expirationCommand.ExecuteOverdue(ctx, chatID, assistantID)
 	case "expiring":
+		// Админы видят все подписки, ассистенты - только свои
+		var assistantID *int64
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав"))
-			return r.sendHelp(chatID)
+			assistantID = &user.TelegramID
 		}
-		return r.expirationCommand.ExecuteExpiring(ctx, chatID)
+		return r.expirationCommand.ExecuteExpiring(ctx, chatID, assistantID)
 	default:
 		return r.sendHelp(chatID)
 	}
@@ -294,11 +292,6 @@ func (r *Router) sendAccessDenied(chatID int64) error {
 		return nil
 	}
 
-	// Отправляем стикер
-	stickerMsg := tgbotapi.NewSticker(chatID, tgbotapi.FileID("AAMCBAADGQEAAT9JeWlAaj1MCG953ZuRdwTuNS7FLaoPAAIHEAACJ6EYUkzS_lZxKO1MAQAHbQADNgQ"))
-	_, _ = r.bot.Send(stickerMsg)
-
-	// Отправляем текст
 	text := "В небе и на земле достойный лишь Я.."
 	msg := tgbotapi.NewMessage(chatID, text)
 	_, err := r.bot.Send(msg)
@@ -331,6 +324,7 @@ func (r *Router) handleGlobalCancelWithInternalID(update *tgbotapi.Update, user 
 		return nil
 	}
 	chatID := update.CallbackQuery.Message.Chat.ID
+	messageID := update.CallbackQuery.Message.MessageID
 
 	// Очищаем любое состояние (используем внутренний ID)
 	r.stateManager.Clear(chatID)
@@ -342,8 +336,29 @@ func (r *Router) handleGlobalCancelWithInternalID(update *tgbotapi.Update, user 
 		return err
 	}
 
-	// Отправляем список доступных команд
-	return r.sendHelp(chatID)
+	// Редактируем существующее сообщение вместо отправки нового
+	return r.editToHelp(chatID, messageID)
+}
+
+// editToHelp редактирует сообщение на список доступных команд
+func (r *Router) editToHelp(chatID int64, messageID int) error {
+	text := "Доступные команды:\n\n" +
+		"/start — Главное меню\n" +
+		"/create_sub — Создать подписку для клиента\n" +
+		"/my_subs — Список подписок"
+
+	if r.adminChecker.IsAdmin(chatID) {
+		text += "\n\nКоманды администратора:\n" +
+			"/tariffs — Управление тарифами\n" +
+			"/servers — Управление серверами\n" +
+			"/stats — Просмотр статистики\n" +
+			"/overdue — Просроченные подписки\n" +
+			"/expiring — Истекающие подписки"
+	}
+
+	editMsg := tgbotapi.NewEditMessageText(chatID, messageID, text)
+	_, err := r.bot.Send(editMsg)
+	return err
 }
 
 // NewRouter создает новый роутер с зависимостями
@@ -433,7 +448,7 @@ func (r *Router) setupAdminCommands(chatID int64) {
 		},
 		{
 			Command:     "expiring",
-			Description: "Истекающие завтра",
+			Description: "Истекающие сегодня",
 		},
 	}
 

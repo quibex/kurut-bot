@@ -35,12 +35,14 @@ func (c *MySubsCommand) Execute(ctx context.Context, assistantTelegramID int64, 
 
 	text := fmt.Sprintf(
 		"📊 *Ваша статистика*\n\n"+
-			"✅ Активных клиентов: *%d*\n\n"+
 			"📅 Подключено сегодня: *%d*\n"+
-			"📅 Подключено вчера: *%d*",
-		stats.TotalActive,
+			"📅 Подключено вчера: *%d*\n"+
+			"📅 Эта неделя: *%d*\n"+
+			"📅 Прошлая неделя: *%d*",
 		stats.CreatedToday,
 		stats.CreatedYesterday,
+		stats.CreatedThisWeek,
+		stats.CreatedLastWeek,
 	)
 
 	msg := tgbotapi.NewMessage(chatID, text)

@@ -114,6 +114,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		storageImpl, // serverStorage
 		tariffService,
 		paymentService,
+		storageImpl, // messageStorage
 		logger,
 	)
 

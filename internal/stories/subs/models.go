@@ -26,6 +26,7 @@ type Subscription struct {
 	CreatedByTelegramID *int64
 	ActivatedAt         *time.Time
 	ExpiresAt           *time.Time
+	LastRenewedAt       *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
