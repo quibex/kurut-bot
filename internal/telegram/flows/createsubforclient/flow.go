@@ -300,12 +300,11 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	// Показываем сообщение с ссылкой на оплату
 	paymentMsg := fmt.Sprintf(
 		"💳 Заказ создан!\n\n"+
-			"📋 Заказ #%d\n"+
 			"📱 Клиент: %s\n"+
 			"📅 Тариф: %s\n"+
 			"💰 Сумма: %.2f ₽\n\n"+
 			"🔗 Ссылка на оплату: [link](%s)\n\n",
-		createdOrder.ID, data.ClientWhatsApp, data.TariffName, data.TotalAmount, *paymentObj.PaymentURL)
+		data.ClientWhatsApp, data.TariffName, data.TotalAmount, *paymentObj.PaymentURL)
 
 	// Создаем кнопки с orderID для независимой работы каждого заказа
 	checkButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить оплату", fmt.Sprintf("pay_check:%d", createdOrder.ID))
@@ -450,8 +449,10 @@ func (h *Handler) handlePaymentCompleted(ctx context.Context, update *tgbotapi.U
 		// Платеж успешен - создаем подписку
 		return h.handleSuccessfulPayment(ctx, chatID, data, *data.PaymentID)
 	case payment.StatusPending:
-		// Платеж еще обрабатывается
-		return h.sendPaymentPendingMessage(chatID, data)
+		// Платеж еще обрабатывается - показываем всплывающее уведомление
+		alertConfig := tgbotapi.NewCallbackWithAlert(update.CallbackQuery.ID, "⏳ Платеж еще обрабатывается.\nПожалуйста, подождите и попробуйте еще раз.")
+		_, _ = h.bot.Request(alertConfig)
+		return nil
 	case payment.StatusRejected, payment.StatusCancelled:
 		// Платеж отклонен или отменен
 		return h.sendError(chatID, "❌ Платеж был отклонен или отменен")
@@ -765,8 +766,10 @@ func (h *Handler) handlePaymentCheckFromOrder(ctx context.Context, update *tgbot
 		// Платеж успешен - создаем подписку
 		return h.handleSuccessfulPaymentFromOrder(ctx, chatID, order)
 	case payment.StatusPending:
-		// Платеж еще обрабатывается
-		return h.sendPaymentPendingMessageForOrder(chatID, order)
+		// Платеж еще обрабатывается - показываем всплывающее уведомление
+		alertConfig := tgbotapi.NewCallbackWithAlert(update.CallbackQuery.ID, "⏳ Платеж еще обрабатывается.\nПожалуйста, подождите и попробуйте еще раз.")
+		_, _ = h.bot.Request(alertConfig)
+		return nil
 	case payment.StatusRejected, payment.StatusCancelled:
 		// Платеж отклонен или отменен
 		return h.sendPaymentCheckErrorForOrder(chatID, order, "❌ Платеж был отклонен или отменен")
@@ -841,14 +844,13 @@ func (h *Handler) handlePaymentRefreshFromOrder(ctx context.Context, update *tgb
 	// Формируем обновленное сообщение
 	paymentMsg := fmt.Sprintf(
 		"💳 *Заказ создан!*\n\n"+
-			"📋 Заказ #%d\n"+
 			"📱 Клиент: %s\n"+
 			"📅 Тариф: %s\n"+
 			"💰 Сумма: %.2f ₽\n\n"+
 			"🔗 Ссылка на оплату: [link](%s)\n\n"+
 			"Отправьте эту ссылку клиенту.\n"+
 			"После оплаты нажмите «Проверить оплату».",
-		order.ID, order.ClientWhatsApp, order.TariffName, order.TotalAmount, *paymentObj.PaymentURL)
+		order.ClientWhatsApp, order.TariffName, order.TotalAmount, *paymentObj.PaymentURL)
 
 	// Создаем кнопки
 	checkButton := tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить оплату", fmt.Sprintf("pay_check:%d", order.ID))
@@ -903,10 +905,10 @@ func (h *Handler) handlePaymentCancelFromOrder(ctx context.Context, update *tgbo
 	// Редактируем сообщение чтобы показать что заказ отменен
 	if order.MessageID != nil {
 		cancelledMsg := fmt.Sprintf(
-			"❌ *Заказ #%d отменен*\n\n"+
+			"❌ *Заказ отменен*\n\n"+
 				"📱 Клиент: %s\n"+
 				"📅 Тариф: %s",
-			order.ID, order.ClientWhatsApp, order.TariffName)
+			order.ClientWhatsApp, order.TariffName)
 
 		editMsg := tgbotapi.NewEditMessageText(chatID, *order.MessageID, cancelledMsg)
 		editMsg.ParseMode = "Markdown"
