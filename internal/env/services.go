@@ -148,6 +148,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		tariffService,
 		serverService,
 		createSubService,
+		paymentService,
+		orderService,
 		logger,
 	)
 

@@ -23,6 +23,8 @@ type pendingOrderRow struct {
 	ChatID              int64     `db:"chat_id"`
 	MessageID           *int      `db:"message_id"`
 	ClientWhatsApp      string    `db:"client_whatsapp"`
+	ServerID            *int64    `db:"server_id"`
+	ServerName          *string   `db:"server_name"`
 	TariffID            int64     `db:"tariff_id"`
 	TariffName          string    `db:"tariff_name"`
 	TotalAmount         float64   `db:"total_amount"`
@@ -40,6 +42,8 @@ func (r pendingOrderRow) ToModel() *orders.PendingOrder {
 		ChatID:              r.ChatID,
 		MessageID:           r.MessageID,
 		ClientWhatsApp:      r.ClientWhatsApp,
+		ServerID:            r.ServerID,
+		ServerName:          r.ServerName,
 		TariffID:            r.TariffID,
 		TariffName:          r.TariffName,
 		TotalAmount:         r.TotalAmount,
@@ -59,6 +63,8 @@ func (s *storageImpl) CreatePendingOrder(ctx context.Context, order orders.Pendi
 		"chat_id":               order.ChatID,
 		"message_id":            order.MessageID,
 		"client_whatsapp":       order.ClientWhatsApp,
+		"server_id":             order.ServerID,
+		"server_name":           order.ServerName,
 		"tariff_id":             order.TariffID,
 		"tariff_name":           order.TariffName,
 		"total_amount":          order.TotalAmount,

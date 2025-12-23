@@ -88,5 +88,8 @@ type MigrateClientFlowData struct {
 	ServerName          string
 	TariffID            int64
 	TariffName          string
+	Price               float64
+	PaymentID           *int64
+	PaymentURL          *string
 	MessageID           *int
 }
