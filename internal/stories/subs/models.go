@@ -69,6 +69,15 @@ type CreateSubscriptionRequest struct {
 	CreatedByTelegramID int64
 }
 
+// Запрос для миграции существующего клиента (без увеличения счётчика сервера)
+type MigrateSubscriptionRequest struct {
+	UserID              int64
+	TariffID            int64
+	ServerID            int64 // Конкретный сервер (выбирается вручную)
+	ClientWhatsApp      string
+	CreatedByTelegramID int64
+}
+
 // Результат создания подписки
 type CreateSubscriptionResult struct {
 	Subscription     *Subscription

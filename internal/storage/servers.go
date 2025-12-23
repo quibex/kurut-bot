@@ -249,3 +249,8 @@ func (s *storageImpl) DecrementServerUsers(ctx context.Context, serverID int64) 
 
 	return nil
 }
+
+// GetServerByID возвращает сервер по ID (упрощённая обёртка над GetServer)
+func (s *storageImpl) GetServerByID(ctx context.Context, serverID int64) (*servers.Server, error) {
+	return s.GetServer(ctx, servers.GetCriteria{ID: &serverID})
+}

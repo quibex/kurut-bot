@@ -66,3 +66,10 @@ const (
 	AdminServerWaitMaxUsers     State = "asv_wt_max_users"
 	AdminServerWaitConfirmation State = "asv_wt_confirmation"
 )
+
+// admin migrate client states (amc -> admin migrate client)
+const (
+	AdminMigrateClientWaitName   State = "amc_wt_name"
+	AdminMigrateClientWaitServer State = "amc_wt_server"
+	AdminMigrateClientWaitTariff State = "amc_wt_tariff"
+)

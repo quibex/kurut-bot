@@ -10,6 +10,7 @@ import (
 	"kurut-bot/internal/telegram/flows/addserver"
 	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
+	"kurut-bot/internal/telegram/flows/migrateclient"
 	"kurut-bot/internal/telegram/messages"
 	"kurut-bot/internal/telegram/states"
 
@@ -31,6 +32,8 @@ type Router struct {
 	expirationCommand         *cmds.ExpirationCommand
 	tariffsCommand            *cmds.TariffsCommand
 	serversCommand            *cmds.ServersCommand
+	removeClientCommand       *cmds.RemoveClientCommand
+	migrateClientHandler      *migrateclient.Handler
 }
 
 type stateManager interface {
@@ -74,9 +77,11 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		return err
 	}
 
-	// Устанавливаем команды для админов при первом взаимодействии
+	// Устанавливаем команды при первом взаимодействии
 	if r.adminChecker.IsAdmin(telegramID) {
 		r.setupAdminCommands(telegramID)
+	} else {
+		r.setupAssistantCommands(telegramID)
 	}
 
 	// ПРИОРИТЕТ: Проверяем команды первыми (отменяют любой флоу)
@@ -132,6 +137,9 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 				return r.addServerHandler.Start(extractChatID(update))
 			}
 			return r.serversCommand.HandleCallback(ctx, update.CallbackQuery)
+		case strings.HasPrefix(callbackData, "rmc_"):
+			// Remove client callbacks
+			return r.removeClientCommand.HandleCallback(ctx, update.CallbackQuery)
 		}
 	}
 
@@ -148,6 +156,11 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 	// Проверяем состояние флоу добавления сервера
 	if strings.HasPrefix(string(state), "asv_") {
 		return r.addServerHandler.Handle(update, state)
+	}
+
+	// Проверяем состояние флоу миграции клиента
+	if strings.HasPrefix(string(state), "amc_") {
+		return r.migrateClientHandler.Handle(update, state)
 	}
 
 	// Если нет активного состояния - обрабатываем как обычное сообщение
@@ -202,6 +215,10 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 			assistantID = &user.TelegramID
 		}
 		return r.expirationCommand.ExecuteExpiring(ctx, chatID, assistantID)
+	case "remove_client":
+		return r.removeClientCommand.Execute(ctx, chatID)
+	case "migrate_client":
+		return r.migrateClientHandler.Start(user.ID, user.TelegramID, chatID)
 	default:
 		return r.sendHelp(chatID)
 	}
@@ -375,6 +392,8 @@ func NewRouter(
 	expirationCommand *cmds.ExpirationCommand,
 	tariffsCommand *cmds.TariffsCommand,
 	serversCommand *cmds.ServersCommand,
+	removeClientCommand *cmds.RemoveClientCommand,
+	migrateClientHandler *migrateclient.Handler,
 ) *Router {
 	return &Router{
 		bot:                       bot,
@@ -389,6 +408,8 @@ func NewRouter(
 		expirationCommand:         expirationCommand,
 		tariffsCommand:            tariffsCommand,
 		serversCommand:            serversCommand,
+		removeClientCommand:       removeClientCommand,
+		migrateClientHandler:      migrateClientHandler,
 	}
 }
 
@@ -450,6 +471,14 @@ func (r *Router) setupAdminCommands(chatID int64) {
 			Command:     "expiring",
 			Description: "Истекающие сегодня",
 		},
+		{
+			Command:     "remove_client",
+			Description: "Удалить клиента с сервера",
+		},
+		{
+			Command:     "migrate_client",
+			Description: "Мигрировать клиента",
+		},
 	}
 
 	scope := tgbotapi.NewBotCommandScopeChat(chatID)
@@ -459,5 +488,47 @@ func (r *Router) setupAdminCommands(chatID int64) {
 	}
 
 	// Игнорируем ошибку, чтобы не блокировать основной поток
+	_, _ = r.bot.Request(setCommandsConfig)
+}
+
+// setupAssistantCommands устанавливает команды для ассистентов (без админских)
+func (r *Router) setupAssistantCommands(chatID int64) {
+	commands := []tgbotapi.BotCommand{
+		{
+			Command:     "start",
+			Description: "Главное меню",
+		},
+		{
+			Command:     "create_sub",
+			Description: "Создать подписку для клиента",
+		},
+		{
+			Command:     "my_subs",
+			Description: "Список подписок",
+		},
+		{
+			Command:     "overdue",
+			Description: "Мои просроченные подписки",
+		},
+		{
+			Command:     "expiring",
+			Description: "Мои истекающие подписки",
+		},
+		{
+			Command:     "remove_client",
+			Description: "Удалить клиента с сервера",
+		},
+		{
+			Command:     "migrate_client",
+			Description: "Мигрировать клиента",
+		},
+	}
+
+	scope := tgbotapi.NewBotCommandScopeChat(chatID)
+	setCommandsConfig := tgbotapi.SetMyCommandsConfig{
+		Commands: commands,
+		Scope:    &scope,
+	}
+
 	_, _ = r.bot.Request(setCommandsConfig)
 }

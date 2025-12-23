@@ -169,3 +169,21 @@ func (m *Manager) GetAddServerData(chatID int64) (*flows.AddServerFlowData, erro
 
 	return flowData, nil
 }
+
+// GetMigrateClientData получает данные флоу миграции клиента
+func (m *Manager) GetMigrateClientData(chatID int64) (*flows.MigrateClientFlowData, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	data, exists := m.userData[chatID]
+	if !exists {
+		return nil, fmt.Errorf("no data for chat %d", chatID)
+	}
+
+	flowData, ok := data.(*flows.MigrateClientFlowData)
+	if !ok {
+		return nil, fmt.Errorf("invalid data type for chat %d", chatID)
+	}
+
+	return flowData, nil
+}

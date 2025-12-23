@@ -14,5 +14,6 @@ type storage interface {
 	LinkPaymentToSubscriptions(ctx context.Context, paymentID int64, subscriptionIDs []int64) error
 	UpdateSubscriptionGeneratedUserID(ctx context.Context, subscriptionID int64, generatedUserID string) error
 	GetAvailableServer(ctx context.Context) (*servers.Server, error)
+	GetServerByID(ctx context.Context, serverID int64) (*servers.Server, error)
 	IncrementServerUsers(ctx context.Context, serverID int64) error
 }

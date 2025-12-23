@@ -19,6 +19,7 @@ import (
 	"kurut-bot/internal/telegram/flows/addserver"
 	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
+	"kurut-bot/internal/telegram/flows/migrateclient"
 	"kurut-bot/internal/telegram/states"
 	"kurut-bot/internal/workers"
 	"kurut-bot/internal/workers/expiration"
@@ -133,6 +134,23 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
+	// Создаем removeClientCommand
+	removeClientCommand := cmds.NewRemoveClientCommand(
+		clients.TelegramBot.GetBotAPI(),
+		serverService,
+		logger,
+	)
+
+	// Создаем migrateClientHandler
+	migrateClientHandler := migrateclient.NewHandler(
+		clients.TelegramBot,
+		stateManager,
+		tariffService,
+		serverService,
+		createSubService,
+		logger,
+	)
+
 	// Создаем воркеры (до роутера, чтобы передать в роутер)
 	expirationWorker := expiration.NewWorker(
 		storageImpl,
@@ -163,6 +181,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		expirationCommand,
 		tariffsCommand,
 		serversCommand,
+		removeClientCommand,
+		migrateClientHandler,
 	)
 
 	// Создаем менеджер воркеров

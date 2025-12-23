@@ -78,3 +78,15 @@ type AddServerFlowData struct {
 	CurrentUsers int
 	MaxUsers     int
 }
+
+// MigrateClientFlowData - data for migrating existing client
+type MigrateClientFlowData struct {
+	AdminUserID         int64
+	AssistantTelegramID int64
+	ClientWhatsApp      string
+	ServerID            int64
+	ServerName          string
+	TariffID            int64
+	TariffName          string
+	MessageID           *int
+}

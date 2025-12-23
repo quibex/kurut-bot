@@ -71,3 +71,12 @@ func (s *Service) UnarchiveServer(ctx context.Context, serverID int64) (*Server,
 
 	return updated, nil
 }
+
+func (s *Service) DecrementServerUsers(ctx context.Context, serverID int64) error {
+	err := s.storage.DecrementServerUsers(ctx, serverID)
+	if err != nil {
+		return errors.Wrap(err, "failed to decrement server users")
+	}
+
+	return nil
+}
