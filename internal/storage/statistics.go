@@ -87,7 +87,7 @@ func (s *storageImpl) GetInactiveUsersCount(ctx context.Context) (int, error) {
 
 func (s *storageImpl) GetActiveTariffStatistics(ctx context.Context) ([]TariffStats, error) {
 	query := s.stmpBuilder().
-		Select("t.id as tariff_id", "t.name as tariff_name", "COUNT(DISTINCT s.user_id) as user_count").
+		Select("t.id as tariff_id", "t.name as tariff_name", "COUNT(s.id) as user_count").
 		From(tariffsTable+" t").
 		LeftJoin(subscriptionsTable+" s ON t.id = s.tariff_id AND s.status = 'active'").
 		Where(sq.Eq{"t.is_active": true}).
@@ -110,7 +110,7 @@ func (s *storageImpl) GetActiveTariffStatistics(ctx context.Context) ([]TariffSt
 
 func (s *storageImpl) GetArchivedTariffStatistics(ctx context.Context) ([]TariffStats, error) {
 	query := s.stmpBuilder().
-		Select("t.id as tariff_id", "t.name as tariff_name", "COUNT(DISTINCT s.user_id) as user_count").
+		Select("t.id as tariff_id", "t.name as tariff_name", "COUNT(s.id) as user_count").
 		From(tariffsTable+" t").
 		LeftJoin(subscriptionsTable+" s ON t.id = s.tariff_id AND s.status = 'active'").
 		Where(sq.Eq{"t.is_active": false}).
