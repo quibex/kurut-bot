@@ -20,8 +20,12 @@ type StatisticsData struct {
 	InactiveUsersCount       int
 	ActiveTariffStats        []TariffStats
 	ArchivedTariffStats      []TariffStats
+	ArchivedTariffUsersCount int
 	PreviousMonthRevenue     float64
 	CurrentMonthRevenue      float64
+	TodayRevenue             float64
+	YesterdayRevenue         float64
+	AverageRevenuePerDay     float64
 }
 
 func (s *storageImpl) GetActiveSubscriptionsCount(ctx context.Context) (int, error) {
@@ -156,6 +160,31 @@ func (s *storageImpl) GetRevenueForMonth(ctx context.Context, year int, month ti
 	return revenue, nil
 }
 
+func (s *storageImpl) GetRevenueForDay(ctx context.Context, date time.Time) (float64, error) {
+	startDate := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+	endDate := startDate.AddDate(0, 0, 1)
+
+	query := s.stmpBuilder().
+		Select("COALESCE(SUM(amount), 0)").
+		From(paymentsTable).
+		Where(sq.Eq{"status": "approved"}).
+		Where(sq.GtOrEq{"created_at": startDate}).
+		Where(sq.Lt{"created_at": endDate})
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return 0, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var revenue float64
+	err = s.db.GetContext(ctx, &revenue, q, args...)
+	if err != nil {
+		return 0, fmt.Errorf("db.GetContext: %w", err)
+	}
+
+	return revenue, nil
+}
+
 func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error) {
 	now := s.now()
 	currentYear, currentMonth, _ := now.Date()
@@ -191,6 +220,11 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		return nil, fmt.Errorf("get archived tariff statistics: %w", err)
 	}
 
+	archivedTariffUsersCount := 0
+	for _, stat := range archivedTariffStats {
+		archivedTariffUsersCount += stat.UserCount
+	}
+
 	previousMonthRevenue, err := s.GetRevenueForMonth(ctx, previousYear, previousMonth)
 	if err != nil {
 		return nil, fmt.Errorf("get previous month revenue: %w", err)
@@ -201,13 +235,34 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		return nil, fmt.Errorf("get current month revenue: %w", err)
 	}
 
+	todayRevenue, err := s.GetRevenueForDay(ctx, now)
+	if err != nil {
+		return nil, fmt.Errorf("get today revenue: %w", err)
+	}
+
+	yesterday := now.AddDate(0, 0, -1)
+	yesterdayRevenue, err := s.GetRevenueForDay(ctx, yesterday)
+	if err != nil {
+		return nil, fmt.Errorf("get yesterday revenue: %w", err)
+	}
+
+	averageRevenuePerDay := 0.0
+	daysInMonth := float64(now.Day())
+	if daysInMonth > 0 {
+		averageRevenuePerDay = currentMonthRevenue / daysInMonth
+	}
+
 	return &StatisticsData{
 		ActiveSubscriptionsCount: activeSubsCount,
 		ActiveUsersCount:         activeUsersCount,
 		InactiveUsersCount:       inactiveUsersCount,
 		ActiveTariffStats:        activeTariffStats,
 		ArchivedTariffStats:      archivedTariffStats,
+		ArchivedTariffUsersCount: archivedTariffUsersCount,
 		PreviousMonthRevenue:     previousMonthRevenue,
 		CurrentMonthRevenue:      currentMonthRevenue,
+		TodayRevenue:             todayRevenue,
+		YesterdayRevenue:         yesterdayRevenue,
+		AverageRevenuePerDay:     averageRevenuePerDay,
 	}, nil
 }

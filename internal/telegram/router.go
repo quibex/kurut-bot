@@ -102,6 +102,17 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 			return r.handleGlobalCancelWithInternalID(update, user)
 		case callbackData == "my_subscriptions":
 			return r.mySubsCommand.Execute(ctx, user.TelegramID, extractChatID(update))
+		case callbackData == "stats_refresh":
+			if !r.adminChecker.IsAdmin(user.TelegramID) {
+				callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ Нет прав")
+				_, _ = r.bot.Request(callback)
+				return nil
+			}
+			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "✅ Обновлено")
+			_, _ = r.bot.Request(callback)
+			chatID := update.CallbackQuery.Message.Chat.ID
+			messageID := update.CallbackQuery.Message.MessageID
+			return r.statsCommand.Refresh(ctx, chatID, messageID)
 		case strings.HasPrefix(callbackData, "exp_"):
 			// Expiration callbacks (exp_dis, exp_link, exp_paid, exp_tariff, etc.)
 			// Доступны для всех пользователей с доступом к боту (ассистентов и админов)

@@ -37,8 +37,10 @@ func (c *StatsCommand) Execute(ctx context.Context, chatID int64) error {
 
 	text := c.formatStatistics(stats)
 
-	// Добавляем кнопки навигации
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "stats_refresh"),
+		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("Тарифы", "trf_list"),
 			tgbotapi.NewInlineKeyboardButtonData("Серверы", "srv_list"),
@@ -49,6 +51,31 @@ func (c *StatsCommand) Execute(ctx context.Context, chatID int64) error {
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
 	_, err = c.bot.Send(msg)
+	return err
+}
+
+func (c *StatsCommand) Refresh(ctx context.Context, chatID int64, messageID int) error {
+	stats, err := c.storage.GetStatistics(ctx)
+	if err != nil {
+		return fmt.Errorf("get statistics: %w", err)
+	}
+
+	text := c.formatStatistics(stats)
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "stats_refresh"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Тарифы", "trf_list"),
+			tgbotapi.NewInlineKeyboardButtonData("Серверы", "srv_list"),
+		),
+	)
+
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
+	edit.ParseMode = "Markdown"
+	edit.ReplyMarkup = &keyboard
+	_, err = c.bot.Send(edit)
 	return err
 }
 
@@ -67,19 +94,18 @@ func (c *StatsCommand) formatStatistics(stats *storage.StatisticsData) string {
 		text.WriteString("\n")
 	}
 
-	if len(stats.ArchivedTariffStats) > 0 {
-		text.WriteString("*Архивные тарифы:*\n")
-		for _, tariffStat := range stats.ArchivedTariffStats {
-			text.WriteString(fmt.Sprintf("• %s: *%d* чел.\n", tariffStat.TariffName, tariffStat.UserCount))
-		}
-		text.WriteString("\n")
+	if stats.ArchivedTariffUsersCount > 0 {
+		text.WriteString(fmt.Sprintf("*Архивные тарифы:* %d чел.\n\n", stats.ArchivedTariffUsersCount))
 	}
 
 	now := time.Now()
 	currentMonth := getMonthName(now.Month())
 	previousMonth := getMonthName(now.AddDate(0, -1, 0).Month())
 
-	text.WriteString("*Выручка:*\n")
+	text.WriteString("💰 *Выручка:*\n")
+	text.WriteString(fmt.Sprintf("• Сегодня: *%.2f ₽*\n", stats.TodayRevenue))
+	text.WriteString(fmt.Sprintf("• Вчера: *%.2f ₽*\n", stats.YesterdayRevenue))
+	text.WriteString(fmt.Sprintf("• Средняя за день (%s): *%.2f ₽*\n", currentMonth, stats.AverageRevenuePerDay))
 	text.WriteString(fmt.Sprintf("• За %s: *%.2f ₽*\n", previousMonth, stats.PreviousMonthRevenue))
 	text.WriteString(fmt.Sprintf("• За %s: *%.2f ₽*\n", currentMonth, stats.CurrentMonthRevenue))
 
