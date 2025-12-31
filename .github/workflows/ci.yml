@@ -172,7 +172,7 @@ jobs:
           username: ${{ vars.USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ vars.PORT }}
-          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,TELEGRAM_ASSISTANT_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_RETURN_URL
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,TELEGRAM_ASSISTANT_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_MOCK_PAYMENT,YOOKASSA_RETURN_URL
           script: |
             set -e
             cd /opt/kurut-bot
@@ -191,6 +191,7 @@ jobs:
             export TELEGRAM_ASSISTANT_IDS="$TELEGRAM_ASSISTANT_IDS"
             export YOOKASSA_SHOP_ID="$YOOKASSA_SHOP_ID"
             export YOOKASSA_SECRET_KEY="$YOOKASSA_SECRET_KEY"
+            export YOOKASSA_MOCK_PAYMENT="$YOOKASSA_MOCK_PAYMENT"
             export YOOKASSA_RETURN_URL="$YOOKASSA_RETURN_URL"
 
             docker compose up -d
@@ -216,4 +217,5 @@ jobs:
           TELEGRAM_ASSISTANT_IDS: ${{ vars.TELEGRAM_ASSISTANT_IDS }}
           YOOKASSA_SHOP_ID: ${{ secrets.YOOKASSA_SHOP_ID }}
           YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
+          YOOKASSA_MOCK_PAYMENT: ${{ vars.YOOKASSA_MOCK_PAYMENT }}
           YOOKASSA_RETURN_URL: ${{ vars.YOOKASSA_RETURN_URL }}
