@@ -274,6 +274,11 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 		return h.sendError(chatID, "Ошибка создания платежа. Попробуйте позже или обратитесь к администратору.")
 	}
 
+	// Mock mode: платёж уже approved, сразу создаём подписку
+	if paymentObj.PaymentURL == nil && paymentObj.Status == payment.StatusApproved {
+		return h.createSubscriptionWithPayment(ctx, chatID, data, paymentObj.ID)
+	}
+
 	// Проверяем что ссылка на оплату была создана
 	if paymentObj.PaymentURL == nil {
 		return h.sendError(chatID, "❌ Ошибка генерации ссылки на оплату")
@@ -579,18 +584,27 @@ func (h *Handler) sendSubscriptionCreated(chatID int64, result *subs.CreateSubsc
 
 // createFreeSubscription создает бесплатную подписку без оплаты
 func (h *Handler) createFreeSubscription(ctx context.Context, chatID int64, data *flows.CreateSubForClientFlowData) error {
-	// Создаем подписку без платежа
+	return h.createSubscriptionWithPayment(ctx, chatID, data, 0)
+}
+
+// createSubscriptionWithPayment создает подписку с привязкой к платежу
+func (h *Handler) createSubscriptionWithPayment(ctx context.Context, chatID int64, data *flows.CreateSubForClientFlowData, paymentID int64) error {
+	var paymentIDPtr *int64
+	if paymentID > 0 {
+		paymentIDPtr = &paymentID
+	}
+
 	subReq := &subs.CreateSubscriptionRequest{
 		UserID:              data.AdminUserID,
 		TariffID:            data.TariffID,
-		PaymentID:           nil,
+		PaymentID:           paymentIDPtr,
 		ClientWhatsApp:      data.ClientWhatsApp,
 		CreatedByTelegramID: data.AssistantTelegramID,
 	}
 
 	result, err := h.subscriptionService.CreateSubscription(ctx, subReq)
 	if err != nil {
-		h.logger.Error("Failed to create free subscription", "error", err)
+		h.logger.Error("Failed to create subscription", "error", err, "paymentID", paymentID)
 		return h.sendError(chatID, "❌ Ошибка создания подписки")
 	}
 

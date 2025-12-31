@@ -317,6 +317,11 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 		return h.sendError(chatID, "Ошибка создания платежа")
 	}
 
+	// Mock mode: платёж уже approved, сразу создаём подписку
+	if paymentObj.PaymentURL == nil && paymentObj.Status == payment.StatusApproved {
+		return h.createMigratedSubscription(ctx, chatID, data, &paymentObj.ID)
+	}
+
 	if paymentObj.PaymentURL == nil {
 		return h.sendError(chatID, "Ошибка генерации ссылки на оплату")
 	}

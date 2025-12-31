@@ -34,6 +34,7 @@ func (s *Service) CreatePayment(ctx context.Context, paymentEntity Payment) (*Pa
 	s.logger.Info("Creating payment",
 		"user_id", paymentEntity.UserID,
 		"amount", paymentEntity.Amount,
+		"mock_mode", s.mockPayment,
 	)
 
 	// 1. Валидация входных данных
@@ -44,6 +45,11 @@ func (s *Service) CreatePayment(ctx context.Context, paymentEntity Payment) (*Pa
 	if paymentEntity.UserID <= 0 {
 		s.logger.Error("Invalid userID", "user_id", paymentEntity.UserID)
 		return nil, fmt.Errorf("userID must be positive")
+	}
+
+	// Mock payment mode - создаём платёж сразу со статусом approved без YooKassa
+	if s.mockPayment {
+		return s.createMockPayment(ctx, paymentEntity)
 	}
 
 	// 2. Создаем запись в БД со статусом pending
@@ -109,6 +115,26 @@ func (s *Service) CreatePayment(ctx context.Context, paymentEntity Payment) (*Pa
 	)
 
 	return updatedPayment, nil
+}
+
+// createMockPayment creates a payment with approved status without calling YooKassa
+func (s *Service) createMockPayment(ctx context.Context, paymentEntity Payment) (*Payment, error) {
+	now := time.Now()
+	paymentEntity.Status = StatusApproved
+	paymentEntity.ProcessedAt = &now
+
+	createdPayment, err := s.storage.CreatePayment(ctx, paymentEntity)
+	if err != nil {
+		s.logger.Error("Failed to create mock payment in storage", "error", err, "user_id", paymentEntity.UserID)
+		return nil, fmt.Errorf("failed to create mock payment in storage: %w", err)
+	}
+
+	s.logger.Info("Mock payment created with approved status",
+		"payment_id", createdPayment.ID,
+		"amount", createdPayment.Amount,
+	)
+
+	return createdPayment, nil
 }
 
 // CheckPaymentStatus checks payment status in YooKassa and updates local storage
@@ -218,6 +244,11 @@ func (s *Service) CheckPaymentStatus(ctx context.Context, paymentID int64) (*Pay
 
 	s.logger.Info("Payment status unchanged", "payment_id", paymentID, "status", payment.Status)
 	return payment, nil
+}
+
+// IsMockPayment returns true if mock payment mode is enabled
+func (s *Service) IsMockPayment() bool {
+	return s.mockPayment
 }
 
 // LinkPaymentToSubscriptions creates links between payment and subscriptions

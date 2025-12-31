@@ -41,6 +41,7 @@ type subscriptionService interface {
 type paymentService interface {
 	CreatePayment(ctx context.Context, p payment.Payment) (*payment.Payment, error)
 	CheckPaymentStatus(ctx context.Context, paymentID int64) (*payment.Payment, error)
+	IsMockPayment() bool
 }
 
 type orderService interface {
