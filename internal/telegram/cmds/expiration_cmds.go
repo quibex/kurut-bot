@@ -51,6 +51,7 @@ type ExpirationTariffService interface {
 
 type ExpirationPaymentService interface {
 	CreatePayment(ctx context.Context, p payment.Payment) (*payment.Payment, error)
+	IsMockPayment() bool
 }
 
 type ExpirationMessageStorage interface {
@@ -562,6 +563,11 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 		return c.answerCallback(callbackQuery.ID, "Ошибка создания платежа")
 	}
 
+	// Mock mode: платёж уже approved, сразу продлеваем подписку
+	if paymentObj.PaymentURL == nil && paymentObj.Status == payment.StatusApproved {
+		return c.extendSubscriptionDirectly(ctx, callbackQuery, chatID, messageID, sub, tariff)
+	}
+
 	if paymentObj.PaymentURL == nil || *paymentObj.PaymentURL == "" {
 		c.logger.Error("Payment URL is empty", "payment_id", paymentObj.ID)
 		return c.answerCallback(callbackQuery.ID, "Ссылка на оплату недоступна")
@@ -704,6 +710,42 @@ func (c *ExpirationCommand) handleCheckPayment(ctx context.Context, callbackQuer
 	}
 
 	// 8. Обновить сообщение
+	wasDisabled := sub.Status == subs.StatusDisabled
+	return c.updateToRenewedMessage(ctx, chatID, messageID, sub, tariff, wasDisabled)
+}
+
+// extendSubscriptionDirectly продлевает подписку напрямую (для mock payment mode)
+func (c *ExpirationCommand) extendSubscriptionDirectly(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery, chatID int64, messageID int, sub *subs.Subscription, tariff *tariffs.Tariff) error {
+	// 1. Продлить подписку
+	if err := c.subStorage.ExtendSubscription(ctx, sub.ID, tariff.DurationDays); err != nil {
+		c.logger.Error("Failed to extend subscription", "error", err, "sub_id", sub.ID)
+		return c.answerCallback(callbackQuery.ID, "Ошибка продления")
+	}
+
+	// 2. Установить статус active (если был expired/disabled)
+	activeStatus := subs.StatusActive
+	_, err := c.subStorage.UpdateSubscription(ctx, subs.GetCriteria{IDs: []int64{sub.ID}}, subs.UpdateParams{
+		Status: &activeStatus,
+	})
+	if err != nil {
+		c.logger.Error("Failed to update subscription status", "error", err, "sub_id", sub.ID)
+	}
+
+	// 3. Увеличить счетчик на сервере если был disabled
+	if sub.Status == subs.StatusDisabled && sub.ServerID != nil {
+		if err := c.serverStorage.IncrementServerUsers(ctx, *sub.ServerID); err != nil {
+			c.logger.Error("Failed to increment server users", "error", err, "server_id", *sub.ServerID)
+		}
+	}
+
+	c.logger.Info("Subscription extended (mock mode)", "sub_id", sub.ID, "days", tariff.DurationDays)
+
+	// 4. Ответить на callback
+	if err := c.answerCallback(callbackQuery.ID, "✅ Подписка продлена"); err != nil {
+		c.logger.Error("Failed to answer callback", "error", err)
+	}
+
+	// 5. Обновить сообщение
 	wasDisabled := sub.Status == subs.StatusDisabled
 	return c.updateToRenewedMessage(ctx, chatID, messageID, sub, tariff, wasDisabled)
 }
