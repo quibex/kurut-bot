@@ -16,40 +16,44 @@ const pendingOrdersTable = "pending_orders"
 var pendingOrderRowFields = fields(pendingOrderRow{})
 
 type pendingOrderRow struct {
-	ID                  int64     `db:"id"`
-	PaymentID           int64     `db:"payment_id"`
-	AdminUserID         int64     `db:"admin_user_id"`
-	AssistantTelegramID int64     `db:"assistant_telegram_id"`
-	ChatID              int64     `db:"chat_id"`
-	MessageID           *int      `db:"message_id"`
-	ClientWhatsApp      string    `db:"client_whatsapp"`
-	ServerID            *int64    `db:"server_id"`
-	ServerName          *string   `db:"server_name"`
-	TariffID            int64     `db:"tariff_id"`
-	TariffName          string    `db:"tariff_name"`
-	TotalAmount         float64   `db:"total_amount"`
-	Status              string    `db:"status"`
-	CreatedAt           time.Time `db:"created_at"`
-	UpdatedAt           time.Time `db:"updated_at"`
+	ID                     int64     `db:"id"`
+	PaymentID              int64     `db:"payment_id"`
+	AdminUserID            int64     `db:"admin_user_id"`
+	AssistantTelegramID    int64     `db:"assistant_telegram_id"`
+	ChatID                 int64     `db:"chat_id"`
+	MessageID              *int      `db:"message_id"`
+	ClientWhatsApp         string    `db:"client_whatsapp"`
+	ServerID               *int64    `db:"server_id"`
+	ServerName             *string   `db:"server_name"`
+	TariffID               int64     `db:"tariff_id"`
+	TariffName             string    `db:"tariff_name"`
+	TotalAmount            float64   `db:"total_amount"`
+	ReferrerWhatsApp       *string   `db:"referrer_whatsapp"`
+	ReferrerSubscriptionID *int64    `db:"referrer_subscription_id"`
+	Status                 string    `db:"status"`
+	CreatedAt              time.Time `db:"created_at"`
+	UpdatedAt              time.Time `db:"updated_at"`
 }
 
 func (r pendingOrderRow) ToModel() *orders.PendingOrder {
 	return &orders.PendingOrder{
-		ID:                  r.ID,
-		PaymentID:           r.PaymentID,
-		AdminUserID:         r.AdminUserID,
-		AssistantTelegramID: r.AssistantTelegramID,
-		ChatID:              r.ChatID,
-		MessageID:           r.MessageID,
-		ClientWhatsApp:      r.ClientWhatsApp,
-		ServerID:            r.ServerID,
-		ServerName:          r.ServerName,
-		TariffID:            r.TariffID,
-		TariffName:          r.TariffName,
-		TotalAmount:         r.TotalAmount,
-		Status:              orders.Status(r.Status),
-		CreatedAt:           r.CreatedAt,
-		UpdatedAt:           r.UpdatedAt,
+		ID:                     r.ID,
+		PaymentID:              r.PaymentID,
+		AdminUserID:            r.AdminUserID,
+		AssistantTelegramID:    r.AssistantTelegramID,
+		ChatID:                 r.ChatID,
+		MessageID:              r.MessageID,
+		ClientWhatsApp:         r.ClientWhatsApp,
+		ServerID:               r.ServerID,
+		ServerName:             r.ServerName,
+		TariffID:               r.TariffID,
+		TariffName:             r.TariffName,
+		TotalAmount:            r.TotalAmount,
+		ReferrerWhatsApp:       r.ReferrerWhatsApp,
+		ReferrerSubscriptionID: r.ReferrerSubscriptionID,
+		Status:                 orders.Status(r.Status),
+		CreatedAt:              r.CreatedAt,
+		UpdatedAt:              r.UpdatedAt,
 	}
 }
 
@@ -57,20 +61,22 @@ func (s *storageImpl) CreatePendingOrder(ctx context.Context, order orders.Pendi
 	now := s.now()
 
 	params := map[string]interface{}{
-		"payment_id":            order.PaymentID,
-		"admin_user_id":         order.AdminUserID,
-		"assistant_telegram_id": order.AssistantTelegramID,
-		"chat_id":               order.ChatID,
-		"message_id":            order.MessageID,
-		"client_whatsapp":       order.ClientWhatsApp,
-		"server_id":             order.ServerID,
-		"server_name":           order.ServerName,
-		"tariff_id":             order.TariffID,
-		"tariff_name":           order.TariffName,
-		"total_amount":          order.TotalAmount,
-		"status":                string(orders.StatusPending),
-		"created_at":            now,
-		"updated_at":            now,
+		"payment_id":               order.PaymentID,
+		"admin_user_id":            order.AdminUserID,
+		"assistant_telegram_id":    order.AssistantTelegramID,
+		"chat_id":                  order.ChatID,
+		"message_id":               order.MessageID,
+		"client_whatsapp":          order.ClientWhatsApp,
+		"server_id":                order.ServerID,
+		"server_name":              order.ServerName,
+		"tariff_id":                order.TariffID,
+		"tariff_name":              order.TariffName,
+		"total_amount":             order.TotalAmount,
+		"referrer_whatsapp":        order.ReferrerWhatsApp,
+		"referrer_subscription_id": order.ReferrerSubscriptionID,
+		"status":                   string(orders.StatusPending),
+		"created_at":               now,
+		"updated_at":               now,
 	}
 
 	q, args, err := s.stmpBuilder().

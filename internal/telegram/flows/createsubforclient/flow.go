@@ -70,6 +70,8 @@ func (h *Handler) Handle(update *tgbotapi.Update, state states.State) error {
 	switch state {
 	case states.AdminCreateSubWaitClientName:
 		return h.handleWhatsAppInput(ctx, update)
+	case states.AdminCreateSubWaitReferrer:
+		return h.handleReferrerInput(ctx, update)
 	case states.AdminCreateSubWaitTariff:
 		return h.handleTariffSelection(ctx, update)
 	case states.AdminCreateSubWaitPayment:
@@ -103,11 +105,186 @@ func (h *Handler) handleWhatsAppInput(ctx context.Context, update *tgbotapi.Upda
 	// Сохраняем WhatsApp номер
 	flowData.ClientWhatsApp = whatsapp
 
-	// Переводим в состояние выбора тарифа
-	h.stateManager.SetState(chatID, states.AdminCreateSubWaitTariff, flowData)
+	// Переводим в состояние ввода реферала
+	h.stateManager.SetState(chatID, states.AdminCreateSubWaitReferrer, flowData)
 
-	// Показываем тарифы
+	// Показываем вопрос о реферале
+	return h.showReferrerQuestion(chatID)
+}
+
+// showReferrerQuestion показывает вопрос о реферале
+func (h *Handler) showReferrerQuestion(chatID int64) error {
+	text := "👥 Есть номер того, кто пригласил клиента?\n\n" +
+		"Если да — оба получат +2 недели бонуса!"
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Да, есть", "ref_yes"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Нет", "ref_no"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("◀️ Отменить", "cancel"),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ReplyMarkup = keyboard
+
+	sentMsg, err := h.bot.Send(msg)
+	if err != nil {
+		return err
+	}
+
+	flowData, _ := h.stateManager.GetCreateSubForClientData(chatID)
+	if flowData != nil {
+		flowData.MessageID = &sentMsg.MessageID
+		h.stateManager.SetState(chatID, states.AdminCreateSubWaitReferrer, flowData)
+	}
+
+	return nil
+}
+
+// handleReferrerInput обрабатывает ввод реферального номера
+func (h *Handler) handleReferrerInput(ctx context.Context, update *tgbotapi.Update) error {
+	chatID := extractChatID(update)
+
+	flowData, err := h.stateManager.GetCreateSubForClientData(chatID)
+	if err != nil {
+		return h.sendError(chatID, "Ошибка получения данных флоу")
+	}
+
+	// Обрабатываем callback кнопки
+	if update.CallbackQuery != nil {
+		callbackData := update.CallbackQuery.Data
+
+		switch callbackData {
+		case "ref_yes":
+			callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+			_, _ = h.bot.Request(callbackConfig)
+
+			// Редактируем сообщение с просьбой ввести номер реферала
+			if flowData.MessageID != nil {
+				editMsg := tgbotapi.NewEditMessageText(chatID, *flowData.MessageID,
+					"📱 Введите номер WhatsApp того, кто пригласил (например: +996555123456):")
+				_, _ = h.bot.Send(editMsg)
+			} else {
+				msg := tgbotapi.NewMessage(chatID, "📱 Введите номер WhatsApp того, кто пригласил (например: +996555123456):")
+				_, _ = h.bot.Send(msg)
+			}
+			return nil
+
+		case "ref_no":
+			callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+			_, _ = h.bot.Request(callbackConfig)
+
+			// Переходим к выбору тарифа без реферала
+			h.stateManager.SetState(chatID, states.AdminCreateSubWaitTariff, flowData)
+			return h.showTariffs(chatID)
+
+		case "cancel":
+			return h.handleCancel(ctx, update)
+
+		case "ref_retry":
+			callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+			_, _ = h.bot.Request(callbackConfig)
+
+			// Показываем запрос на ввод номера снова
+			if flowData.MessageID != nil {
+				editMsg := tgbotapi.NewEditMessageText(chatID, *flowData.MessageID,
+					"📱 Введите номер WhatsApp того, кто пригласил (например: +996555123456):")
+				_, _ = h.bot.Send(editMsg)
+			}
+			return nil
+
+		case "ref_skip":
+			callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+			_, _ = h.bot.Request(callbackConfig)
+
+			// Пропускаем реферала и переходим к тарифам
+			h.stateManager.SetState(chatID, states.AdminCreateSubWaitTariff, flowData)
+			return h.showTariffs(chatID)
+		}
+
+		return nil
+	}
+
+	// Обрабатываем текстовый ввод номера реферала
+	if update.Message == nil || update.Message.Text == "" {
+		return h.sendError(chatID, "Пожалуйста, введите номер WhatsApp реферала")
+	}
+
+	referrerWhatsApp := strings.TrimSpace(update.Message.Text)
+
+	// Валидация номера
+	if !isValidPhoneNumber(referrerWhatsApp) {
+		return h.sendReferrerError(chatID, flowData, "❌ Неверный формат номера. Введите номер в формате +996555123456")
+	}
+
+	// Проверяем что клиент не указал свой же номер
+	if normalizePhone(referrerWhatsApp) == normalizePhone(flowData.ClientWhatsApp) {
+		return h.sendReferrerError(chatID, flowData, "❌ Нельзя указать номер клиента как реферала")
+	}
+
+	// Ищем активную подписку по номеру реферала
+	referrerSub, err := h.subscriptionService.FindActiveSubscriptionByWhatsApp(ctx, referrerWhatsApp)
+	if err != nil {
+		h.logger.Error("Failed to find referrer subscription", "error", err, "whatsapp", referrerWhatsApp)
+		return h.sendReferrerError(chatID, flowData, "❌ Ошибка поиска реферала. Попробуйте снова.")
+	}
+
+	if referrerSub == nil {
+		return h.sendReferrerError(chatID, flowData, "❌ Клиент с таким номером не найден или у него нет активной подписки")
+	}
+
+	// Сохраняем данные реферала
+	flowData.ReferrerWhatsApp = &referrerWhatsApp
+	flowData.ReferrerSubscriptionID = &referrerSub.ID
+
+	// Переходим к выбору тарифа
+	h.stateManager.SetState(chatID, states.AdminCreateSubWaitTariff, flowData)
 	return h.showTariffs(chatID)
+}
+
+// sendReferrerError отправляет ошибку с возможностью повторить или пропустить
+func (h *Handler) sendReferrerError(chatID int64, flowData *flows.CreateSubForClientFlowData, errorMsg string) error {
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Ввести другой номер", "ref_retry"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⏭ Пропустить", "ref_skip"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("◀️ Отменить", "cancel"),
+		),
+	)
+
+	if flowData.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *flowData.MessageID, errorMsg)
+		editMsg.ReplyMarkup = &keyboard
+		_, err := h.bot.Send(editMsg)
+		return err
+	}
+
+	msg := tgbotapi.NewMessage(chatID, errorMsg)
+	msg.ReplyMarkup = keyboard
+	sentMsg, err := h.bot.Send(msg)
+	if err == nil && flowData != nil {
+		flowData.MessageID = &sentMsg.MessageID
+		h.stateManager.SetState(chatID, states.AdminCreateSubWaitReferrer, flowData)
+	}
+	return err
+}
+
+// normalizePhone normalizes phone number for comparison
+func normalizePhone(phone string) string {
+	cleaned := strings.ReplaceAll(phone, " ", "")
+	cleaned = strings.ReplaceAll(cleaned, "-", "")
+	cleaned = strings.ReplaceAll(cleaned, "(", "")
+	cleaned = strings.ReplaceAll(cleaned, ")", "")
+	return cleaned
 }
 
 // isValidPhoneNumber проверяет что строка похожа на номер телефона
@@ -286,14 +463,16 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 
 	// Создаем pending order для хранения контекста заказа
 	pendingOrder := orders.PendingOrder{
-		PaymentID:           paymentObj.ID,
-		AdminUserID:         data.AdminUserID,
-		AssistantTelegramID: data.AssistantTelegramID,
-		ChatID:              chatID,
-		ClientWhatsApp:      data.ClientWhatsApp,
-		TariffID:            data.TariffID,
-		TariffName:          data.TariffName,
-		TotalAmount:         data.TotalAmount,
+		PaymentID:              paymentObj.ID,
+		AdminUserID:            data.AdminUserID,
+		AssistantTelegramID:    data.AssistantTelegramID,
+		ChatID:                 chatID,
+		ClientWhatsApp:         data.ClientWhatsApp,
+		TariffID:               data.TariffID,
+		TariffName:             data.TariffName,
+		TotalAmount:            data.TotalAmount,
+		ReferrerWhatsApp:       data.ReferrerWhatsApp,
+		ReferrerSubscriptionID: data.ReferrerSubscriptionID,
 	}
 
 	createdOrder, err := h.orderService.CreatePendingOrder(ctx, pendingOrder)
@@ -498,11 +677,12 @@ func (h *Handler) sendPaymentCheckError(chatID int64, data *flows.CreateSubForCl
 func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, data *flows.CreateSubForClientFlowData, paymentID int64) error {
 	// Создаем подписку после успешной оплаты
 	subReq := &subs.CreateSubscriptionRequest{
-		UserID:              data.AdminUserID,
-		TariffID:            data.TariffID,
-		PaymentID:           &paymentID,
-		ClientWhatsApp:      data.ClientWhatsApp,
-		CreatedByTelegramID: data.AssistantTelegramID,
+		UserID:                 data.AdminUserID,
+		TariffID:               data.TariffID,
+		PaymentID:              &paymentID,
+		ClientWhatsApp:         data.ClientWhatsApp,
+		CreatedByTelegramID:    data.AssistantTelegramID,
+		ReferrerSubscriptionID: data.ReferrerSubscriptionID,
 	}
 
 	result, err := h.subscriptionService.CreateSubscription(ctx, subReq)
@@ -523,16 +703,30 @@ func (h *Handler) sendSubscriptionCreated(chatID int64, result *subs.CreateSubsc
 		passwordLine = fmt.Sprintf("\n`%s`", *result.ServerUIPassword)
 	}
 
+	// Формируем информацию о реферальном бонусе
+	referralLine := ""
+	if result.ReferralBonusApplied && result.ReferrerWhatsApp != nil {
+		referralExpiresLine := ""
+		if result.ReferrerNewExpiresAt != nil {
+			referralExpiresLine = fmt.Sprintf("\nПодписка до: %s",
+				result.ReferrerNewExpiresAt.Format("02.01.2006"))
+		}
+		referralLine = fmt.Sprintf("\n\n🎁 *+10 дней бонуса* пригласившему `%s`%s",
+			*result.ReferrerWhatsApp,
+			referralExpiresLine)
+	}
+
 	messageText := fmt.Sprintf(
 		"✅ *Подписка создана успешно!*\n\n"+
 			"📱 Клиент: `%s`\n"+
 			"📅 Тариф: %s\n\n"+
 			"🔑 User ID:\n`%s`\n"+
-			"🔐 Пароль:%s",
+			"🔐 Пароль:%s%s",
 		data.ClientWhatsApp,
 		data.TariffName,
 		result.GeneratedUserID,
 		passwordLine,
+		referralLine,
 	)
 
 	// Создаем кнопки
@@ -547,10 +741,25 @@ func (h *Handler) sendSubscriptionCreated(chatID int64, result *subs.CreateSubsc
 		))
 	}
 
-	// Добавляем кнопку для открытия WhatsApp
+	// Добавляем кнопку для написания клиенту
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonURL("💬 Написать клиенту", whatsappLink),
 	))
+
+	// Добавляем кнопку для написания пригласившему
+	if result.ReferralBonusApplied && result.ReferrerWhatsApp != nil {
+		referrerExpiresStr := ""
+		if result.ReferrerNewExpiresAt != nil {
+			referrerExpiresStr = result.ReferrerNewExpiresAt.Format("02.01.2006")
+		}
+		referrerMessage := fmt.Sprintf("🎉 Сизден жаңы кардар келди!\n\n+1 чакыруу\nБул жумада: %d чакыруу\nСиздин жазылууңуз: %s чейин",
+			result.ReferrerWeeklyCount,
+			referrerExpiresStr)
+		referrerWhatsappLink := generateWhatsAppLink(*result.ReferrerWhatsApp, referrerMessage)
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("💬 Написать пригласившему", referrerWhatsappLink),
+		))
+	}
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
 
@@ -595,11 +804,12 @@ func (h *Handler) createSubscriptionWithPayment(ctx context.Context, chatID int6
 	}
 
 	subReq := &subs.CreateSubscriptionRequest{
-		UserID:              data.AdminUserID,
-		TariffID:            data.TariffID,
-		PaymentID:           paymentIDPtr,
-		ClientWhatsApp:      data.ClientWhatsApp,
-		CreatedByTelegramID: data.AssistantTelegramID,
+		UserID:                 data.AdminUserID,
+		TariffID:               data.TariffID,
+		PaymentID:              paymentIDPtr,
+		ClientWhatsApp:         data.ClientWhatsApp,
+		CreatedByTelegramID:    data.AssistantTelegramID,
+		ReferrerSubscriptionID: data.ReferrerSubscriptionID,
 	}
 
 	result, err := h.subscriptionService.CreateSubscription(ctx, subReq)
@@ -765,11 +975,12 @@ func (h *Handler) handlePaymentCheckFromOrder(ctx context.Context, update *tgbot
 func (h *Handler) handleSuccessfulPaymentFromOrder(ctx context.Context, chatID int64, order *orders.PendingOrder) error {
 	// Создаем подписку
 	subReq := &subs.CreateSubscriptionRequest{
-		UserID:              order.AdminUserID,
-		TariffID:            order.TariffID,
-		PaymentID:           &order.PaymentID,
-		ClientWhatsApp:      order.ClientWhatsApp,
-		CreatedByTelegramID: order.AssistantTelegramID,
+		UserID:                 order.AdminUserID,
+		TariffID:               order.TariffID,
+		PaymentID:              &order.PaymentID,
+		ClientWhatsApp:         order.ClientWhatsApp,
+		CreatedByTelegramID:    order.AssistantTelegramID,
+		ReferrerSubscriptionID: order.ReferrerSubscriptionID,
 	}
 
 	result, err := h.subscriptionService.CreateSubscription(ctx, subReq)
@@ -931,16 +1142,30 @@ func (h *Handler) sendSubscriptionCreatedForOrder(chatID int64, result *subs.Cre
 		passwordLine = fmt.Sprintf("\n`%s`", *result.ServerUIPassword)
 	}
 
+	// Формируем информацию о реферальном бонусе
+	referralLine := ""
+	if result.ReferralBonusApplied && result.ReferrerWhatsApp != nil {
+		referralExpiresLine := ""
+		if result.ReferrerNewExpiresAt != nil {
+			referralExpiresLine = fmt.Sprintf("\nПодписка до: %s",
+				result.ReferrerNewExpiresAt.Format("02.01.2006"))
+		}
+		referralLine = fmt.Sprintf("\n\n🎁 *+10 дней бонуса* пригласившему `%s`%s",
+			*result.ReferrerWhatsApp,
+			referralExpiresLine)
+	}
+
 	messageText := fmt.Sprintf(
 		"✅ *Подписка создана успешно!*\n\n"+
 			"📱 Клиент: `%s`\n"+
 			"📅 Тариф: %s\n\n"+
 			"🔑 User ID:\n`%s`\n"+
-			"🔐 Пароль:%s",
+			"🔐 Пароль:%s%s",
 		order.ClientWhatsApp,
 		order.TariffName,
 		result.GeneratedUserID,
 		passwordLine,
+		referralLine,
 	)
 
 	whatsappLink := generateWhatsAppLink(order.ClientWhatsApp, "Ваша подписка VPN активирована! Сейчас отправлю инструкции по подключению.")
@@ -956,6 +1181,21 @@ func (h *Handler) sendSubscriptionCreatedForOrder(chatID int64, result *subs.Cre
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonURL("💬 Написать клиенту", whatsappLink),
 	))
+
+	// Добавляем кнопку для написания пригласившему
+	if result.ReferralBonusApplied && result.ReferrerWhatsApp != nil {
+		referrerExpiresStr := ""
+		if result.ReferrerNewExpiresAt != nil {
+			referrerExpiresStr = result.ReferrerNewExpiresAt.Format("02.01.2006")
+		}
+		referrerMessage := fmt.Sprintf("🎉 Сизден жаңы кардар келди!\n\n+1 чакыруу\nБул жумада: %d чакыруу\nСиздин жазылууңуз: %s чейин",
+			result.ReferrerWeeklyCount,
+			referrerExpiresStr)
+		referrerWhatsappLink := generateWhatsAppLink(*result.ReferrerWhatsApp, referrerMessage)
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("💬 Написать пригласившему", referrerWhatsappLink),
+		))
+	}
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
 

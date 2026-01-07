@@ -24,6 +24,7 @@ type subscriptionRow struct {
 	ClientWhatsApp      *string    `db:"client_whatsapp"`
 	GeneratedUserID     *string    `db:"generated_user_id"`
 	CreatedByTelegramID *int64     `db:"created_by_telegram_id"`
+	ReferrerWhatsApp    *string    `db:"referrer_whatsapp"`
 	ActivatedAt         *time.Time `db:"activated_at"`
 	ExpiresAt           *time.Time `db:"expires_at"`
 	LastRenewedAt       *time.Time `db:"last_renewed_at"`
@@ -41,6 +42,7 @@ func (s subscriptionRow) ToModel() *subs.Subscription {
 		ClientWhatsApp:      s.ClientWhatsApp,
 		GeneratedUserID:     s.GeneratedUserID,
 		CreatedByTelegramID: s.CreatedByTelegramID,
+		ReferrerWhatsApp:    s.ReferrerWhatsApp,
 		ActivatedAt:         s.ActivatedAt,
 		ExpiresAt:           s.ExpiresAt,
 		LastRenewedAt:       s.LastRenewedAt,
@@ -60,6 +62,7 @@ func (s *storageImpl) CreateSubscription(ctx context.Context, subscription subs.
 		"client_whatsapp":        subscription.ClientWhatsApp,
 		"generated_user_id":      subscription.GeneratedUserID,
 		"created_by_telegram_id": subscription.CreatedByTelegramID,
+		"referrer_whatsapp":      subscription.ReferrerWhatsApp,
 		"activated_at":           subscription.ActivatedAt,
 		"expires_at":             subscription.ExpiresAt,
 		"last_renewed_at":        now,
@@ -587,4 +590,112 @@ func (s *storageImpl) UpdateSubscriptionTariff(ctx context.Context, subscription
 	}
 
 	return nil
+}
+
+// FindActiveSubscriptionByWhatsApp finds an active subscription by client WhatsApp number
+func (s *storageImpl) FindActiveSubscriptionByWhatsApp(ctx context.Context, whatsapp string) (*subs.Subscription, error) {
+	query := s.stmpBuilder().
+		Select(subscriptionRowFields).
+		From(subscriptionsTable).
+		Where(sq.Eq{"client_whatsapp": whatsapp}).
+		Where(sq.Eq{"status": string(subs.StatusActive)}).
+		OrderBy("expires_at DESC").
+		Limit(1)
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var sub subscriptionRow
+	err = s.db.GetContext(ctx, &sub, q, args...)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("db.GetContext: %w", err)
+	}
+
+	return sub.ToModel(), nil
+}
+
+// CountWeeklyReferrals counts how many people were invited by referrerWhatsApp this week
+func (s *storageImpl) CountWeeklyReferrals(ctx context.Context, referrerWhatsApp string) (int, error) {
+	now := s.now()
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7 // Sunday is 7
+	}
+	weekStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(weekday - 1))
+
+	query := s.stmpBuilder().
+		Select("COUNT(*)").
+		From(subscriptionsTable).
+		Where(sq.Eq{"referrer_whatsapp": referrerWhatsApp}).
+		Where(sq.GtOrEq{"created_at": weekStart})
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return 0, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var count int
+	err = s.db.GetContext(ctx, &count, q, args...)
+	if err != nil {
+		return 0, fmt.Errorf("db.GetContext: %w", err)
+	}
+
+	return count, nil
+}
+
+// ReferrerStats holds referral statistics
+type ReferrerStats struct {
+	ReferrerWhatsApp string
+	Count            int
+}
+
+// GetTopReferrersThisWeek returns top N referrers by invitation count this week
+func (s *storageImpl) GetTopReferrersThisWeek(ctx context.Context, limit int) ([]ReferrerStats, error) {
+	now := s.now()
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7 // Sunday is 7
+	}
+	weekStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(weekday - 1))
+
+	query := s.stmpBuilder().
+		Select("referrer_whatsapp", "COUNT(*) as count").
+		From(subscriptionsTable).
+		Where(sq.NotEq{"referrer_whatsapp": nil}).
+		Where(sq.NotEq{"referrer_whatsapp": ""}).
+		Where(sq.GtOrEq{"created_at": weekStart}).
+		GroupBy("referrer_whatsapp").
+		OrderBy("count DESC").
+		Limit(uint64(limit))
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("db.QueryContext: %w", err)
+	}
+	defer rows.Close()
+
+	var result []ReferrerStats
+	for rows.Next() {
+		var stat ReferrerStats
+		if err := rows.Scan(&stat.ReferrerWhatsApp, &stat.Count); err != nil {
+			return nil, fmt.Errorf("rows.Scan: %w", err)
+		}
+		result = append(result, stat)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows.Err: %w", err)
+	}
+
+	return result, nil
 }

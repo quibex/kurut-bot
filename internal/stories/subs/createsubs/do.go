@@ -22,6 +22,8 @@ func NewService(storage storage, now func() time.Time) *Service {
 	}
 }
 
+const referralBonusDays = 10
+
 func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscriptionRequest) (*subs.CreateSubscriptionResult, error) {
 	tariff, err := s.storage.GetTariff(ctx, tariffs.GetCriteria{ID: &req.TariffID})
 	if err != nil {
@@ -41,7 +43,23 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 	}
 
 	now := s.now()
-	expiresAt := now.AddDate(0, 0, tariff.DurationDays)
+
+	// No bonus for the new client - only the referrer gets bonus
+	durationDays := tariff.DurationDays
+	var referralBonusApplied bool
+	var referrerWhatsApp *string
+
+	if req.ReferrerSubscriptionID != nil {
+		referralBonusApplied = true
+
+		// Get referrer's WhatsApp for display in success message
+		referrerSub, _ := s.storage.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{*req.ReferrerSubscriptionID}})
+		if referrerSub != nil {
+			referrerWhatsApp = referrerSub.ClientWhatsApp
+		}
+	}
+
+	expiresAt := now.AddDate(0, 0, durationDays)
 
 	subscription := subs.Subscription{
 		UserID:              req.UserID,
@@ -50,6 +68,7 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 		Status:              subs.StatusActive,
 		ClientWhatsApp:      &req.ClientWhatsApp,
 		CreatedByTelegramID: &req.CreatedByTelegramID,
+		ReferrerWhatsApp:    referrerWhatsApp,
 		ActivatedAt:         &now,
 		ExpiresAt:           &expiresAt,
 	}
@@ -82,12 +101,39 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 		}
 	}
 
+	// Extend referrer's subscription if referral bonus was applied
+	var referrerNewExpiresAt *time.Time
+	var referrerWeeklyCount int
+	if referralBonusApplied && req.ReferrerSubscriptionID != nil {
+		if err := s.storage.ExtendSubscription(ctx, *req.ReferrerSubscriptionID, referralBonusDays); err == nil {
+			// Get updated referrer subscription to get new expiry date
+			updatedReferrerSub, _ := s.storage.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{*req.ReferrerSubscriptionID}})
+			if updatedReferrerSub != nil {
+				referrerNewExpiresAt = updatedReferrerSub.ExpiresAt
+			}
+		}
+		// Count weekly referrals for this referrer (including the one just created)
+		if referrerWhatsApp != nil {
+			count, _ := s.storage.CountWeeklyReferrals(ctx, *referrerWhatsApp)
+			referrerWeeklyCount = count
+		}
+	}
+
 	return &subs.CreateSubscriptionResult{
-		Subscription:     created,
-		GeneratedUserID:  generatedUserID,
-		ServerUIURL:      &server.UIURL,
-		ServerUIPassword: &server.UIPassword,
+		Subscription:         created,
+		GeneratedUserID:      generatedUserID,
+		ServerUIURL:          &server.UIURL,
+		ServerUIPassword:     &server.UIPassword,
+		ReferralBonusApplied: referralBonusApplied,
+		ReferrerWhatsApp:     referrerWhatsApp,
+		ReferrerNewExpiresAt: referrerNewExpiresAt,
+		ReferrerWeeklyCount:  referrerWeeklyCount,
 	}, nil
+}
+
+// FindActiveSubscriptionByWhatsApp finds an active subscription by client WhatsApp number
+func (s *Service) FindActiveSubscriptionByWhatsApp(ctx context.Context, whatsapp string) (*subs.Subscription, error) {
+	return s.storage.FindActiveSubscriptionByWhatsApp(ctx, whatsapp)
 }
 
 // MigrateSubscription создаёт подписку для существующего клиента БЕЗ увеличения счётчика сервера

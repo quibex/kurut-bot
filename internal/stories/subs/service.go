@@ -38,3 +38,7 @@ func (s *Service) ExtendSubscription(ctx context.Context, subscriptionID int64, 
 
 	return nil
 }
+
+func (s *Service) FindActiveSubscriptionByWhatsApp(ctx context.Context, whatsapp string) (*Subscription, error) {
+	return s.storage.FindActiveSubscriptionByWhatsApp(ctx, whatsapp)
+}

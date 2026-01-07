@@ -31,6 +31,7 @@ type (
 
 	subscriptionService interface {
 		CreateSubscription(ctx context.Context, req *subs.CreateSubscriptionRequest) (*subs.CreateSubscriptionResult, error)
+		FindActiveSubscriptionByWhatsApp(ctx context.Context, whatsapp string) (*subs.Subscription, error)
 	}
 
 	paymentService interface {

@@ -153,6 +153,12 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
+	// Создаем topReferrersCommand
+	topReferrersCommand := cmds.NewTopReferrersCommand(
+		clients.TelegramBot.GetBotAPI(),
+		storageImpl,
+	)
+
 	// Создаем воркеры (до роутера, чтобы передать в роутер)
 	expirationWorker := expiration.NewWorker(
 		storageImpl,
@@ -185,6 +191,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		serversCommand,
 		removeClientCommand,
 		migrateClientHandler,
+		topReferrersCommand,
 	)
 
 	// Создаем менеджер воркеров

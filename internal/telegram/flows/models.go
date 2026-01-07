@@ -20,16 +20,18 @@ type CreateSubFlowData struct {
 
 // CreateSubForClientFlowData - data for assistant creating sub for client
 type CreateSubForClientFlowData struct {
-	AdminUserID         int64
-	AssistantTelegramID int64
-	ClientWhatsApp      string
-	TariffID            int64
-	TariffName          string
-	Price               float64
-	TotalAmount         float64
-	PaymentID           *int64
-	PaymentURL          *string
-	MessageID           *int // ID сообщения для бесшовного редактирования
+	AdminUserID            int64
+	AssistantTelegramID    int64
+	ClientWhatsApp         string
+	ReferrerWhatsApp       *string // WhatsApp of the referrer (who invited)
+	ReferrerSubscriptionID *int64  // ID of referrer's active subscription to extend
+	TariffID               int64
+	TariffName             string
+	Price                  float64
+	TotalAmount            float64
+	PaymentID              *int64
+	PaymentURL             *string
+	MessageID              *int // ID сообщения для бесшовного редактирования
 }
 
 // DisableSubFlowData - data for disable sub

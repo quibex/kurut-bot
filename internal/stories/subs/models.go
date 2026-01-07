@@ -24,6 +24,7 @@ type Subscription struct {
 	ClientWhatsApp      *string
 	GeneratedUserID     *string
 	CreatedByTelegramID *int64
+	ReferrerWhatsApp    *string // WhatsApp of the person who invited this client
 	ActivatedAt         *time.Time
 	ExpiresAt           *time.Time
 	LastRenewedAt       *time.Time
@@ -62,11 +63,12 @@ type UpdateParams struct {
 
 // Запрос для создания подписки
 type CreateSubscriptionRequest struct {
-	UserID              int64
-	TariffID            int64
-	PaymentID           *int64
-	ClientWhatsApp      string
-	CreatedByTelegramID int64
+	UserID                 int64
+	TariffID               int64
+	PaymentID              *int64
+	ClientWhatsApp         string
+	CreatedByTelegramID    int64
+	ReferrerSubscriptionID *int64 // ID of referrer's subscription to extend with bonus
 }
 
 // Запрос для миграции существующего клиента (без увеличения счётчика сервера)
@@ -80,10 +82,14 @@ type MigrateSubscriptionRequest struct {
 
 // Результат создания подписки
 type CreateSubscriptionResult struct {
-	Subscription     *Subscription
-	GeneratedUserID  string
-	ServerUIURL      *string
-	ServerUIPassword *string
+	Subscription         *Subscription
+	GeneratedUserID      string
+	ServerUIURL          *string
+	ServerUIPassword     *string
+	ReferralBonusApplied bool       // true if referral bonus was applied
+	ReferrerWhatsApp     *string    // referrer's WhatsApp number
+	ReferrerNewExpiresAt *time.Time // referrer's new expiration date after bonus
+	ReferrerWeeklyCount  int        // how many people this referrer invited this week
 }
 
 // GenerateUserID создает уникальный идентификатор пользователя для VPN

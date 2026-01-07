@@ -10,10 +10,14 @@ import (
 
 type storage interface {
 	CreateSubscription(ctx context.Context, subscription subs.Subscription) (*subs.Subscription, error)
+	GetSubscription(ctx context.Context, criteria subs.GetCriteria) (*subs.Subscription, error)
 	GetTariff(ctx context.Context, criteria tariffs.GetCriteria) (*tariffs.Tariff, error)
 	LinkPaymentToSubscriptions(ctx context.Context, paymentID int64, subscriptionIDs []int64) error
 	UpdateSubscriptionGeneratedUserID(ctx context.Context, subscriptionID int64, generatedUserID string) error
 	GetAvailableServer(ctx context.Context) (*servers.Server, error)
 	GetServerByID(ctx context.Context, serverID int64) (*servers.Server, error)
 	IncrementServerUsers(ctx context.Context, serverID int64) error
+	FindActiveSubscriptionByWhatsApp(ctx context.Context, whatsapp string) (*subs.Subscription, error)
+	ExtendSubscription(ctx context.Context, subscriptionID int64, additionalDays int) error
+	CountWeeklyReferrals(ctx context.Context, referrerWhatsApp string) (int, error)
 }
