@@ -115,7 +115,7 @@ func (h *Handler) handleWhatsAppInput(ctx context.Context, update *tgbotapi.Upda
 // showReferrerQuestion показывает вопрос о реферале
 func (h *Handler) showReferrerQuestion(chatID int64) error {
 	text := "👥 Есть номер того, кто пригласил клиента?\n\n" +
-		"Если да — оба получат +2 недели бонуса!"
+		"Пригласивший получит +10 дней бонуса!"
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
