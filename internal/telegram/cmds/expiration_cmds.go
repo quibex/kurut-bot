@@ -803,42 +803,6 @@ func (c *ExpirationCommand) handleDecline(ctx context.Context, callbackQuery *tg
 	return err
 }
 
-// extendSubscriptionDirectly продлевает подписку напрямую (для mock payment mode)
-func (c *ExpirationCommand) extendSubscriptionDirectly(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery, chatID int64, messageID int, sub *subs.Subscription, tariff *tariffs.Tariff) error {
-	// 1. Продлить подписку
-	if err := c.subStorage.ExtendSubscription(ctx, sub.ID, tariff.DurationDays); err != nil {
-		c.logger.Error("Failed to extend subscription", "error", err, "sub_id", sub.ID)
-		return c.answerCallback(callbackQuery.ID, "Ошибка продления")
-	}
-
-	// 2. Установить статус active (если был expired/disabled)
-	activeStatus := subs.StatusActive
-	_, err := c.subStorage.UpdateSubscription(ctx, subs.GetCriteria{IDs: []int64{sub.ID}}, subs.UpdateParams{
-		Status: &activeStatus,
-	})
-	if err != nil {
-		c.logger.Error("Failed to update subscription status", "error", err, "sub_id", sub.ID)
-	}
-
-	// 3. Увеличить счетчик на сервере если был disabled
-	if sub.Status == subs.StatusDisabled && sub.ServerID != nil {
-		if err := c.serverStorage.IncrementServerUsers(ctx, *sub.ServerID); err != nil {
-			c.logger.Error("Failed to increment server users", "error", err, "server_id", *sub.ServerID)
-		}
-	}
-
-	c.logger.Info("Subscription extended (mock mode)", "sub_id", sub.ID, "days", tariff.DurationDays)
-
-	// 4. Ответить на callback
-	if err := c.answerCallback(callbackQuery.ID, "✅ Подписка продлена"); err != nil {
-		c.logger.Error("Failed to answer callback", "error", err)
-	}
-
-	// 5. Обновить сообщение
-	wasDisabled := sub.Status == subs.StatusDisabled
-	return c.updateToRenewedMessage(ctx, chatID, messageID, sub, tariff, wasDisabled)
-}
-
 // updateToRenewedMessage обновляет сообщение после продления подписки
 func (c *ExpirationCommand) updateToRenewedMessage(ctx context.Context, chatID int64, messageID int, sub *subs.Subscription, tariff *tariffs.Tariff, wasDisabled bool) error {
 	var server *servers.Server
