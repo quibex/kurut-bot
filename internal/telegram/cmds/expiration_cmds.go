@@ -205,6 +205,13 @@ func (c *ExpirationCommand) HandleCallback(ctx context.Context, callbackQuery *t
 			return c.answerCallback(callbackQuery.ID, "Неверный ID подписки")
 		}
 		return c.handleDecline(ctx, callbackQuery, chatID, messageID, subID)
+	case "exp_declined_done":
+		// exp_declined_done:subID - подтверждение отключения после отказа
+		subID, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			return c.answerCallback(callbackQuery.ID, "Неверный ID подписки")
+		}
+		return c.handleDeclinedDone(ctx, callbackQuery, chatID, messageID, subID)
 	default:
 		// Старые callbacks для совместимости
 		if strings.HasPrefix(callbackData, "exp_chk:") || strings.HasPrefix(callbackData, "exp_pay:") {
@@ -500,7 +507,7 @@ func (c *ExpirationCommand) updateToDisabledMessage(ctx context.Context, chatID 
 			whatsapp, tariffName, price, passwordLine)
 	}
 
-	// Кнопки после отключения: Сменить тариф, Ссылка/Оплачено, Сервер, Отказ
+	// Кнопки после отключения: Сменить тариф, Ссылка/Оплачено
 	var rows [][]tgbotapi.InlineKeyboardButton
 
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
@@ -509,16 +516,6 @@ func (c *ExpirationCommand) updateToDisabledMessage(ctx context.Context, chatID 
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("🔗 Ссылка", fmt.Sprintf("exp_link:%d", sub.ID)),
 		tgbotapi.NewInlineKeyboardButtonData("✅ Оплачено", fmt.Sprintf("exp_paid:%d", sub.ID)),
-	))
-
-	if server != nil && server.UIURL != "" {
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonURL("🌐 Сервер", server.UIURL),
-		))
-	}
-
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("❌ Отказ", fmt.Sprintf("exp_decline:%d", sub.ID)),
 	))
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
@@ -601,18 +598,6 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 		whatsapp = *sub.ClientWhatsApp
 	}
 
-	// Получить сервер для кнопки (если overdue)
-	var server *servers.Server
-	if sub.ServerID != nil {
-		server, _ = c.serverStorage.GetServer(ctx, servers.GetCriteria{ID: sub.ServerID})
-	}
-
-	// Определяем тип сообщения
-	msgType := submessages.TypeExpiring
-	if subMsg != nil {
-		msgType = subMsg.Type
-	}
-
 	// Формируем текст со ссылкой как кликабельный alias "link"
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
@@ -643,13 +628,6 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 		tgbotapi.NewInlineKeyboardButtonData("🔗 Новый", fmt.Sprintf("exp_link:%d", sub.ID)),
 		tgbotapi.NewInlineKeyboardButtonData("✅ Оплачено", fmt.Sprintf("exp_paid:%d", sub.ID)),
 	))
-
-	// Добавить кнопку сервера для overdue
-	if msgType == submessages.TypeOverdue && server != nil && server.UIURL != "" {
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonURL("🌐 Сервер", server.UIURL),
-		))
-	}
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
 
@@ -761,10 +739,92 @@ func (c *ExpirationCommand) handleDecline(ctx context.Context, callbackQuery *tg
 		return c.answerCallback(callbackQuery.ID, "Подписка не найдена")
 	}
 
+	// Получаем сервер
+	var server *servers.Server
+	if sub.ServerID != nil {
+		server, _ = c.serverStorage.GetServer(ctx, servers.GetCriteria{ID: sub.ServerID})
+	}
+
 	whatsapp := "Не указан"
 	if sub.ClientWhatsApp != nil {
 		whatsapp = *sub.ClientWhatsApp
 	}
+
+	userID := "Не указан"
+	if sub.GeneratedUserID != nil {
+		userID = *sub.GeneratedUserID
+	}
+
+	password := "N/A"
+	serverName := "N/A"
+	if server != nil {
+		password = server.UIPassword
+		serverName = server.Name
+	}
+
+	// Ответить на callback
+	if err := c.answerCallback(callbackQuery.ID, "Отмечено как отказ"); err != nil {
+		c.logger.Error("Failed to answer callback", "error", err)
+	}
+
+	// Формируем текст с информацией для отключения
+	text := fmt.Sprintf(
+		"❌ *Отказ от продления*\n\n"+
+			"📱 Клиент: `%s`\n"+
+			"👤 User ID: `%s`\n"+
+			"🔐 Пароль: `%s`\n"+
+			"🖥 Сервер: %s\n",
+		whatsapp, userID, password, serverName)
+
+	// Кнопки: Сервер и Отключил
+	var rows [][]tgbotapi.InlineKeyboardButton
+
+	if server != nil && server.UIURL != "" {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("🌐 Сервер", server.UIURL),
+		))
+	}
+
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("✅ Отключил", fmt.Sprintf("exp_declined_done:%d", sub.ID)),
+	))
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
+	edit.ParseMode = "Markdown"
+	edit.ReplyMarkup = &keyboard
+	_, err = c.bot.Send(edit)
+	return err
+}
+
+// handleDeclinedDone - кнопка "Отключил" после отказа от продления
+func (c *ExpirationCommand) handleDeclinedDone(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery, chatID int64, messageID int, subID int64) error {
+	// Получить подписку
+	sub, err := c.subStorage.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{subID}})
+	if err != nil || sub == nil {
+		c.logger.Error("Failed to get subscription", "error", err, "sub_id", subID)
+		return c.answerCallback(callbackQuery.ID, "Подписка не найдена")
+	}
+
+	// Установить статус disabled
+	disabledStatus := subs.StatusDisabled
+	_, err = c.subStorage.UpdateSubscription(ctx, subs.GetCriteria{IDs: []int64{subID}}, subs.UpdateParams{
+		Status: &disabledStatus,
+	})
+	if err != nil {
+		c.logger.Error("Failed to disable subscription", "error", err, "sub_id", subID)
+		return c.answerCallback(callbackQuery.ID, "Ошибка обновления")
+	}
+
+	// Уменьшить current_users на сервере
+	if sub.ServerID != nil {
+		if err := c.serverStorage.DecrementServerUsers(ctx, *sub.ServerID); err != nil {
+			c.logger.Error("Failed to decrement server users", "error", err, "server_id", *sub.ServerID)
+		}
+	}
+
+	c.logger.Info("Subscription disabled after decline", "sub_id", subID)
 
 	// Деактивируем запись в subscription_messages
 	subMsg, _ := c.messageStorage.GetSubscriptionMessageByChatAndMessageID(ctx, chatID, messageID)
@@ -775,12 +835,17 @@ func (c *ExpirationCommand) handleDecline(ctx context.Context, callbackQuery *tg
 	}
 
 	// Ответить на callback
-	if err := c.answerCallback(callbackQuery.ID, "Отмечено как отказ"); err != nil {
+	if err := c.answerCallback(callbackQuery.ID, "✅ Подписка отключена"); err != nil {
 		c.logger.Error("Failed to answer callback", "error", err)
 	}
 
 	// Обновить сообщение
-	text := fmt.Sprintf("❌ *Отказ от продления*\n\n📱 Клиент: `%s`", whatsapp)
+	whatsapp := "Не указан"
+	if sub.ClientWhatsApp != nil {
+		whatsapp = *sub.ClientWhatsApp
+	}
+
+	text := fmt.Sprintf("🚫 *Подписка отключена (отказ)*\n\n📱 Клиент: `%s`", whatsapp)
 
 	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
 	edit.ParseMode = "Markdown"
@@ -992,7 +1057,7 @@ func (c *ExpirationCommand) handleSetTariff(ctx context.Context, callbackQuery *
 		}
 	}
 
-	// Кнопки: Сменить тариф, Ссылка/Оплачено, Сервер, Отказ
+	// Кнопки: Сменить тариф, Ссылка/Оплачено (+ Отказ только для expiring)
 	var rows [][]tgbotapi.InlineKeyboardButton
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("📋 Сменить тариф", fmt.Sprintf("exp_tariff:%d", sub.ID)),
@@ -1002,19 +1067,12 @@ func (c *ExpirationCommand) handleSetTariff(ctx context.Context, callbackQuery *
 		tgbotapi.NewInlineKeyboardButtonData("✅ Оплачено", fmt.Sprintf("exp_paid:%d", sub.ID)),
 	))
 
-	// Добавить кнопку сервера для overdue
-	if msgType == submessages.TypeOverdue && sub.ServerID != nil {
-		server, _ := c.serverStorage.GetServer(ctx, servers.GetCriteria{ID: sub.ServerID})
-		if server != nil && server.UIURL != "" {
-			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonURL("🌐 Сервер", server.UIURL),
-			))
-		}
+	// Кнопка "Отказ" только для expiring (для overdue подписка уже отключена)
+	if msgType == submessages.TypeExpiring {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Отказ", fmt.Sprintf("exp_decline:%d", sub.ID)),
+		))
 	}
-
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("❌ Отказ", fmt.Sprintf("exp_decline:%d", sub.ID)),
-	))
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
 
