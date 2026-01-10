@@ -10,7 +10,6 @@ import (
 	"kurut-bot/internal/telegram/flows/addserver"
 	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
-	"kurut-bot/internal/telegram/flows/migrateclient"
 	"kurut-bot/internal/telegram/messages"
 	"kurut-bot/internal/telegram/states"
 
@@ -30,11 +29,9 @@ type Router struct {
 	mySubsCommand             *cmds.MySubsCommand
 	statsCommand              *cmds.StatsCommand
 	expirationCommand         *cmds.ExpirationCommand
-	tariffsCommand            *cmds.TariffsCommand
-	serversCommand            *cmds.ServersCommand
-	removeClientCommand       *cmds.RemoveClientCommand
-	migrateClientHandler      *migrateclient.Handler
-	topReferrersCommand       *cmds.TopReferrersCommand
+	tariffsCommand      *cmds.TariffsCommand
+	serversCommand      *cmds.ServersCommand
+	topReferrersCommand *cmds.TopReferrersCommand
 }
 
 type stateManager interface {
@@ -132,9 +129,6 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		case strings.HasPrefix(callbackData, "pay_"):
 			// Payment callbacks (pay_check, pay_refresh, pay_cancel) - работают независимо от состояния
 			return r.createSubForClientHandler.HandlePaymentCallback(update)
-		case strings.HasPrefix(callbackData, "migpay_"):
-			// Migrate payment callbacks (migpay_check, migpay_refresh, migpay_cancel)
-			return r.migrateClientHandler.HandlePaymentCallback(ctx, update.CallbackQuery)
 		case strings.HasPrefix(callbackData, "trf_"):
 			// Tariff callbacks
 			if !r.adminChecker.IsAdmin(user.TelegramID) {
@@ -163,9 +157,6 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 				return r.addServerHandler.Start(extractChatID(update))
 			}
 			return r.serversCommand.HandleCallback(ctx, update.CallbackQuery)
-		case strings.HasPrefix(callbackData, "rmc_"):
-			// Remove client callbacks
-			return r.removeClientCommand.HandleCallback(ctx, update.CallbackQuery)
 		}
 	}
 
@@ -182,11 +173,6 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 	// Проверяем состояние флоу добавления сервера
 	if strings.HasPrefix(string(state), "asv_") {
 		return r.addServerHandler.Handle(update, state)
-	}
-
-	// Проверяем состояние флоу миграции клиента
-	if strings.HasPrefix(string(state), "amc_") {
-		return r.migrateClientHandler.Handle(update, state)
 	}
 
 	// Если нет активного состояния - обрабатываем как обычное сообщение
@@ -247,10 +233,6 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 			assistantID = &user.TelegramID
 		}
 		return r.expirationCommand.ExecuteExpiring(ctx, chatID, assistantID)
-	case "remove_client":
-		return r.removeClientCommand.Execute(ctx, chatID)
-	case "migrate_client":
-		return r.migrateClientHandler.Start(user.ID, user.TelegramID, chatID)
 	default:
 		return r.sendHelp(chatID)
 	}
@@ -427,8 +409,6 @@ func NewRouter(
 	expirationCommand *cmds.ExpirationCommand,
 	tariffsCommand *cmds.TariffsCommand,
 	serversCommand *cmds.ServersCommand,
-	removeClientCommand *cmds.RemoveClientCommand,
-	migrateClientHandler *migrateclient.Handler,
 	topReferrersCommand *cmds.TopReferrersCommand,
 ) *Router {
 	return &Router{
@@ -444,8 +424,6 @@ func NewRouter(
 		expirationCommand:         expirationCommand,
 		tariffsCommand:            tariffsCommand,
 		serversCommand:            serversCommand,
-		removeClientCommand:       removeClientCommand,
-		migrateClientHandler:      migrateClientHandler,
 		topReferrersCommand:       topReferrersCommand,
 	}
 }
@@ -512,14 +490,6 @@ func (r *Router) setupAdminCommands(chatID int64) {
 			Command:     "expiring",
 			Description: "Истекающие сегодня",
 		},
-		{
-			Command:     "remove_client",
-			Description: "Удалить клиента с сервера",
-		},
-		{
-			Command:     "migrate_client",
-			Description: "Мигрировать клиента",
-		},
 	}
 
 	scope := tgbotapi.NewBotCommandScopeChat(chatID)
@@ -554,14 +524,6 @@ func (r *Router) setupAssistantCommands(chatID int64) {
 		{
 			Command:     "expiring",
 			Description: "Мои истекающие подписки",
-		},
-		{
-			Command:     "remove_client",
-			Description: "Удалить клиента с сервера",
-		},
-		{
-			Command:     "migrate_client",
-			Description: "Мигрировать клиента",
 		},
 	}
 
