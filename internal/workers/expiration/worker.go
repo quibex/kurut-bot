@@ -83,47 +83,22 @@ func (w *Worker) RunNow(ctx context.Context) error {
 func (w *Worker) run(ctx context.Context) error {
 	w.logger.Info("Starting expiration worker execution")
 
-	// 1. Send notifications about subscriptions expiring TOMORROW (NEW)
-	if err := w.sendExpiringTomorrowNotifications(ctx); err != nil {
-		w.logger.Error("Failed to send expiring tomorrow notifications", "error", err)
-	}
-
-	// 2. Send notifications about subscriptions expiring today
+	// 1. Send notifications about subscriptions expiring today
 	if err := w.sendExpiringTodayNotifications(ctx); err != nil {
 		w.logger.Error("Failed to send expiring today notifications", "error", err)
 	}
 
-	// 3. Send notifications about overdue subscriptions (need to disable)
+	// 2. Send notifications about overdue subscriptions (need to disable)
 	if err := w.sendOverdueNotifications(ctx); err != nil {
 		w.logger.Error("Failed to send overdue notifications", "error", err)
 	}
 
-	// 4. Mark expired subscriptions as expired in DB
+	// 3. Mark expired subscriptions as expired in DB
 	if err := w.markExpiredSubscriptions(ctx); err != nil {
 		w.logger.Error("Failed to mark expired subscriptions", "error", err)
 	}
 
 	w.logger.Info("Expiration worker execution completed")
-	return nil
-}
-
-// sendExpiringTomorrowNotifications sends notifications about subscriptions expiring tomorrow
-func (w *Worker) sendExpiringTomorrowNotifications(ctx context.Context) error {
-	expiringByAssistant, err := w.storage.ListExpiringTomorrowGroupedByAssistant(ctx)
-	if err != nil {
-		return fmt.Errorf("list expiring tomorrow: %w", err)
-	}
-
-	w.logger.Info("Found subscriptions expiring tomorrow", "assistants_count", len(expiringByAssistant))
-
-	for assistantID, subscriptions := range expiringByAssistant {
-		if err := w.sendExpiringTomorrowNotification(ctx, assistantID, subscriptions); err != nil {
-			w.logger.Error("Failed to send expiring tomorrow notification",
-				"assistant_id", assistantID,
-				"error", err)
-		}
-	}
-
 	return nil
 }
 
@@ -206,72 +181,6 @@ func (w *Worker) sendExpiringNotification(ctx context.Context, assistantTelegram
 		// 1. WhatsApp
 		if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
 			whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgToday)
-			row = append(row, tgbotapi.NewInlineKeyboardButtonURL("💬", whatsappLink))
-		}
-
-		// 2. Ссылка на оплату
-		row = append(row, tgbotapi.NewInlineKeyboardButtonData("💳 Оплата", fmt.Sprintf("exp_pay:%d", sub.ID)))
-
-		// 3. Оплатил
-		row = append(row, tgbotapi.NewInlineKeyboardButtonData("✅ Оплатил", fmt.Sprintf("exp_chk:%d", sub.ID)))
-
-		if len(row) > 0 {
-			allRows = append(allRows, row)
-		}
-	}
-
-	sb.WriteString("Напишите клиентам о продлении подписки.")
-
-	msg := tgbotapi.NewMessage(assistantTelegramID, sb.String())
-	msg.ParseMode = "Markdown"
-	if len(allRows) > 0 {
-		keyboard := tgbotapi.NewInlineKeyboardMarkup(allRows...)
-		msg.ReplyMarkup = keyboard
-	}
-
-	_, err := w.telegramBot.Send(msg)
-	return err
-}
-
-// sendExpiringTomorrowNotification sends a notification about subscriptions expiring tomorrow
-func (w *Worker) sendExpiringTomorrowNotification(ctx context.Context, assistantTelegramID int64, subscriptions []*subs.Subscription) error {
-	if len(subscriptions) == 0 {
-		return nil
-	}
-
-	var sb strings.Builder
-	sb.WriteString("🔔 *Подписки истекают завтра:*\n\n")
-
-	var allRows [][]tgbotapi.InlineKeyboardButton
-
-	for i, sub := range subscriptions {
-		tariff, _ := w.tariffService.GetTariff(ctx, tariffs.GetCriteria{ID: &sub.TariffID})
-
-		whatsapp := "Не указан"
-		if sub.ClientWhatsApp != nil {
-			whatsapp = *sub.ClientWhatsApp
-		}
-
-		tariffName := "Неизвестный"
-		if tariff != nil {
-			tariffName = tariff.Name
-		}
-
-		expiresAt := "Не указано"
-		if sub.ExpiresAt != nil {
-			expiresAt = sub.ExpiresAt.Format("02.01.2006")
-		}
-
-		sb.WriteString(fmt.Sprintf("%d. Клиент: `%s`\n", i+1, whatsapp))
-		sb.WriteString(fmt.Sprintf("   Тариф: %s\n", tariffName))
-		sb.WriteString(fmt.Sprintf("   Истекает: %s\n\n", expiresAt))
-
-		// Кнопки (3 в ряд)
-		row := []tgbotapi.InlineKeyboardButton{}
-
-		// 1. WhatsApp
-		if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-			whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgTomorrow)
 			row = append(row, tgbotapi.NewInlineKeyboardButtonURL("💬", whatsappLink))
 		}
 

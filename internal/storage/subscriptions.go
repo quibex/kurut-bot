@@ -374,23 +374,6 @@ func (s *storageImpl) ListOverdueSubscriptionsGroupedByAssistant(ctx context.Con
 	return result, nil
 }
 
-// ListExpiringTomorrowGroupedByAssistant returns subscriptions expiring tomorrow grouped by assistant telegram ID
-func (s *storageImpl) ListExpiringTomorrowGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error) {
-	subscriptions, err := s.ListExpiringSubscriptions(ctx, 1) // 1 день = завтра
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[int64][]*subs.Subscription)
-	for _, sub := range subscriptions {
-		if sub.CreatedByTelegramID != nil {
-			result[*sub.CreatedByTelegramID] = append(result[*sub.CreatedByTelegramID], sub)
-		}
-	}
-
-	return result, nil
-}
-
 // AssistantStats holds statistics for an assistant
 type AssistantStats struct {
 	TotalActive      int

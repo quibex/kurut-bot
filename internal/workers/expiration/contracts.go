@@ -15,7 +15,6 @@ type (
 	Storage interface {
 		ListExpiredSubscriptions(ctx context.Context) ([]*subs.Subscription, error)
 		ListExpiringTodayGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error)
-		ListExpiringTomorrowGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error)
 		ListOverdueSubscriptionsGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error)
 		UpdateSubscription(ctx context.Context, criteria subs.GetCriteria, params subs.UpdateParams) (*subs.Subscription, error)
 	}
