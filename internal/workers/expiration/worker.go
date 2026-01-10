@@ -11,26 +11,11 @@ import (
 	"kurut-bot/internal/stories/servers"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
+	"kurut-bot/internal/telegram/messages"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/robfig/cron/v3"
 )
-
-const whatsappMsgToday = `Саламатсызбы! Сиздин VPN жазылууңуз бүгүн бүтөт. Узартууну каалайсызбы?
-
-Тарифтер:
-• 1 ай - 250₽
-• 2 ай - 450₽
-• 3 ай - 590₽
-• 6 ай - 1090₽`
-
-const whatsappMsgTomorrow = `Саламатсызбы! Сиздин VPN жазылууңуз эртең бүтөт. Узартууну каалайсызбы?
-
-Тарифтер:
-• 1 ай - 250₽
-• 2 ай - 450₽
-• 3 ай - 590₽
-• 6 ай - 1090₽`
 
 // Worker handles sending notifications about expiring subscriptions
 type Worker struct {
@@ -61,8 +46,8 @@ func (w *Worker) Name() string {
 
 // Start starts the expiration worker
 func (w *Worker) Start() error {
-	// Runs daily at 09:00
-	_, err := w.cron.AddFunc("0 9 * * *", func() {
+	// Runs daily at 07:00
+	_, err := w.cron.AddFunc("0 7 * * *", func() {
 		defer func() {
 			if r := recover(); r != nil {
 				w.logger.Error("Panic in expiration worker", "panic", r)
@@ -220,7 +205,7 @@ func (w *Worker) sendExpiringNotification(ctx context.Context, assistantTelegram
 
 		// 1. WhatsApp
 		if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-			whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsgToday)
+			whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgToday)
 			row = append(row, tgbotapi.NewInlineKeyboardButtonURL("💬", whatsappLink))
 		}
 
@@ -286,7 +271,7 @@ func (w *Worker) sendExpiringTomorrowNotification(ctx context.Context, assistant
 
 		// 1. WhatsApp
 		if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-			whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsgTomorrow)
+			whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgTomorrow)
 			row = append(row, tgbotapi.NewInlineKeyboardButtonURL("💬", whatsappLink))
 		}
 

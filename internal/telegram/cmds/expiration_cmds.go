@@ -13,25 +13,10 @@ import (
 	"kurut-bot/internal/stories/submessages"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
+	"kurut-bot/internal/telegram/messages"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
-
-const whatsappMsgToday = `Саламатсызбы! Сиздин VPN жазылууңуз бүгүн бүтөт. Узартууну каалайсызбы?
-
-Тарифтер:
-• 1 ай - 250₽
-• 2 ай - 450₽
-• 3 ай - 590₽
-• 6 ай - 1090₽`
-
-const whatsappMsgExpired = `Саламатсызбы! Сиздин VPN жазылууңуз бүттү. Узартууну каалайсызбы?
-
-Тарифтер:
-• 1 ай - 250₽
-• 2 ай - 450₽
-• 3 ай - 590₽
-• 6 ай - 1090₽`
 
 type ExpirationCommand struct {
 	bot            *tgbotapi.BotAPI
@@ -373,7 +358,7 @@ func (c *ExpirationCommand) sendExpiringSubscriptionMessage(ctx context.Context,
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsgToday)
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgToday)
 		text = fmt.Sprintf(
 			"🔔 *Подписка истекает сегодня*\n\n"+
 				"📱 Клиент: [%s](%s)\n"+
@@ -631,7 +616,7 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 	// Формируем текст со ссылкой как кликабельный alias "link"
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsgExpired)
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgExpired)
 		text = fmt.Sprintf(
 			"💳 *Ссылка на оплату*\n\n"+
 				"📱 Клиент: [%s](%s)\n"+
@@ -977,7 +962,7 @@ func (c *ExpirationCommand) handleSetTariff(ctx context.Context, callbackQuery *
 
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsgToday)
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgToday)
 		if msgType == submessages.TypeOverdue {
 			text = fmt.Sprintf(
 				"⏸ *Подписка отключена*\n\n"+
@@ -1119,7 +1104,7 @@ func (c *ExpirationCommand) updateToExpiringMessage(ctx context.Context, chatID 
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsgToday)
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgToday)
 		text = fmt.Sprintf(
 			"🔔 *Подписка истекает сегодня*\n\n"+
 				"📱 Клиент: [%s](%s)\n"+
