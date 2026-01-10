@@ -96,7 +96,7 @@ func (s *storageImpl) GetActiveTariffStatistics(ctx context.Context) ([]TariffSt
 		LeftJoin(subscriptionsTable+" s ON t.id = s.tariff_id AND s.status = 'active'").
 		Where(sq.Eq{"t.is_active": true}).
 		GroupBy("t.id", "t.name").
-		OrderBy("user_count DESC")
+		OrderBy("t.duration_days ASC")
 
 	q, args, err := query.ToSql()
 	if err != nil {

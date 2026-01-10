@@ -96,6 +96,9 @@ func (h *Handler) handleWhatsAppInput(ctx context.Context, update *tgbotapi.Upda
 		return h.sendError(chatID, "❌ Неверный формат номера. Введите номер в формате +996555123456")
 	}
 
+	// Очищаем номер от пробелов и дефисов
+	whatsapp = normalizePhone(whatsapp)
+
 	// Получаем данные флоу
 	flowData, err := h.stateManager.GetCreateSubForClientData(chatID)
 	if err != nil {
@@ -222,8 +225,11 @@ func (h *Handler) handleReferrerInput(ctx context.Context, update *tgbotapi.Upda
 		return h.sendReferrerError(chatID, flowData, "❌ Неверный формат номера. Введите номер в формате +996555123456")
 	}
 
+	// Очищаем номер
+	referrerWhatsApp = normalizePhone(referrerWhatsApp)
+
 	// Проверяем что клиент не указал свой же номер
-	if normalizePhone(referrerWhatsApp) == normalizePhone(flowData.ClientWhatsApp) {
+	if referrerWhatsApp == flowData.ClientWhatsApp {
 		return h.sendReferrerError(chatID, flowData, "❌ Нельзя указать номер клиента как реферала")
 	}
 

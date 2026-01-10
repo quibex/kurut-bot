@@ -17,5 +17,6 @@ type SubscriptionMessage struct {
 	Type             Type
 	IsActive         bool
 	SelectedTariffID *int64
+	PaymentID        *int64
 	CreatedAt        time.Time
 }

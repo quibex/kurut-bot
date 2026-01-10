@@ -36,3 +36,5 @@ go.work.sum
 
 data/
 .DS_Store
+
+oldsubs/

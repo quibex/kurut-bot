@@ -16,6 +16,30 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+const whatsappMsgToday = `Саламатсызбы! Сиздин VPN жазылууңуз бүгүн бүтөт. Узартууну каалайсызбы?
+
+Тарифтер:
+• 1 ай - 250₽
+• 2 ай - 450₽
+• 3 ай - 590₽
+• 6 ай - 1090₽`
+
+const whatsappMsgTomorrow = `Саламатсызбы! Сиздин VPN жазылууңуз эртең бүтөт. Узартууну каалайсызбы?
+
+Тарифтер:
+• 1 ай - 250₽
+• 2 ай - 450₽
+• 3 ай - 590₽
+• 6 ай - 1090₽`
+
+const whatsappMsgExpired = `Саламатсызбы! Сиздин VPN жазылууңуз бүттү. Узартууну каалайсызбы?
+
+Тарифтер:
+• 1 ай - 250₽
+• 2 ай - 450₽
+• 3 ай - 590₽
+• 6 ай - 1090₽`
+
 // Worker handles sending notifications about expiring subscriptions
 type Worker struct {
 	storage       Storage
@@ -204,7 +228,7 @@ func (w *Worker) sendExpiringNotification(ctx context.Context, assistantTelegram
 
 		// 1. WhatsApp
 		if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-			whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, "Здравствуйте! Ваша подписка VPN истекает сегодня. Хотите продлить?")
+			whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsgToday)
 			row = append(row, tgbotapi.NewInlineKeyboardButtonURL("💬", whatsappLink))
 		}
 
@@ -270,7 +294,7 @@ func (w *Worker) sendExpiringTomorrowNotification(ctx context.Context, assistant
 
 		// 1. WhatsApp
 		if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-			whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, "Здравствуйте! Ваша подписка VPN истекает завтра. Хотите продлить?")
+			whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsgTomorrow)
 			row = append(row, tgbotapi.NewInlineKeyboardButtonURL("💬", whatsappLink))
 		}
 

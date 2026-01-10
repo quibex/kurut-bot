@@ -17,6 +17,22 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+const whatsappMsgToday = `Саламатсызбы! Сиздин VPN жазылууңуз бүгүн бүтөт. Узартууну каалайсызбы?
+
+Тарифтер:
+• 1 ай - 250₽
+• 2 ай - 450₽
+• 3 ай - 590₽
+• 6 ай - 1090₽`
+
+const whatsappMsgExpired = `Саламатсызбы! Сиздин VPN жазылууңуз бүттү. Узартууну каалайсызбы?
+
+Тарифтер:
+• 1 ай - 250₽
+• 2 ай - 450₽
+• 3 ай - 590₽
+• 6 ай - 1090₽`
+
 type ExpirationCommand struct {
 	bot            *tgbotapi.BotAPI
 	subStorage     ExpirationSubStorage
@@ -51,6 +67,7 @@ type ExpirationTariffService interface {
 
 type ExpirationPaymentService interface {
 	CreatePayment(ctx context.Context, p payment.Payment) (*payment.Payment, error)
+	CheckPaymentStatus(ctx context.Context, paymentID int64) (*payment.Payment, error)
 	IsMockPayment() bool
 }
 
@@ -62,6 +79,7 @@ type ExpirationMessageStorage interface {
 	DeactivateSubscriptionMessage(ctx context.Context, id int64) error
 	DeactivateAllSubscriptionMessages(ctx context.Context, subscriptionID int64) error
 	UpdateSelectedTariff(ctx context.Context, id int64, tariffID *int64) error
+	UpdatePaymentID(ctx context.Context, id int64, paymentID *int64) error
 }
 
 func NewExpirationCommand(
@@ -195,6 +213,13 @@ func (c *ExpirationCommand) HandleCallback(ctx context.Context, callbackQuery *t
 			return c.answerCallback(callbackQuery.ID, "Неверный ID подписки")
 		}
 		return c.handleTariffBack(ctx, callbackQuery, chatID, messageID, subID)
+	case "exp_decline":
+		// exp_decline:subID - клиент отказался от продления
+		subID, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			return c.answerCallback(callbackQuery.ID, "Неверный ID подписки")
+		}
+		return c.handleDecline(ctx, callbackQuery, chatID, messageID, subID)
 	default:
 		// Старые callbacks для совместимости
 		if strings.HasPrefix(callbackData, "exp_chk:") || strings.HasPrefix(callbackData, "exp_pay:") {
@@ -348,7 +373,7 @@ func (c *ExpirationCommand) sendExpiringSubscriptionMessage(ctx context.Context,
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, "Здравствуйте! Ваша подписка VPN истекает сегодня. Хотите продлить?")
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsgToday)
 		text = fmt.Sprintf(
 			"🔔 *Подписка истекает сегодня*\n\n"+
 				"📱 Клиент: [%s](%s)\n"+
@@ -362,7 +387,7 @@ func (c *ExpirationCommand) sendExpiringSubscriptionMessage(ctx context.Context,
 			whatsapp, tariffName, price)
 	}
 
-	// Кнопки: Сменить тариф, Получить ссылку, Оплачено
+	// Кнопки: Сменить тариф, Ссылка/Оплачено, Отказ
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📋 Сменить тариф", fmt.Sprintf("exp_tariff:%d", sub.ID)),
@@ -370,6 +395,9 @@ func (c *ExpirationCommand) sendExpiringSubscriptionMessage(ctx context.Context,
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔗 Ссылка", fmt.Sprintf("exp_link:%d", sub.ID)),
 			tgbotapi.NewInlineKeyboardButtonData("✅ Оплачено", fmt.Sprintf("exp_paid:%d", sub.ID)),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Отказ", fmt.Sprintf("exp_decline:%d", sub.ID)),
 		),
 	)
 
@@ -487,7 +515,7 @@ func (c *ExpirationCommand) updateToDisabledMessage(ctx context.Context, chatID 
 			whatsapp, tariffName, price, passwordLine)
 	}
 
-	// Кнопки после отключения: Сменить тариф, Получить ссылку, Оплачено, Сервер
+	// Кнопки после отключения: Сменить тариф, Ссылка/Оплачено, Сервер, Отказ
 	var rows [][]tgbotapi.InlineKeyboardButton
 
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
@@ -503,6 +531,10 @@ func (c *ExpirationCommand) updateToDisabledMessage(ctx context.Context, chatID 
 			tgbotapi.NewInlineKeyboardButtonURL("🌐 Сервер", server.UIURL),
 		))
 	}
+
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Отказ", fmt.Sprintf("exp_decline:%d", sub.ID)),
+	))
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
 
@@ -563,9 +595,9 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 		return c.answerCallback(callbackQuery.ID, "Ошибка создания платежа")
 	}
 
-	// Mock mode: платёж уже approved, сразу продлеваем подписку
+	// Mock mode: платёж уже approved, но не продлеваем автоматически
 	if paymentObj.PaymentURL == nil && paymentObj.Status == payment.StatusApproved {
-		return c.extendSubscriptionDirectly(ctx, callbackQuery, chatID, messageID, sub, tariff)
+		return c.answerCallback(callbackQuery.ID, "Mock mode: используйте кнопку Оплачено")
 	}
 
 	if paymentObj.PaymentURL == nil || *paymentObj.PaymentURL == "" {
@@ -596,16 +628,16 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 		msgType = subMsg.Type
 	}
 
-	// Формируем текст со ссылкой в моноширинном формате для копирования
+	// Формируем текст со ссылкой как кликабельный alias "link"
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, "Здравствуйте! Ваша подписка VPN истекает. Для продления оплатите по ссылке.")
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsgExpired)
 		text = fmt.Sprintf(
 			"💳 *Ссылка на оплату*\n\n"+
 				"📱 Клиент: [%s](%s)\n"+
 				"📅 Тариф: %s\n"+
 				"💰 Сумма: %.0f ₽\n\n"+
-				"🔗 `%s`",
+				"🔗 [link](%s)",
 			whatsapp, whatsappLink, tariff.Name, tariff.Price, *paymentObj.PaymentURL)
 	} else {
 		text = fmt.Sprintf(
@@ -613,7 +645,7 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 				"📱 Клиент: `%s`\n"+
 				"📅 Тариф: %s\n"+
 				"💰 Сумма: %.0f ₽\n\n"+
-				"🔗 `%s`",
+				"🔗 [link](%s)",
 			whatsapp, tariff.Name, tariff.Price, *paymentObj.PaymentURL)
 	}
 
@@ -641,10 +673,18 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 	editMsg.ReplyMarkup = &keyboard
 	editMsg.DisableWebPagePreview = true
 	_, err = c.bot.Send(editMsg)
+
+	// Сохраняем payment_id в subscription_message для последующей проверки
+	if subMsg != nil {
+		if err := c.messageStorage.UpdatePaymentID(ctx, subMsg.ID, &paymentObj.ID); err != nil {
+			c.logger.Error("Failed to update payment ID", "error", err, "msg_id", subMsg.ID, "payment_id", paymentObj.ID)
+		}
+	}
+
 	return err
 }
 
-// handleCheckPayment - кнопка "Оплачено" (подтверждение и продление)
+// handleCheckPayment - кнопка "Оплачено" (проверка оплаты и продление)
 func (c *ExpirationCommand) handleCheckPayment(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery, chatID int64, messageID int, subID int64) error {
 	// Проверяем актуальность сообщения
 	if active, err := c.checkMessageActive(ctx, chatID, messageID); !active {
@@ -680,13 +720,27 @@ func (c *ExpirationCommand) handleCheckPayment(ctx context.Context, callbackQuer
 		return c.answerCallback(callbackQuery.ID, "Тариф не найден")
 	}
 
-	// 4. Продлить подписку
+	// 4. Проверить статус платежа если есть payment_id
+	if subMsg != nil && subMsg.PaymentID != nil {
+		paymentObj, err := c.paymentService.CheckPaymentStatus(ctx, *subMsg.PaymentID)
+		if err != nil {
+			c.logger.Error("Failed to check payment status", "error", err, "payment_id", *subMsg.PaymentID)
+			return c.answerCallback(callbackQuery.ID, "Ошибка проверки платежа")
+		}
+		if paymentObj.Status != payment.StatusApproved {
+			alertConfig := tgbotapi.NewCallbackWithAlert(callbackQuery.ID, "⏳ Платёж ещё не оплачен. Дождитесь оплаты клиентом.")
+			_, _ = c.bot.Request(alertConfig)
+			return nil
+		}
+	}
+
+	// 5. Продлить подписку
 	if err := c.subStorage.ExtendSubscription(ctx, subID, tariff.DurationDays); err != nil {
 		c.logger.Error("Failed to extend subscription", "error", err, "sub_id", subID)
 		return c.answerCallback(callbackQuery.ID, "Ошибка продления")
 	}
 
-	// 5. Установить статус active (если был expired/disabled)
+	// 6. Установить статус active (если был expired/disabled)
 	activeStatus := subs.StatusActive
 	_, err = c.subStorage.UpdateSubscription(ctx, subs.GetCriteria{IDs: []int64{subID}}, subs.UpdateParams{
 		Status: &activeStatus,
@@ -695,7 +749,7 @@ func (c *ExpirationCommand) handleCheckPayment(ctx context.Context, callbackQuer
 		c.logger.Error("Failed to update subscription status", "error", err, "sub_id", subID)
 	}
 
-	// 6. Увеличить счетчик на сервере если был disabled
+	// 7. Увеличить счетчик на сервере если был disabled
 	if sub.Status == subs.StatusDisabled && sub.ServerID != nil {
 		if err := c.serverStorage.IncrementServerUsers(ctx, *sub.ServerID); err != nil {
 			c.logger.Error("Failed to increment server users", "error", err, "server_id", *sub.ServerID)
@@ -704,14 +758,49 @@ func (c *ExpirationCommand) handleCheckPayment(ctx context.Context, callbackQuer
 
 	c.logger.Info("Subscription extended", "sub_id", subID, "days", tariff.DurationDays)
 
-	// 7. Ответить на callback
+	// 8. Ответить на callback
 	if err := c.answerCallback(callbackQuery.ID, "✅ Подписка продлена"); err != nil {
 		c.logger.Error("Failed to answer callback", "error", err)
 	}
 
-	// 8. Обновить сообщение
+	// 9. Обновить сообщение
 	wasDisabled := sub.Status == subs.StatusDisabled
 	return c.updateToRenewedMessage(ctx, chatID, messageID, sub, tariff, wasDisabled)
+}
+
+// handleDecline - кнопка "Отказ" (клиент отказался от продления)
+func (c *ExpirationCommand) handleDecline(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery, chatID int64, messageID int, subID int64) error {
+	// Получить подписку для информации
+	sub, err := c.subStorage.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{subID}})
+	if err != nil || sub == nil {
+		return c.answerCallback(callbackQuery.ID, "Подписка не найдена")
+	}
+
+	whatsapp := "Не указан"
+	if sub.ClientWhatsApp != nil {
+		whatsapp = *sub.ClientWhatsApp
+	}
+
+	// Деактивируем запись в subscription_messages
+	subMsg, _ := c.messageStorage.GetSubscriptionMessageByChatAndMessageID(ctx, chatID, messageID)
+	if subMsg != nil {
+		if err := c.messageStorage.DeactivateSubscriptionMessage(ctx, subMsg.ID); err != nil {
+			c.logger.Error("Failed to deactivate subscription message", "error", err)
+		}
+	}
+
+	// Ответить на callback
+	if err := c.answerCallback(callbackQuery.ID, "Отмечено как отказ"); err != nil {
+		c.logger.Error("Failed to answer callback", "error", err)
+	}
+
+	// Обновить сообщение
+	text := fmt.Sprintf("❌ *Отказ от продления*\n\n📱 Клиент: `%s`", whatsapp)
+
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
+	edit.ParseMode = "Markdown"
+	_, err = c.bot.Send(edit)
+	return err
 }
 
 // extendSubscriptionDirectly продлевает подписку напрямую (для mock payment mode)
@@ -924,7 +1013,7 @@ func (c *ExpirationCommand) handleSetTariff(ctx context.Context, callbackQuery *
 
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, "Здравствуйте! Ваша подписка VPN истекает сегодня. Хотите продлить?")
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsgToday)
 		if msgType == submessages.TypeOverdue {
 			text = fmt.Sprintf(
 				"⏸ *Подписка отключена*\n\n"+
@@ -954,7 +1043,7 @@ func (c *ExpirationCommand) handleSetTariff(ctx context.Context, callbackQuery *
 		}
 	}
 
-	// Кнопки: Сменить тариф, Получить ссылку, Оплачено
+	// Кнопки: Сменить тариф, Ссылка/Оплачено, Сервер, Отказ
 	var rows [][]tgbotapi.InlineKeyboardButton
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("📋 Сменить тариф", fmt.Sprintf("exp_tariff:%d", sub.ID)),
@@ -973,6 +1062,10 @@ func (c *ExpirationCommand) handleSetTariff(ctx context.Context, callbackQuery *
 			))
 		}
 	}
+
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Отказ", fmt.Sprintf("exp_decline:%d", sub.ID)),
+	))
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
 
@@ -1062,7 +1155,7 @@ func (c *ExpirationCommand) updateToExpiringMessage(ctx context.Context, chatID 
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, "Здравствуйте! Ваша подписка VPN истекает сегодня. Хотите продлить?")
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsgToday)
 		text = fmt.Sprintf(
 			"🔔 *Подписка истекает сегодня*\n\n"+
 				"📱 Клиент: [%s](%s)\n"+
@@ -1076,7 +1169,7 @@ func (c *ExpirationCommand) updateToExpiringMessage(ctx context.Context, chatID 
 			whatsapp, tariffName, price)
 	}
 
-	// Кнопки: Сменить тариф, Получить ссылку, Оплачено
+	// Кнопки: Сменить тариф, Ссылка/Оплачено, Отказ
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📋 Сменить тариф", fmt.Sprintf("exp_tariff:%d", sub.ID)),
@@ -1084,6 +1177,9 @@ func (c *ExpirationCommand) updateToExpiringMessage(ctx context.Context, chatID 
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔗 Ссылка", fmt.Sprintf("exp_link:%d", sub.ID)),
 			tgbotapi.NewInlineKeyboardButtonData("✅ Оплачено", fmt.Sprintf("exp_paid:%d", sub.ID)),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Отказ", fmt.Sprintf("exp_decline:%d", sub.ID)),
 		),
 	)
 

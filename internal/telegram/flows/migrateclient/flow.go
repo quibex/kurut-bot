@@ -95,6 +95,9 @@ func (h *Handler) handleWhatsAppInput(ctx context.Context, update *tgbotapi.Upda
 		return h.sendError(chatID, "Неверный формат номера. Введите номер в формате +996555123456")
 	}
 
+	// Очищаем номер от пробелов и дефисов
+	whatsapp = normalizePhone(whatsapp)
+
 	flowData, err := h.stateManager.GetMigrateClientData(chatID)
 	if err != nil {
 		return h.sendError(chatID, "Ошибка получения данных")
@@ -638,10 +641,17 @@ func extractChatID(update *tgbotapi.Update) int64 {
 }
 
 func isValidPhoneNumber(phone string) bool {
-	cleaned := strings.ReplaceAll(phone, " ", "")
-	cleaned = strings.ReplaceAll(cleaned, "-", "")
+	cleaned := normalizePhone(phone)
 	match, _ := regexp.MatchString(`^[\+]?[0-9]{10,15}$`, cleaned)
 	return match
+}
+
+func normalizePhone(phone string) string {
+	cleaned := strings.ReplaceAll(phone, " ", "")
+	cleaned = strings.ReplaceAll(cleaned, "-", "")
+	cleaned = strings.ReplaceAll(cleaned, "(", "")
+	cleaned = strings.ReplaceAll(cleaned, ")", "")
+	return cleaned
 }
 
 func formatDuration(days int) string {

@@ -23,6 +23,7 @@ type subscriptionMessageRow struct {
 	Type             string    `db:"type"`
 	IsActive         bool      `db:"is_active"`
 	SelectedTariffID *int64    `db:"selected_tariff_id"`
+	PaymentID        *int64    `db:"payment_id"`
 	CreatedAt        time.Time `db:"created_at"`
 }
 
@@ -35,6 +36,7 @@ func (r subscriptionMessageRow) ToModel() *submessages.SubscriptionMessage {
 		Type:             submessages.Type(r.Type),
 		IsActive:         r.IsActive,
 		SelectedTariffID: r.SelectedTariffID,
+		PaymentID:        r.PaymentID,
 		CreatedAt:        r.CreatedAt,
 	}
 }
@@ -194,6 +196,25 @@ func (s *storageImpl) UpdateSelectedTariff(ctx context.Context, id int64, tariff
 	q, args, err := s.stmpBuilder().
 		Update(subscriptionMessagesTable).
 		Set("selected_tariff_id", tariffID).
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build sql query: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("db.ExecContext: %w", err)
+	}
+
+	return nil
+}
+
+// UpdatePaymentID updates the payment ID for a subscription message
+func (s *storageImpl) UpdatePaymentID(ctx context.Context, id int64, paymentID *int64) error {
+	q, args, err := s.stmpBuilder().
+		Update(subscriptionMessagesTable).
+		Set("payment_id", paymentID).
 		Where(sq.Eq{"id": id}).
 		ToSql()
 	if err != nil {
