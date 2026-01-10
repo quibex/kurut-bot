@@ -76,6 +76,9 @@ func (c *StatsCommand) Refresh(ctx context.Context, chatID int64, messageID int)
 	edit.ParseMode = "Markdown"
 	edit.ReplyMarkup = &keyboard
 	_, err = c.bot.Send(edit)
+	if err != nil && strings.Contains(err.Error(), "message is not modified") {
+		return nil
+	}
 	return err
 }
 
