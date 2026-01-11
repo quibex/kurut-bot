@@ -87,6 +87,13 @@ func NewExpirationCommand(
 	}
 }
 
+func (c *ExpirationCommand) paidButtonText() string {
+	if c.paymentService.IsMockPayment() {
+		return "✅ Оплачено"
+	}
+	return "✅ Проверить"
+}
+
 // ExecuteOverdue показывает просроченные подписки с кнопками
 // assistantTelegramID nil = показать все (для админов)
 func (c *ExpirationCommand) ExecuteOverdue(ctx context.Context, chatID int64, assistantTelegramID *int64) error {
@@ -386,7 +393,7 @@ func (c *ExpirationCommand) sendExpiringSubscriptionMessage(ctx context.Context,
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔗 Ссылка", fmt.Sprintf("exp_link:%d", sub.ID)),
-			tgbotapi.NewInlineKeyboardButtonData("✅ Оплачено", fmt.Sprintf("exp_paid:%d", sub.ID)),
+			tgbotapi.NewInlineKeyboardButtonData(c.paidButtonText(), fmt.Sprintf("exp_paid:%d", sub.ID)),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("❌ Отказ", fmt.Sprintf("exp_decline:%d", sub.ID)),
@@ -515,7 +522,7 @@ func (c *ExpirationCommand) updateToDisabledMessage(ctx context.Context, chatID 
 	))
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("🔗 Ссылка", fmt.Sprintf("exp_link:%d", sub.ID)),
-		tgbotapi.NewInlineKeyboardButtonData("✅ Оплачено", fmt.Sprintf("exp_paid:%d", sub.ID)),
+		tgbotapi.NewInlineKeyboardButtonData(c.paidButtonText(), fmt.Sprintf("exp_paid:%d", sub.ID)),
 	))
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
@@ -619,14 +626,14 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 			whatsapp, tariff.Name, tariff.Price, *paymentObj.PaymentURL)
 	}
 
-	// Кнопки: Сменить тариф, Новый, Оплачено
+	// Кнопки: Сменить тариф, Новый, Оплачено/Проверить
 	var rows [][]tgbotapi.InlineKeyboardButton
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("📋 Сменить тариф", fmt.Sprintf("exp_tariff:%d", sub.ID)),
 	))
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("🔗 Новый", fmt.Sprintf("exp_link:%d", sub.ID)),
-		tgbotapi.NewInlineKeyboardButtonData("✅ Оплачено", fmt.Sprintf("exp_paid:%d", sub.ID)),
+		tgbotapi.NewInlineKeyboardButtonData(c.paidButtonText(), fmt.Sprintf("exp_paid:%d", sub.ID)),
 	))
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
@@ -647,7 +654,7 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 	return err
 }
 
-// handleCheckPayment - кнопка "Оплачено" (проверка оплаты и продление)
+// handleCheckPayment - кнопка "Оплачено/Проверить" (проверка оплаты и продление)
 func (c *ExpirationCommand) handleCheckPayment(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery, chatID int64, messageID int, subID int64) error {
 	// Проверяем актуальность сообщения
 	if active, err := c.checkMessageActive(ctx, chatID, messageID); !active {
@@ -683,15 +690,35 @@ func (c *ExpirationCommand) handleCheckPayment(ctx context.Context, callbackQuer
 		return c.answerCallback(callbackQuery.ID, "Тариф не найден")
 	}
 
-	// 4. Проверить статус платежа если есть payment_id
-	if subMsg != nil && subMsg.PaymentID != nil {
+	// 4. Проверить/создать платёж в зависимости от режима
+	if c.paymentService.IsMockPayment() {
+		// Mock режим: создаём approved платёж если не было ссылки
+		if subMsg == nil || subMsg.PaymentID == nil {
+			paymentEntity := payment.Payment{
+				UserID: sub.UserID,
+				Amount: tariff.Price,
+				Status: payment.StatusPending,
+			}
+			_, err := c.paymentService.CreatePayment(ctx, paymentEntity)
+			if err != nil {
+				c.logger.Error("Failed to create payment", "error", err, "sub_id", subID)
+				return c.answerCallback(callbackQuery.ID, "Ошибка создания платежа")
+			}
+		}
+	} else {
+		// Real режим: требуем ссылку и проверяем YooKassa
+		if subMsg == nil || subMsg.PaymentID == nil {
+			alertConfig := tgbotapi.NewCallbackWithAlert(callbackQuery.ID, "Сначала создайте ссылку на оплату")
+			_, _ = c.bot.Request(alertConfig)
+			return nil
+		}
 		paymentObj, err := c.paymentService.CheckPaymentStatus(ctx, *subMsg.PaymentID)
 		if err != nil {
 			c.logger.Error("Failed to check payment status", "error", err, "payment_id", *subMsg.PaymentID)
 			return c.answerCallback(callbackQuery.ID, "Ошибка проверки платежа")
 		}
 		if paymentObj.Status != payment.StatusApproved {
-			alertConfig := tgbotapi.NewCallbackWithAlert(callbackQuery.ID, "⏳ Платёж ещё не оплачен. Дождитесь оплаты клиентом.")
+			alertConfig := tgbotapi.NewCallbackWithAlert(callbackQuery.ID, "⏳ Платёж ещё не оплачен")
 			_, _ = c.bot.Request(alertConfig)
 			return nil
 		}
@@ -1064,7 +1091,7 @@ func (c *ExpirationCommand) handleSetTariff(ctx context.Context, callbackQuery *
 	))
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("🔗 Ссылка", fmt.Sprintf("exp_link:%d", sub.ID)),
-		tgbotapi.NewInlineKeyboardButtonData("✅ Оплачено", fmt.Sprintf("exp_paid:%d", sub.ID)),
+		tgbotapi.NewInlineKeyboardButtonData(c.paidButtonText(), fmt.Sprintf("exp_paid:%d", sub.ID)),
 	))
 
 	// Кнопка "Отказ" только для expiring (для overdue подписка уже отключена)
@@ -1183,7 +1210,7 @@ func (c *ExpirationCommand) updateToExpiringMessage(ctx context.Context, chatID 
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔗 Ссылка", fmt.Sprintf("exp_link:%d", sub.ID)),
-			tgbotapi.NewInlineKeyboardButtonData("✅ Оплачено", fmt.Sprintf("exp_paid:%d", sub.ID)),
+			tgbotapi.NewInlineKeyboardButtonData(c.paidButtonText(), fmt.Sprintf("exp_paid:%d", sub.ID)),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("❌ Отказ", fmt.Sprintf("exp_decline:%d", sub.ID)),

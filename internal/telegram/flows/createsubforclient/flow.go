@@ -91,13 +91,12 @@ func (h *Handler) handleWhatsAppInput(ctx context.Context, update *tgbotapi.Upda
 	chatID := update.Message.Chat.ID
 	whatsapp := strings.TrimSpace(update.Message.Text)
 
-	// Валидация номера телефона (базовая)
-	if !isValidPhoneNumber(whatsapp) {
+	// Сначала нормализуем, потом валидируем
+	whatsapp = NormalizePhone(whatsapp)
+
+	if !IsValidPhoneNumber(whatsapp) {
 		return h.sendError(chatID, "❌ Неверный формат номера. Введите номер в формате +996555123456")
 	}
-
-	// Очищаем номер от пробелов и дефисов
-	whatsapp = normalizePhone(whatsapp)
 
 	// Получаем данные флоу
 	flowData, err := h.stateManager.GetCreateSubForClientData(chatID)
@@ -220,13 +219,12 @@ func (h *Handler) handleReferrerInput(ctx context.Context, update *tgbotapi.Upda
 
 	referrerWhatsApp := strings.TrimSpace(update.Message.Text)
 
-	// Валидация номера
-	if !isValidPhoneNumber(referrerWhatsApp) {
+	// Сначала нормализуем, потом валидируем
+	referrerWhatsApp = NormalizePhone(referrerWhatsApp)
+
+	if !IsValidPhoneNumber(referrerWhatsApp) {
 		return h.sendReferrerError(chatID, flowData, "❌ Неверный формат номера. Введите номер в формате +996555123456")
 	}
-
-	// Очищаем номер
-	referrerWhatsApp = normalizePhone(referrerWhatsApp)
 
 	// Проверяем что клиент не указал свой же номер
 	if referrerWhatsApp == flowData.ClientWhatsApp {
@@ -284,24 +282,22 @@ func (h *Handler) sendReferrerError(chatID int64, flowData *flows.CreateSubForCl
 	return err
 }
 
-// normalizePhone normalizes phone number for comparison
-func normalizePhone(phone string) string {
-	cleaned := strings.ReplaceAll(phone, " ", "")
-	cleaned = strings.ReplaceAll(cleaned, "-", "")
-	cleaned = strings.ReplaceAll(cleaned, "(", "")
-	cleaned = strings.ReplaceAll(cleaned, ")", "")
-	return cleaned
+// NormalizePhone очищает номер телефона, оставляя только цифры и + в начале
+func NormalizePhone(phone string) string {
+	var result strings.Builder
+	for i, r := range phone {
+		if r >= '0' && r <= '9' {
+			result.WriteRune(r)
+		} else if r == '+' && i == 0 {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
 }
 
-// isValidPhoneNumber проверяет что строка похожа на номер телефона
-func isValidPhoneNumber(phone string) bool {
-	// Убираем пробелы и тире
-	cleaned := strings.ReplaceAll(phone, " ", "")
-	cleaned = strings.ReplaceAll(cleaned, "-", "")
-
-	// Проверяем что это похоже на номер телефона
-	// Допускаем формат: +XXXXXXXXXXXX или 0XXXXXXXXX
-	match, _ := regexp.MatchString(`^[\+]?[0-9]{10,15}$`, cleaned)
+// IsValidPhoneNumber проверяет что нормализованный номер телефона валиден
+func IsValidPhoneNumber(normalizedPhone string) bool {
+	match, _ := regexp.MatchString(`^\+?[0-9]{10,15}$`, normalizedPhone)
 	return match
 }
 
