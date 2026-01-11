@@ -752,7 +752,7 @@ func (h *Handler) sendSubscriptionCreated(chatID int64, result *subs.CreateSubsc
 		if result.ReferrerNewExpiresAt != nil {
 			referrerExpiresStr = result.ReferrerNewExpiresAt.Format("02.01.2006")
 		}
-		referrerMessage := fmt.Sprintf("🎉 Сизден жаңы кардар келди!\n\n+1 чакыруу\nБул жумада: %d чакыруу\nСиздин жазылууңуз: %s чейин",
+		referrerMessage := fmt.Sprintf("🎉 Сизден жаңы кардар келди!\n\nБул жумада: %d чакыруу\nСиздин жазылууңузга +10күн кошулду\nэми %s чейин болду",
 			result.ReferrerWeeklyCount,
 			referrerExpiresStr)
 		referrerWhatsappLink := generateWhatsAppLink(*result.ReferrerWhatsApp, referrerMessage)
@@ -1188,7 +1188,7 @@ func (h *Handler) sendSubscriptionCreatedForOrder(chatID int64, result *subs.Cre
 		if result.ReferrerNewExpiresAt != nil {
 			referrerExpiresStr = result.ReferrerNewExpiresAt.Format("02.01.2006")
 		}
-		referrerMessage := fmt.Sprintf("🎉 Сизден жаңы кардар келди!\n\n+1 чакыруу\nБул жумада: %d чакыруу\nСиздин жазылууңуз: %s чейин",
+		referrerMessage := fmt.Sprintf("🎉 Сизден жаңы кардар келди!\n\nБул жумада: %d чакыруу\nСиздин жазылууңузга +10күн кошулду\nэми %s чейин болду",
 			result.ReferrerWeeklyCount,
 			referrerExpiresStr)
 		referrerWhatsappLink := generateWhatsAppLink(*result.ReferrerWhatsApp, referrerMessage)
