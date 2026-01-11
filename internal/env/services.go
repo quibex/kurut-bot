@@ -143,6 +143,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	expirationWorker := expiration.NewWorker(
 		storageImpl,
 		storageImpl, // serverStorage
+		storageImpl, // messageStorage
 		clients.TelegramBot,
 		tariffService,
 		logger,

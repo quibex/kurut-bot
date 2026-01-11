@@ -6,6 +6,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"kurut-bot/internal/stories/servers"
+	"kurut-bot/internal/stories/submessages"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 )
@@ -22,6 +23,11 @@ type (
 	// ServerStorage provides server operations
 	ServerStorage interface {
 		GetServer(ctx context.Context, criteria servers.GetCriteria) (*servers.Server, error)
+	}
+
+	// MessageStorage provides subscription message operations
+	MessageStorage interface {
+		CreateSubscriptionMessage(ctx context.Context, msg submessages.SubscriptionMessage) (*submessages.SubscriptionMessage, error)
 	}
 
 	TelegramBot interface {

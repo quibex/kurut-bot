@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
-	"time"
 
 	"kurut-bot/internal/stories/servers"
+	"kurut-bot/internal/stories/submessages"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/telegram/messages"
@@ -19,23 +19,25 @@ import (
 
 // Worker handles sending notifications about expiring subscriptions
 type Worker struct {
-	storage       Storage
-	serverStorage ServerStorage
-	telegramBot   TelegramBot
-	tariffService TariffService
-	logger        *slog.Logger
-	cron          *cron.Cron
+	storage        Storage
+	serverStorage  ServerStorage
+	messageStorage MessageStorage
+	telegramBot    TelegramBot
+	tariffService  TariffService
+	logger         *slog.Logger
+	cron           *cron.Cron
 }
 
 // NewWorker creates a new expiration worker
-func NewWorker(storage Storage, serverStorage ServerStorage, telegramBot TelegramBot, tariffService TariffService, logger *slog.Logger) *Worker {
+func NewWorker(storage Storage, serverStorage ServerStorage, messageStorage MessageStorage, telegramBot TelegramBot, tariffService TariffService, logger *slog.Logger) *Worker {
 	return &Worker{
-		storage:       storage,
-		serverStorage: serverStorage,
-		telegramBot:   telegramBot,
-		tariffService: tariffService,
-		logger:        logger,
-		cron:          cron.New(),
+		storage:        storage,
+		serverStorage:  serverStorage,
+		messageStorage: messageStorage,
+		telegramBot:    telegramBot,
+		tariffService:  tariffService,
+		logger:         logger,
+		cron:           cron.New(),
 	}
 }
 
@@ -214,81 +216,98 @@ func (w *Worker) sendOverdueNotification(ctx context.Context, assistantTelegramI
 		return nil
 	}
 
-	var sb strings.Builder
-	sb.WriteString("⚠️ *Подписки требуют отключения (не оплачено):*\n\n")
+	// Summary message
+	summaryText := fmt.Sprintf("⚠️ *У вас %d просроченных подписок*\n\nНиже отдельные сообщения для каждой подписки.", len(subscriptions))
+	summaryMsg := tgbotapi.NewMessage(assistantTelegramID, summaryText)
+	summaryMsg.ParseMode = "Markdown"
+	_, _ = w.telegramBot.Send(summaryMsg)
 
-	var allRows [][]tgbotapi.InlineKeyboardButton
-
-	for i, sub := range subscriptions {
-		// Получаем информацию о сервере
-		var server *servers.Server
-		if sub.ServerID != nil {
-			server, _ = w.serverStorage.GetServer(ctx, servers.GetCriteria{ID: sub.ServerID})
-		}
-
-		whatsapp := "Не указан"
-		if sub.ClientWhatsApp != nil {
-			whatsapp = *sub.ClientWhatsApp
-		}
-
-		userID := "Не указан"
-		if sub.GeneratedUserID != nil {
-			userID = *sub.GeneratedUserID
-		}
-
-		password := "N/A"
-		serverName := "N/A"
-		var serverURL string
-		if server != nil {
-			password = server.UIPassword
-			serverName = server.Name
-			serverURL = server.UIURL
-		}
-
-		daysOverdue := 0
-		if sub.ExpiresAt != nil {
-			daysOverdue = int(time.Since(*sub.ExpiresAt).Hours() / 24)
-		}
-
-		sb.WriteString(fmt.Sprintf("%d. Клиент: `%s`\n", i+1, whatsapp))
-		sb.WriteString(fmt.Sprintf("   User ID: `%s`\n", userID))
-		sb.WriteString(fmt.Sprintf("   Пароль: `%s`\n", password))
-		sb.WriteString(fmt.Sprintf("   Сервер: %s\n", serverName))
-		sb.WriteString(fmt.Sprintf("   Просрочено: %d дн.\n\n", daysOverdue))
-
-		// Кнопки для этой подписки (3 в ряд)
-		row := []tgbotapi.InlineKeyboardButton{}
-
-		// 1. WhatsApp
-		if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-			whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, "Здравствуйте! Ваша подписка VPN истекла. Для продолжения работы необходимо оплатить подписку.")
-			row = append(row, tgbotapi.NewInlineKeyboardButtonURL("💬", whatsappLink))
-		}
-
-		// 2. Сервер (URL кнопка)
-		if serverURL != "" {
-			row = append(row, tgbotapi.NewInlineKeyboardButtonURL("🌐", serverURL))
-		}
-
-		// 3. Отключил (callback)
-		row = append(row, tgbotapi.NewInlineKeyboardButtonData("✅ Отключил", fmt.Sprintf("exp_dis:%d", sub.ID)))
-
-		if len(row) > 0 {
-			allRows = append(allRows, row)
+	// Individual messages for each subscription
+	for _, sub := range subscriptions {
+		if err := w.sendOverdueSubscriptionMessage(ctx, assistantTelegramID, sub); err != nil {
+			w.logger.Error("Failed to send overdue subscription message", "error", err, "sub_id", sub.ID)
 		}
 	}
 
-	sb.WriteString("Отключите клиентов в WireGuard и напомните об оплате.")
+	return nil
+}
 
-	msg := tgbotapi.NewMessage(assistantTelegramID, sb.String())
+// sendOverdueSubscriptionMessage sends a message for one overdue subscription
+func (w *Worker) sendOverdueSubscriptionMessage(ctx context.Context, chatID int64, sub *subs.Subscription) error {
+	tariff, _ := w.tariffService.GetTariff(ctx, tariffs.GetCriteria{ID: &sub.TariffID})
+
+	var server *servers.Server
+	if sub.ServerID != nil {
+		server, _ = w.serverStorage.GetServer(ctx, servers.GetCriteria{ID: sub.ServerID})
+	}
+
+	whatsapp := "Не указан"
+	if sub.ClientWhatsApp != nil {
+		whatsapp = *sub.ClientWhatsApp
+	}
+
+	tariffName := "Неизвестный"
+	if tariff != nil {
+		tariffName = tariff.Name
+	}
+
+	passwordLine := ""
+	if server != nil && server.UIPassword != "" {
+		passwordLine = fmt.Sprintf("\n🔐 Пароль: `%s`", server.UIPassword)
+	}
+
+	var text string
+	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, "Здравствуйте! Ваша подписка VPN истекла. Для продолжения работы необходимо оплатить подписку.")
+		text = fmt.Sprintf(
+			"⚠️ *Просроченная подписка*\n\n"+
+				"📱 Клиент: [%s](%s)\n"+
+				"📅 Тариф: %s%s",
+			whatsapp, whatsappLink, tariffName, passwordLine)
+	} else {
+		text = fmt.Sprintf(
+			"⚠️ *Просроченная подписка*\n\n"+
+				"📱 Клиент: `%s`\n"+
+				"📅 Тариф: %s%s",
+			whatsapp, tariffName, passwordLine)
+	}
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+
+	if server != nil && server.UIURL != "" {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("🌐 Сервер", server.UIURL),
+		))
+	}
+
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Отключить", fmt.Sprintf("exp_dis:%d", sub.ID)),
+	))
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
-	if len(allRows) > 0 {
-		keyboard := tgbotapi.NewInlineKeyboardMarkup(allRows...)
-		msg.ReplyMarkup = keyboard
+	msg.ReplyMarkup = keyboard
+	msg.DisableWebPagePreview = true
+
+	sentMsg, err := w.telegramBot.Send(msg)
+	if err != nil {
+		return err
 	}
 
-	_, err := w.telegramBot.Send(msg)
-	return err
+	_, err = w.messageStorage.CreateSubscriptionMessage(ctx, submessages.SubscriptionMessage{
+		SubscriptionID: sub.ID,
+		ChatID:         chatID,
+		MessageID:      sentMsg.MessageID,
+		Type:           submessages.TypeOverdue,
+		IsActive:       true,
+	})
+	if err != nil {
+		w.logger.Error("Failed to save subscription message", "error", err, "sub_id", sub.ID)
+	}
+
+	return nil
 }
 
 // markExpiredSubscriptions marks expired subscriptions as expired in DB

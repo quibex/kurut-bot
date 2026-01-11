@@ -360,13 +360,29 @@ func (s *storageImpl) ListExpiringTodayGroupedByAssistant(ctx context.Context) (
 
 // ListOverdueSubscriptionsGroupedByAssistant returns expired subscriptions grouped by assistant telegram ID
 func (s *storageImpl) ListOverdueSubscriptionsGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error) {
-	subscriptions, err := s.ListExpiredSubscriptions(ctx)
+	now := s.now()
+
+	query := s.stmpBuilder().
+		Select(subscriptionRowFields).
+		From(subscriptionsTable).
+		Where(sq.Eq{"status": string(subs.StatusExpired)}).
+		Where(sq.Lt{"expires_at": now}).
+		OrderBy("expires_at ASC")
+
+	q, args, err := query.ToSql()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var rows []subscriptionRow
+	err = s.db.SelectContext(ctx, &rows, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("db.SelectContext: %w", err)
 	}
 
 	result := make(map[int64][]*subs.Subscription)
-	for _, sub := range subscriptions {
+	for _, row := range rows {
+		sub := row.ToModel()
 		if sub.CreatedByTelegramID != nil {
 			result[*sub.CreatedByTelegramID] = append(result[*sub.CreatedByTelegramID], sub)
 		}
@@ -525,7 +541,7 @@ func (s *storageImpl) ListExpiredSubscriptionsByAssistant(ctx context.Context, a
 	query := s.stmpBuilder().
 		Select(subscriptionRowFields).
 		From(subscriptionsTable).
-		Where(sq.Eq{"status": string(subs.StatusActive)}).
+		Where(sq.Eq{"status": string(subs.StatusExpired)}).
 		Where(sq.Lt{"expires_at": now}).
 		OrderBy("expires_at ASC")
 
