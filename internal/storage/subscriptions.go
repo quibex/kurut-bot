@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"kurut-bot/internal/stories/subs"
@@ -577,10 +578,12 @@ func (s *storageImpl) UpdateSubscriptionTariff(ctx context.Context, subscription
 
 // FindActiveSubscriptionByWhatsApp finds an active subscription by client WhatsApp number
 func (s *storageImpl) FindActiveSubscriptionByWhatsApp(ctx context.Context, whatsapp string) (*subs.Subscription, error) {
+	phoneVariants := normalizePhoneVariants(whatsapp)
+
 	query := s.stmpBuilder().
 		Select(subscriptionRowFields).
 		From(subscriptionsTable).
-		Where(sq.Eq{"client_whatsapp": whatsapp}).
+		Where(sq.Eq{"client_whatsapp": phoneVariants}).
 		Where(sq.Eq{"status": string(subs.StatusActive)}).
 		OrderBy("expires_at DESC").
 		Limit(1)
@@ -600,6 +603,20 @@ func (s *storageImpl) FindActiveSubscriptionByWhatsApp(ctx context.Context, what
 	}
 
 	return sub.ToModel(), nil
+}
+
+func normalizePhoneVariants(phone string) []string {
+	phone = strings.TrimSpace(phone)
+	withPlus := phone
+	withoutPlus := phone
+
+	if strings.HasPrefix(phone, "+") {
+		withoutPlus = strings.TrimPrefix(phone, "+")
+	} else {
+		withPlus = "+" + phone
+	}
+
+	return []string{withPlus, withoutPlus}
 }
 
 // CountWeeklyReferrals counts how many people were invited by referrerWhatsApp this week
