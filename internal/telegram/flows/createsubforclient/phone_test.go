@@ -9,29 +9,29 @@ func TestNormalizePhone(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "already normalized with plus",
+			name:     "with plus - removes it",
 			input:    "+79017250082",
-			expected: "+79017250082",
+			expected: "79017250082",
 		},
 		{
 			name:     "with spaces",
 			input:    "+7 901 725 00 82",
-			expected: "+79017250082",
+			expected: "79017250082",
 		},
 		{
 			name:     "with dashes",
 			input:    "+7-901-725-00-82",
-			expected: "+79017250082",
+			expected: "79017250082",
 		},
 		{
 			name:     "with spaces and dashes",
 			input:    "+7 901 725-00-82",
-			expected: "+79017250082",
+			expected: "79017250082",
 		},
 		{
 			name:     "with parentheses",
 			input:    "+7 (901) 725-00-82",
-			expected: "+79017250082",
+			expected: "79017250082",
 		},
 		{
 			name:     "without plus",
@@ -46,17 +46,12 @@ func TestNormalizePhone(t *testing.T) {
 		{
 			name:     "kyrgyzstan format",
 			input:    "+996555123456",
-			expected: "+996555123456",
+			expected: "996555123456",
 		},
 		{
 			name:     "kyrgyzstan with spaces",
 			input:    "+996 555 123 456",
-			expected: "+996555123456",
-		},
-		{
-			name:     "plus in the middle ignored",
-			input:    "7901+7250082",
-			expected: "79017250082",
+			expected: "996555123456",
 		},
 		{
 			name:     "only digits",
@@ -66,7 +61,7 @@ func TestNormalizePhone(t *testing.T) {
 		{
 			name:     "with dots",
 			input:    "+7.901.725.00.82",
-			expected: "+79017250082",
+			expected: "79017250082",
 		},
 	}
 
@@ -87,18 +82,13 @@ func TestIsValidPhoneNumber(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "valid russian with plus",
-			input:    "+79017250082",
-			expected: true,
-		},
-		{
-			name:     "valid russian without plus",
+			name:     "valid russian",
 			input:    "79017250082",
 			expected: true,
 		},
 		{
 			name:     "valid kyrgyzstan",
-			input:    "+996555123456",
+			input:    "996555123456",
 			expected: true,
 		},
 		{
@@ -108,7 +98,7 @@ func TestIsValidPhoneNumber(t *testing.T) {
 		},
 		{
 			name:     "valid 15 digits",
-			input:    "+123456789012345",
+			input:    "123456789012345",
 			expected: true,
 		},
 		{
@@ -127,18 +117,13 @@ func TestIsValidPhoneNumber(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "only plus",
-			input:    "+",
+			name:     "with plus - invalid after normalize",
+			input:    "+79017250082",
 			expected: false,
 		},
 		{
 			name:     "with letters",
-			input:    "+7901abc0082",
-			expected: false,
-		},
-		{
-			name:     "not normalized - should fail",
-			input:    "+7 901 725 00 82",
+			input:    "7901abc0082",
 			expected: false,
 		},
 	}
@@ -155,27 +140,27 @@ func TestIsValidPhoneNumber(t *testing.T) {
 
 func TestNormalizeAndValidate(t *testing.T) {
 	tests := []struct {
-		name          string
-		input         string
-		wantNorm      string
-		wantValid     bool
+		name      string
+		input     string
+		wantNorm  string
+		wantValid bool
 	}{
 		{
 			name:      "russian with spaces and dashes",
 			input:     "+7 901 725-00-82",
-			wantNorm:  "+79017250082",
+			wantNorm:  "79017250082",
 			wantValid: true,
 		},
 		{
 			name:      "russian with parentheses",
 			input:     "+7 (901) 725-00-82",
-			wantNorm:  "+79017250082",
+			wantNorm:  "79017250082",
 			wantValid: true,
 		},
 		{
 			name:      "kyrgyzstan clean",
 			input:     "+996555123456",
-			wantNorm:  "+996555123456",
+			wantNorm:  "996555123456",
 			wantValid: true,
 		},
 		{
@@ -187,7 +172,7 @@ func TestNormalizeAndValidate(t *testing.T) {
 		{
 			name:      "too short after normalize",
 			input:     "+7 901",
-			wantNorm:  "+7901",
+			wantNorm:  "7901",
 			wantValid: false,
 		},
 	}

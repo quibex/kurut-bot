@@ -578,23 +578,19 @@ func (s *storageImpl) UpdateSubscriptionTariff(ctx context.Context, subscription
 
 // FindActiveSubscriptionByWhatsApp finds an active subscription by client WhatsApp number
 func (s *storageImpl) FindActiveSubscriptionByWhatsApp(ctx context.Context, whatsapp string) (*subs.Subscription, error) {
-	phoneVariants := normalizePhoneVariants(whatsapp)
+	normalized := NormalizePhone(whatsapp)
 
-	query := s.stmpBuilder().
-		Select(subscriptionRowFields).
-		From(subscriptionsTable).
-		Where(sq.Eq{"client_whatsapp": phoneVariants}).
-		Where(sq.Eq{"status": string(subs.StatusActive)}).
-		OrderBy("expires_at DESC").
-		Limit(1)
-
-	q, args, err := query.ToSql()
-	if err != nil {
-		return nil, fmt.Errorf("build sql query: %w", err)
-	}
+	query := `
+		SELECT ` + subscriptionRowFields + `
+		FROM ` + subscriptionsTable + `
+		WHERE REPLACE(REPLACE(REPLACE(client_whatsapp, '+', ''), ' ', ''), '-', '') = ?
+		AND status = ?
+		ORDER BY expires_at DESC
+		LIMIT 1
+	`
 
 	var sub subscriptionRow
-	err = s.db.GetContext(ctx, &sub, q, args...)
+	err := s.db.GetContext(ctx, &sub, query, normalized, string(subs.StatusActive))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -605,18 +601,15 @@ func (s *storageImpl) FindActiveSubscriptionByWhatsApp(ctx context.Context, what
 	return sub.ToModel(), nil
 }
 
-func normalizePhoneVariants(phone string) []string {
-	phone = strings.TrimSpace(phone)
-	withPlus := phone
-	withoutPlus := phone
-
-	if strings.HasPrefix(phone, "+") {
-		withoutPlus = strings.TrimPrefix(phone, "+")
-	} else {
-		withPlus = "+" + phone
+// NormalizePhone returns only digits from phone number
+func NormalizePhone(phone string) string {
+	var result strings.Builder
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			result.WriteRune(r)
+		}
 	}
-
-	return []string{withPlus, withoutPlus}
+	return result.String()
 }
 
 // CountWeeklyReferrals counts how many people were invited by referrerWhatsApp this week

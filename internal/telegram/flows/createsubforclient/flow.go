@@ -282,13 +282,11 @@ func (h *Handler) sendReferrerError(chatID int64, flowData *flows.CreateSubForCl
 	return err
 }
 
-// NormalizePhone очищает номер телефона, оставляя только цифры и + в начале
+// NormalizePhone очищает номер телефона, оставляя только цифры
 func NormalizePhone(phone string) string {
 	var result strings.Builder
-	for i, r := range phone {
+	for _, r := range phone {
 		if r >= '0' && r <= '9' {
-			result.WriteRune(r)
-		} else if r == '+' && i == 0 {
 			result.WriteRune(r)
 		}
 	}
@@ -297,7 +295,7 @@ func NormalizePhone(phone string) string {
 
 // IsValidPhoneNumber проверяет что нормализованный номер телефона валиден
 func IsValidPhoneNumber(normalizedPhone string) bool {
-	match, _ := regexp.MatchString(`^\+?[0-9]{10,15}$`, normalizedPhone)
+	match, _ := regexp.MatchString(`^[0-9]{10,15}$`, normalizedPhone)
 	return match
 }
 
