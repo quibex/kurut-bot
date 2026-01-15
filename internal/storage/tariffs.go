@@ -205,3 +205,30 @@ func (s *storageImpl) DeleteTariff(ctx context.Context, criteria tariffs.DeleteC
 
 	return nil
 }
+
+// GetTrialTariff returns active trial tariff
+func (s *storageImpl) GetTrialTariff(ctx context.Context) (*tariffs.Tariff, error) {
+	query := s.stmpBuilder().
+		Select(tariffRowFields).
+		From(tariffsTable).
+		Where(sq.Eq{"name": "Trial"}).
+		Where(sq.Eq{"price": 0.0}).
+		Where(sq.Eq{"is_active": true}).
+		Limit(1)
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var row tariffRow
+	err = s.db.GetContext(ctx, &row, q, args...)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("db.GetContext: %w", err)
+	}
+
+	return row.ToModel(), nil
+}

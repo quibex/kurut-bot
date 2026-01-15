@@ -32,6 +32,7 @@ type CreateSubForClientFlowData struct {
 	PaymentID              *int64
 	PaymentURL             *string
 	MessageID              *int // ID сообщения для бесшовного редактирования
+	IsTrialEligible        bool // true if client can get trial
 }
 
 // DisableSubFlowData - data for disable sub

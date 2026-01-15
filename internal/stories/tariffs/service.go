@@ -91,23 +91,7 @@ func (s *Service) UpdateTariffStatus(ctx context.Context, tariffID int64, isActi
 	return s.storage.UpdateTariff(ctx, criteria, params)
 }
 
-// GetTrialTariff возвращает активный пробный тариф (бесплатный)
+// GetTrialTariff returns active trial tariff
 func (s *Service) GetTrialTariff(ctx context.Context) (*Tariff, error) {
-	criteria := ListCriteria{
-		IsActive: lo.ToPtr(true),
-		Limit:    100,
-	}
-	allTariffs, err := s.storage.ListTariffs(ctx, criteria)
-	if err != nil {
-		return nil, err
-	}
-
-	// Ищем бесплатный тариф
-	for _, t := range allTariffs {
-		if t.Price == 0 {
-			return t, nil
-		}
-	}
-
-	return nil, nil
+	return s.storage.GetTrialTariff(ctx)
 }

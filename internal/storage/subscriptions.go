@@ -358,6 +358,23 @@ func (s *storageImpl) ListExpiringTodayGroupedByAssistant(ctx context.Context) (
 	return result, nil
 }
 
+// ListExpiringByAssistantAndDays returns subscriptions expiring in N days grouped by assistant telegram ID
+func (s *storageImpl) ListExpiringByAssistantAndDays(ctx context.Context, daysUntilExpiry int) (map[int64][]*subs.Subscription, error) {
+	subscriptions, err := s.ListExpiringSubscriptions(ctx, daysUntilExpiry)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[int64][]*subs.Subscription)
+	for _, sub := range subscriptions {
+		if sub.CreatedByTelegramID != nil {
+			result[*sub.CreatedByTelegramID] = append(result[*sub.CreatedByTelegramID], sub)
+		}
+	}
+
+	return result, nil
+}
+
 // ListOverdueSubscriptionsGroupedByAssistant returns expired subscriptions grouped by assistant telegram ID
 func (s *storageImpl) ListOverdueSubscriptionsGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error) {
 	now := s.now()
@@ -626,6 +643,25 @@ func NormalizePhone(phone string) string {
 		}
 	}
 	return result.String()
+}
+
+// HasUsedTrialByPhone checks if client has used trial by phone number
+func (s *storageImpl) HasUsedTrialByPhone(ctx context.Context, phoneNumber string) (bool, error) {
+	normalized := NormalizePhone(phoneNumber)
+
+	query := `
+		SELECT COUNT(*)
+		FROM subscriptions
+		WHERE REPLACE(REPLACE(REPLACE(client_whatsapp, '+', ''), ' ', ''), '-', '') = ?
+	`
+
+	var count int
+	err := s.db.GetContext(ctx, &count, query, normalized)
+	if err != nil {
+		return false, fmt.Errorf("db.GetContext: %w", err)
+	}
+
+	return count > 0, nil
 }
 
 // CountWeeklyReferrals counts how many people were invited by referrerWhatsApp this week

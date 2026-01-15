@@ -22,7 +22,6 @@ import (
 	"kurut-bot/internal/telegram/states"
 	"kurut-bot/internal/workers"
 	"kurut-bot/internal/workers/expiration"
-	"kurut-bot/internal/workers/notification"
 
 	"github.com/pkg/errors"
 )
@@ -73,6 +72,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		stateManager,
 		tariffService,
 		createSubService,
+		storageImpl, // subscriptionStorage для проверки trial
 		paymentService,
 		orderService,
 		logger,
@@ -107,6 +107,16 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		storageImpl,
 	)
 
+	// Создаем expirationNotificationService
+	expirationNotificationService := cmds.NewExpirationNotificationService(
+		clients.TelegramBot.GetBotAPI(),
+		tariffService,
+		storageImpl, // serverStorage
+		storageImpl, // messageStorage
+		paymentService,
+		logger,
+	)
+
 	// Создаем expirationCommand
 	expirationCommand := cmds.NewExpirationCommand(
 		clients.TelegramBot.GetBotAPI(),
@@ -115,6 +125,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		tariffService,
 		paymentService,
 		storageImpl, // messageStorage
+		expirationNotificationService,
 		logger,
 	)
 
@@ -139,20 +150,11 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		storageImpl,
 	)
 
-	// Создаем воркеры (до роутера, чтобы передать в роутер)
+	// Создаем expiration worker
 	expirationWorker := expiration.NewWorker(
 		storageImpl,
-		storageImpl, // serverStorage
-		storageImpl, // messageStorage
 		clients.TelegramBot,
-		tariffService,
-		logger,
-	)
-
-	notificationWorker := notification.NewWorker(
-		storageImpl,
-		clients.TelegramBot,
-		tariffService,
+		expirationNotificationService,
 		logger,
 	)
 
@@ -177,7 +179,6 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	s.WorkerManager = workers.NewManager(
 		logger,
 		expirationWorker,
-		notificationWorker,
 	)
 
 	return &s, nil

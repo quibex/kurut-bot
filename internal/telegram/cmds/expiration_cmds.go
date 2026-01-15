@@ -19,13 +19,14 @@ import (
 )
 
 type ExpirationCommand struct {
-	bot            *tgbotapi.BotAPI
-	subStorage     ExpirationSubStorage
-	serverStorage  ExpirationServerStorage
-	tariffService  ExpirationTariffService
-	paymentService ExpirationPaymentService
-	messageStorage ExpirationMessageStorage
-	logger         *slog.Logger
+	bot                 *tgbotapi.BotAPI
+	subStorage          ExpirationSubStorage
+	serverStorage       ExpirationServerStorage
+	tariffService       ExpirationTariffService
+	paymentService      ExpirationPaymentService
+	messageStorage      ExpirationMessageStorage
+	notificationService *ExpirationNotificationService
+	logger              *slog.Logger
 }
 
 type ExpirationSubStorage interface {
@@ -74,16 +75,18 @@ func NewExpirationCommand(
 	tariffService ExpirationTariffService,
 	paymentService ExpirationPaymentService,
 	messageStorage ExpirationMessageStorage,
+	notificationService *ExpirationNotificationService,
 	logger *slog.Logger,
 ) *ExpirationCommand {
 	return &ExpirationCommand{
-		bot:            bot,
-		subStorage:     subStorage,
-		serverStorage:  serverStorage,
-		tariffService:  tariffService,
-		paymentService: paymentService,
-		messageStorage: messageStorage,
-		logger:         logger,
+		bot:                 bot,
+		subStorage:          subStorage,
+		serverStorage:       serverStorage,
+		tariffService:       tariffService,
+		paymentService:      paymentService,
+		messageStorage:      messageStorage,
+		notificationService: notificationService,
+		logger:              logger,
 	}
 }
 
@@ -205,20 +208,6 @@ func (c *ExpirationCommand) HandleCallback(ctx context.Context, callbackQuery *t
 			return c.answerCallback(callbackQuery.ID, "Неверный ID подписки")
 		}
 		return c.handleTariffBack(ctx, callbackQuery, chatID, messageID, subID)
-	case "exp_decline":
-		// exp_decline:subID - клиент отказался от продления
-		subID, err := strconv.ParseInt(parts[1], 10, 64)
-		if err != nil {
-			return c.answerCallback(callbackQuery.ID, "Неверный ID подписки")
-		}
-		return c.handleDecline(ctx, callbackQuery, chatID, messageID, subID)
-	case "exp_declined_done":
-		// exp_declined_done:subID - подтверждение отключения после отказа
-		subID, err := strconv.ParseInt(parts[1], 10, 64)
-		if err != nil {
-			return c.answerCallback(callbackQuery.ID, "Неверный ID подписки")
-		}
-		return c.handleDeclinedDone(ctx, callbackQuery, chatID, messageID, subID)
 	default:
 		// Старые callbacks для совместимости
 		if strings.HasPrefix(callbackData, "exp_chk:") || strings.HasPrefix(callbackData, "exp_pay:") {
@@ -243,93 +232,11 @@ func (c *ExpirationCommand) sendOverdueMessages(ctx context.Context, chatID int6
 	summaryMsg.ParseMode = "Markdown"
 	_, _ = c.bot.Send(summaryMsg)
 
-	// Отдельные сообщения для каждой подписки
+	// Отдельные сообщения для каждой подписки через notification service
 	for _, sub := range subscriptions {
-		if err := c.sendOverdueSubscriptionMessage(ctx, chatID, sub); err != nil {
+		if err := c.notificationService.SendOverdueSubscriptionMessage(ctx, chatID, sub); err != nil {
 			c.logger.Error("Failed to send overdue subscription message", "error", err, "sub_id", sub.ID)
 		}
-	}
-
-	return nil
-}
-
-// sendOverdueSubscriptionMessage отправляет сообщение для одной просроченной подписки
-func (c *ExpirationCommand) sendOverdueSubscriptionMessage(ctx context.Context, chatID int64, sub *subs.Subscription) error {
-	tariff, _ := c.tariffService.GetTariff(ctx, tariffs.GetCriteria{ID: &sub.TariffID})
-
-	var server *servers.Server
-	if sub.ServerID != nil {
-		server, _ = c.serverStorage.GetServer(ctx, servers.GetCriteria{ID: sub.ServerID})
-	}
-
-	whatsapp := "Не указан"
-	if sub.ClientWhatsApp != nil {
-		whatsapp = *sub.ClientWhatsApp
-	}
-
-	tariffName := "Неизвестный"
-	if tariff != nil {
-		tariffName = tariff.Name
-	}
-
-	// Формируем строку пароля если есть сервер
-	passwordLine := ""
-	if server != nil && server.UIPassword != "" {
-		passwordLine = fmt.Sprintf("\n🔐 Пароль: `%s`", server.UIPassword)
-	}
-
-	// Формируем текст со ссылкой на WhatsApp в номере клиента
-	var text string
-	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, "Здравствуйте! Ваша подписка VPN истекла. Для продолжения работы необходимо оплатить подписку.")
-		text = fmt.Sprintf(
-			"⚠️ *Просроченная подписка*\n\n"+
-				"📱 Клиент: [%s](%s)\n"+
-				"📅 Тариф: %s%s",
-			whatsapp, whatsappLink, tariffName, passwordLine)
-	} else {
-		text = fmt.Sprintf(
-			"⚠️ *Просроченная подписка*\n\n"+
-				"📱 Клиент: `%s`\n"+
-				"📅 Тариф: %s%s",
-			whatsapp, tariffName, passwordLine)
-	}
-
-	// Кнопки до отключения: Сервер, Отключить
-	var rows [][]tgbotapi.InlineKeyboardButton
-
-	if server != nil && server.UIURL != "" {
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonURL("🌐 Сервер", server.UIURL),
-		))
-	}
-
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("❌ Отключить", fmt.Sprintf("exp_dis:%d", sub.ID)),
-	))
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
-
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = keyboard
-	msg.DisableWebPagePreview = true
-
-	sentMsg, err := c.bot.Send(msg)
-	if err != nil {
-		return err
-	}
-
-	// Сохраняем сообщение в БД для отслеживания конфликтов
-	_, err = c.messageStorage.CreateSubscriptionMessage(ctx, submessages.SubscriptionMessage{
-		SubscriptionID: sub.ID,
-		ChatID:         chatID,
-		MessageID:      sentMsg.MessageID,
-		Type:           submessages.TypeOverdue,
-		IsActive:       true,
-	})
-	if err != nil {
-		c.logger.Error("Failed to save subscription message", "error", err, "sub_id", sub.ID)
 	}
 
 	return nil
@@ -343,83 +250,12 @@ func (c *ExpirationCommand) sendExpiringMessages(ctx context.Context, chatID int
 	summaryMsg.ParseMode = "Markdown"
 	_, _ = c.bot.Send(summaryMsg)
 
-	// Отдельные сообщения для каждой подписки
+	// Отдельные сообщения для каждой подписки через notification service
+	// Передаем 0 потому что команда /expiring показывает подписки истекающие сегодня
 	for _, sub := range subscriptions {
-		if err := c.sendExpiringSubscriptionMessage(ctx, chatID, sub); err != nil {
+		if err := c.notificationService.SendExpiringSubscriptionMessage(ctx, chatID, sub, 0); err != nil {
 			c.logger.Error("Failed to send expiring subscription message", "error", err, "sub_id", sub.ID)
 		}
-	}
-
-	return nil
-}
-
-// sendExpiringSubscriptionMessage отправляет сообщение для одной истекающей подписки
-func (c *ExpirationCommand) sendExpiringSubscriptionMessage(ctx context.Context, chatID int64, sub *subs.Subscription) error {
-	tariff, _ := c.tariffService.GetTariff(ctx, tariffs.GetCriteria{ID: &sub.TariffID})
-
-	whatsapp := "Не указан"
-	if sub.ClientWhatsApp != nil {
-		whatsapp = *sub.ClientWhatsApp
-	}
-
-	tariffName := "Неизвестный"
-	price := 0.0
-	if tariff != nil {
-		tariffName = tariff.Name
-		price = tariff.Price
-	}
-
-	// Формируем текст со ссылкой на WhatsApp в номере клиента
-	var text string
-	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgToday)
-		text = fmt.Sprintf(
-			"🔔 *Подписка истекает сегодня*\n\n"+
-				"📱 Клиент: [%s](%s)\n"+
-				"📅 Тариф: %s (%.0f ₽)",
-			whatsapp, whatsappLink, tariffName, price)
-	} else {
-		text = fmt.Sprintf(
-			"🔔 *Подписка истекает сегодня*\n\n"+
-				"📱 Клиент: `%s`\n"+
-				"📅 Тариф: %s (%.0f ₽)",
-			whatsapp, tariffName, price)
-	}
-
-	// Кнопки: Сменить тариф, Ссылка/Оплачено, Отказ
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📋 Сменить тариф", fmt.Sprintf("exp_tariff:%d", sub.ID)),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔗 Ссылка", fmt.Sprintf("exp_link:%d", sub.ID)),
-			tgbotapi.NewInlineKeyboardButtonData(c.paidButtonText(), fmt.Sprintf("exp_paid:%d", sub.ID)),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("❌ Отказ", fmt.Sprintf("exp_decline:%d", sub.ID)),
-		),
-	)
-
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = keyboard
-	msg.DisableWebPagePreview = true
-
-	sentMsg, err := c.bot.Send(msg)
-	if err != nil {
-		return err
-	}
-
-	// Сохраняем сообщение в БД для отслеживания конфликтов
-	_, err = c.messageStorage.CreateSubscriptionMessage(ctx, submessages.SubscriptionMessage{
-		SubscriptionID: sub.ID,
-		ChatID:         chatID,
-		MessageID:      sentMsg.MessageID,
-		Type:           submessages.TypeExpiring,
-		IsActive:       true,
-	})
-	if err != nil {
-		c.logger.Error("Failed to save subscription message", "error", err, "sub_id", sub.ID)
 	}
 
 	return nil
@@ -758,128 +594,6 @@ func (c *ExpirationCommand) handleCheckPayment(ctx context.Context, callbackQuer
 	return c.updateToRenewedMessage(ctx, chatID, messageID, sub, tariff, wasDisabled)
 }
 
-// handleDecline - кнопка "Отказ" (клиент отказался от продления)
-func (c *ExpirationCommand) handleDecline(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery, chatID int64, messageID int, subID int64) error {
-	// Получить подписку для информации
-	sub, err := c.subStorage.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{subID}})
-	if err != nil || sub == nil {
-		return c.answerCallback(callbackQuery.ID, "Подписка не найдена")
-	}
-
-	// Получаем сервер
-	var server *servers.Server
-	if sub.ServerID != nil {
-		server, _ = c.serverStorage.GetServer(ctx, servers.GetCriteria{ID: sub.ServerID})
-	}
-
-	whatsapp := "Не указан"
-	if sub.ClientWhatsApp != nil {
-		whatsapp = *sub.ClientWhatsApp
-	}
-
-	userID := "Не указан"
-	if sub.GeneratedUserID != nil {
-		userID = *sub.GeneratedUserID
-	}
-
-	password := "N/A"
-	serverName := "N/A"
-	if server != nil {
-		password = server.UIPassword
-		serverName = server.Name
-	}
-
-	// Ответить на callback
-	if err := c.answerCallback(callbackQuery.ID, "Отмечено как отказ"); err != nil {
-		c.logger.Error("Failed to answer callback", "error", err)
-	}
-
-	// Формируем текст с информацией для отключения
-	text := fmt.Sprintf(
-		"❌ *Отказ от продления*\n\n"+
-			"📱 Клиент: `%s`\n"+
-			"👤 User ID: `%s`\n"+
-			"🔐 Пароль: `%s`\n"+
-			"🖥 Сервер: %s\n",
-		whatsapp, userID, password, serverName)
-
-	// Кнопки: Сервер и Отключил
-	var rows [][]tgbotapi.InlineKeyboardButton
-
-	if server != nil && server.UIURL != "" {
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonURL("🌐 Сервер", server.UIURL),
-		))
-	}
-
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("✅ Отключил", fmt.Sprintf("exp_declined_done:%d", sub.ID)),
-	))
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
-
-	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
-	edit.ParseMode = "Markdown"
-	edit.ReplyMarkup = &keyboard
-	_, err = c.bot.Send(edit)
-	return err
-}
-
-// handleDeclinedDone - кнопка "Отключил" после отказа от продления
-func (c *ExpirationCommand) handleDeclinedDone(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery, chatID int64, messageID int, subID int64) error {
-	// Получить подписку
-	sub, err := c.subStorage.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{subID}})
-	if err != nil || sub == nil {
-		c.logger.Error("Failed to get subscription", "error", err, "sub_id", subID)
-		return c.answerCallback(callbackQuery.ID, "Подписка не найдена")
-	}
-
-	// Установить статус disabled
-	disabledStatus := subs.StatusDisabled
-	_, err = c.subStorage.UpdateSubscription(ctx, subs.GetCriteria{IDs: []int64{subID}}, subs.UpdateParams{
-		Status: &disabledStatus,
-	})
-	if err != nil {
-		c.logger.Error("Failed to disable subscription", "error", err, "sub_id", subID)
-		return c.answerCallback(callbackQuery.ID, "Ошибка обновления")
-	}
-
-	// Уменьшить current_users на сервере
-	if sub.ServerID != nil {
-		if err := c.serverStorage.DecrementServerUsers(ctx, *sub.ServerID); err != nil {
-			c.logger.Error("Failed to decrement server users", "error", err, "server_id", *sub.ServerID)
-		}
-	}
-
-	c.logger.Info("Subscription disabled after decline", "sub_id", subID)
-
-	// Деактивируем запись в subscription_messages
-	subMsg, _ := c.messageStorage.GetSubscriptionMessageByChatAndMessageID(ctx, chatID, messageID)
-	if subMsg != nil {
-		if err := c.messageStorage.DeactivateSubscriptionMessage(ctx, subMsg.ID); err != nil {
-			c.logger.Error("Failed to deactivate subscription message", "error", err)
-		}
-	}
-
-	// Ответить на callback
-	if err := c.answerCallback(callbackQuery.ID, "✅ Подписка отключена"); err != nil {
-		c.logger.Error("Failed to answer callback", "error", err)
-	}
-
-	// Обновить сообщение
-	whatsapp := "Не указан"
-	if sub.ClientWhatsApp != nil {
-		whatsapp = *sub.ClientWhatsApp
-	}
-
-	text := fmt.Sprintf("🚫 *Подписка отключена (отказ)*\n\n📱 Клиент: `%s`", whatsapp)
-
-	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
-	edit.ParseMode = "Markdown"
-	_, err = c.bot.Send(edit)
-	return err
-}
-
 // updateToRenewedMessage обновляет сообщение после продления подписки
 func (c *ExpirationCommand) updateToRenewedMessage(ctx context.Context, chatID int64, messageID int, sub *subs.Subscription, tariff *tariffs.Tariff, wasDisabled bool) error {
 	var server *servers.Server
@@ -1084,7 +798,7 @@ func (c *ExpirationCommand) handleSetTariff(ctx context.Context, callbackQuery *
 		}
 	}
 
-	// Кнопки: Сменить тариф, Ссылка/Оплачено (+ Отказ только для expiring)
+	// Кнопки: Сменить тариф, Ссылка/Оплачено
 	var rows [][]tgbotapi.InlineKeyboardButton
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("📋 Сменить тариф", fmt.Sprintf("exp_tariff:%d", sub.ID)),
@@ -1093,13 +807,6 @@ func (c *ExpirationCommand) handleSetTariff(ctx context.Context, callbackQuery *
 		tgbotapi.NewInlineKeyboardButtonData("🔗 Ссылка", fmt.Sprintf("exp_link:%d", sub.ID)),
 		tgbotapi.NewInlineKeyboardButtonData(c.paidButtonText(), fmt.Sprintf("exp_paid:%d", sub.ID)),
 	))
-
-	// Кнопка "Отказ" только для expiring (для overdue подписка уже отключена)
-	if msgType == submessages.TypeExpiring {
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("❌ Отказ", fmt.Sprintf("exp_decline:%d", sub.ID)),
-		))
-	}
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
 
@@ -1211,9 +918,6 @@ func (c *ExpirationCommand) updateToExpiringMessage(ctx context.Context, chatID 
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔗 Ссылка", fmt.Sprintf("exp_link:%d", sub.ID)),
 			tgbotapi.NewInlineKeyboardButtonData(c.paidButtonText(), fmt.Sprintf("exp_paid:%d", sub.ID)),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("❌ Отказ", fmt.Sprintf("exp_decline:%d", sub.ID)),
 		),
 	)
 

@@ -16,8 +16,15 @@ type (
 	Storage interface {
 		ListExpiredSubscriptions(ctx context.Context) ([]*subs.Subscription, error)
 		ListExpiringTodayGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error)
+		ListExpiringByAssistantAndDays(ctx context.Context, daysUntilExpiry int) (map[int64][]*subs.Subscription, error)
 		ListOverdueSubscriptionsGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error)
 		UpdateSubscription(ctx context.Context, criteria subs.GetCriteria, params subs.UpdateParams) (*subs.Subscription, error)
+	}
+
+	// NotificationService provides notification functionality
+	NotificationService interface {
+		SendOverdueSubscriptionMessage(ctx context.Context, chatID int64, sub *subs.Subscription) error
+		SendExpiringSubscriptionMessage(ctx context.Context, chatID int64, sub *subs.Subscription, daysUntilExpiry int) error
 	}
 
 	// ServerStorage provides server operations

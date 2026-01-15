@@ -27,11 +27,16 @@ type (
 
 	tariffService interface {
 		GetActiveTariffs(ctx context.Context) ([]*tariffs.Tariff, error)
+		GetTrialTariff(ctx context.Context) (*tariffs.Tariff, error)
 	}
 
 	subscriptionService interface {
 		CreateSubscription(ctx context.Context, req *subs.CreateSubscriptionRequest) (*subs.CreateSubscriptionResult, error)
 		FindActiveSubscriptionByWhatsApp(ctx context.Context, whatsapp string) (*subs.Subscription, error)
+	}
+
+	subscriptionStorage interface {
+		HasUsedTrialByPhone(ctx context.Context, phoneNumber string) (bool, error)
 	}
 
 	paymentService interface {

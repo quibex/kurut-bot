@@ -24,6 +24,7 @@ type Handler struct {
 	stateManager        stateManager
 	tariffService       tariffService
 	subscriptionService subscriptionService
+	subscriptionStorage subscriptionStorage
 	paymentService      paymentService
 	orderService        orderService
 	logger              *slog.Logger
@@ -34,6 +35,7 @@ func NewHandler(
 	sm stateManager,
 	ts tariffService,
 	ss subscriptionService,
+	storage subscriptionStorage,
 	ps paymentService,
 	os orderService,
 	logger *slog.Logger,
@@ -43,6 +45,7 @@ func NewHandler(
 		stateManager:        sm,
 		tariffService:       ts,
 		subscriptionService: ss,
+		subscriptionStorage: storage,
 		paymentService:      ps,
 		orderService:        os,
 		logger:              logger,
@@ -106,6 +109,18 @@ func (h *Handler) handleWhatsAppInput(ctx context.Context, update *tgbotapi.Upda
 
 	// Сохраняем WhatsApp номер
 	flowData.ClientWhatsApp = whatsapp
+
+	// Проверяем право на trial
+	hasUsedTrial, err := h.subscriptionStorage.HasUsedTrialByPhone(ctx, whatsapp)
+	if err != nil {
+		h.logger.Warn("Failed to check trial status", "error", err, "whatsapp", whatsapp)
+		flowData.IsTrialEligible = false
+	} else {
+		flowData.IsTrialEligible = !hasUsedTrial
+		if flowData.IsTrialEligible {
+			h.logger.Info("Client eligible for trial", "whatsapp", whatsapp)
+		}
+	}
 
 	// Переводим в состояние ввода реферала
 	h.stateManager.SetState(chatID, states.AdminCreateSubWaitReferrer, flowData)
@@ -301,22 +316,34 @@ func IsValidPhoneNumber(normalizedPhone string) bool {
 
 func (h *Handler) showTariffs(chatID int64) error {
 	ctx := context.Background()
+
+	// Получаем данные флоу
+	flowData, _ := h.stateManager.GetCreateSubForClientData(chatID)
+
+	// Получаем платные тарифы
 	tariffsList, err := h.tariffService.GetActiveTariffs(ctx)
 	if err != nil {
 		return fmt.Errorf("ошибка получения тарифов: %w", err)
 	}
 
-	if len(tariffsList) == 0 {
-		// Очищаем состояние пользователя
-		h.stateManager.Clear(chatID)
+	// Если клиент имеет право на trial - добавляем trial тариф в начало списка
+	if flowData != nil && flowData.IsTrialEligible {
+		trialTariff, err := h.tariffService.GetTrialTariff(ctx)
+		if err != nil {
+			h.logger.Error("Failed to get trial tariff", "error", err)
+		} else if trialTariff != nil {
+			h.logger.Info("Adding trial tariff to list", "whatsapp", flowData.ClientWhatsApp)
+			// Добавляем trial в начало списка
+			tariffsList = append([]*tariffs.Tariff{trialTariff}, tariffsList...)
+		}
+	}
 
+	if len(tariffsList) == 0 {
+		h.stateManager.Clear(chatID)
 		msg := tgbotapi.NewMessage(chatID, "❌ К сожалению, активных тарифов сейчас нет")
 		_, err = h.bot.Send(msg)
 		return err
 	}
-
-	// Получаем данные флоу
-	flowData, _ := h.stateManager.GetCreateSubForClientData(chatID)
 
 	// Создаем клавиатуру с тарифами
 	keyboard := h.createTariffsKeyboard(tariffsList)
@@ -324,13 +351,11 @@ func (h *Handler) showTariffs(chatID int64) error {
 	msg := tgbotapi.NewMessage(chatID, "📅 Выберите тариф:")
 	msg.ReplyMarkup = keyboard
 
-	// Отправляем сообщение и сохраняем его ID
 	sentMsg, err := h.bot.Send(msg)
 	if err != nil {
 		return err
 	}
 
-	// Сохраняем MessageID
 	if flowData != nil {
 		flowData.MessageID = &sentMsg.MessageID
 		h.stateManager.SetState(chatID, states.AdminCreateSubWaitTariff, flowData)
