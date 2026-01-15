@@ -72,11 +72,17 @@ func (s *Service) UnarchiveServer(ctx context.Context, serverID int64) (*Server,
 	return updated, nil
 }
 
-func (s *Service) DecrementServerUsers(ctx context.Context, serverID int64) error {
-	err := s.storage.DecrementServerUsers(ctx, serverID)
+// GetActiveUsersCount возвращает количество активных подписок на сервере
+func (s *Service) GetActiveUsersCount(ctx context.Context, serverID int64) (int, error) {
+	count, err := s.storage.GetActiveUsersCountByServer(ctx, serverID)
 	if err != nil {
-		return errors.Wrap(err, "failed to decrement server users")
+		return 0, errors.Wrap(err, "failed to get active users count")
 	}
+	return count, nil
+}
 
+// DecrementServerUsers deprecated - счетчик теперь считается динамически
+func (s *Service) DecrementServerUsers(ctx context.Context, serverID int64) error {
+	// Оставлено для обратной совместимости, но больше не используется
 	return nil
 }

@@ -22,6 +22,7 @@ type serverService interface {
 	ListServers(ctx context.Context, criteria servers.ListCriteria) ([]*servers.Server, error)
 	ArchiveServer(ctx context.Context, serverID int64) (*servers.Server, error)
 	UnarchiveServer(ctx context.Context, serverID int64) (*servers.Server, error)
+	GetActiveUsersCount(ctx context.Context, serverID int64) (int, error)
 }
 
 func NewServersCommand(
@@ -66,9 +67,16 @@ func (c *ServersCommand) showServersList(ctx context.Context, chatID int64, mess
 	if len(activeServers) > 0 {
 		text.WriteString("*Активные серверы:*\n")
 		for _, s := range activeServers {
+			// Получаем реальное количество активных подписок
+			activeCount, err := c.serverService.GetActiveUsersCount(ctx, s.ID)
+			if err != nil {
+				c.logger.Error("Failed to get active users count", "error", err, "server_id", s.ID)
+				activeCount = s.CurrentUsers // Fallback на старое значение в случае ошибки
+			}
+
 			percent := 0.0
 			if s.MaxUsers > 0 {
-				percent = float64(s.CurrentUsers) / float64(s.MaxUsers) * 100
+				percent = float64(activeCount) / float64(s.MaxUsers) * 100
 			}
 			// Выбираем иконку в зависимости от загрузки
 			icon := "🟢"
@@ -79,7 +87,7 @@ func (c *ServersCommand) showServersList(ctx context.Context, chatID int64, mess
 				icon = "🔴"
 			}
 			text.WriteString(fmt.Sprintf("%s *%s:* %d/%d (%.0f%%)\n",
-				icon, s.Name, s.CurrentUsers, s.MaxUsers, percent))
+				icon, s.Name, activeCount, s.MaxUsers, percent))
 		}
 		text.WriteString("\n")
 	} else {
@@ -89,8 +97,14 @@ func (c *ServersCommand) showServersList(ctx context.Context, chatID int64, mess
 	if len(archivedServers) > 0 {
 		text.WriteString("*Архивные серверы:*\n")
 		for _, s := range archivedServers {
+			// Получаем реальное количество активных подписок для архивных серверов
+			activeCount, err := c.serverService.GetActiveUsersCount(ctx, s.ID)
+			if err != nil {
+				c.logger.Error("Failed to get active users count", "error", err, "server_id", s.ID)
+				activeCount = s.CurrentUsers // Fallback
+			}
 			text.WriteString(fmt.Sprintf("📦 *%s:* %d/%d\n",
-				s.Name, s.CurrentUsers, s.MaxUsers))
+				s.Name, activeCount, s.MaxUsers))
 		}
 		text.WriteString("\n")
 	}

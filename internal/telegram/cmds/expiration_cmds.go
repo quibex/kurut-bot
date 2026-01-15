@@ -42,8 +42,7 @@ type ExpirationSubStorage interface {
 
 type ExpirationServerStorage interface {
 	GetServer(ctx context.Context, criteria servers.GetCriteria) (*servers.Server, error)
-	DecrementServerUsers(ctx context.Context, serverID int64) error
-	IncrementServerUsers(ctx context.Context, serverID int64) error
+	// IncrementServerUsers и DecrementServerUsers больше не нужны - счетчик считается динамически
 }
 
 type ExpirationTariffService interface {
@@ -288,12 +287,7 @@ func (c *ExpirationCommand) handleDisable(ctx context.Context, callbackQuery *tg
 		return c.answerCallback(callbackQuery.ID, "Ошибка обновления")
 	}
 
-	// 3. Уменьшить current_users на сервере
-	if sub.ServerID != nil {
-		if err := c.serverStorage.DecrementServerUsers(ctx, *sub.ServerID); err != nil {
-			c.logger.Error("Failed to decrement server users", "error", err, "server_id", *sub.ServerID)
-		}
-	}
+	// 3. Счетчик пользователей на сервере теперь считается динамически (не нужен декремент)
 
 	c.logger.Info("Subscription disabled", "sub_id", subID)
 
@@ -575,12 +569,7 @@ func (c *ExpirationCommand) handleCheckPayment(ctx context.Context, callbackQuer
 		c.logger.Error("Failed to update subscription status", "error", err, "sub_id", subID)
 	}
 
-	// 7. Увеличить счетчик на сервере если был disabled
-	if sub.Status == subs.StatusDisabled && sub.ServerID != nil {
-		if err := c.serverStorage.IncrementServerUsers(ctx, *sub.ServerID); err != nil {
-			c.logger.Error("Failed to increment server users", "error", err, "server_id", *sub.ServerID)
-		}
-	}
+	// 7. Счетчик пользователей на сервере теперь считается динамически (не нужен инкремент)
 
 	c.logger.Info("Subscription extended", "sub_id", subID, "days", tariff.DurationDays)
 

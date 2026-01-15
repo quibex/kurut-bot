@@ -182,31 +182,66 @@ func (s *storageImpl) UpdateServer(ctx context.Context, criteria servers.GetCrit
 	return s.GetServer(ctx, criteria)
 }
 
-// GetAvailableServer returns a server with available capacity (not archived, current_users < max_users)
+// GetAvailableServer returns a server with available capacity (not archived, active users < max_users)
+// Counts active subscriptions dynamically instead of using current_users field
 func (s *storageImpl) GetAvailableServer(ctx context.Context) (*servers.Server, error) {
+	// Получаем все неархивированные серверы
 	query := s.stmpBuilder().
 		Select(serverRowFields).
 		From(serversTable).
-		Where(sq.Eq{"archived": false}).
-		Where("current_users < max_users").
-		OrderBy("current_users ASC"). // Балансировка: выбираем сервер с минимальной загрузкой
-		Limit(1)
+		Where(sq.Eq{"archived": false})
 
 	q, args, err := query.ToSql()
 	if err != nil {
 		return nil, fmt.Errorf("build sql query: %w", err)
 	}
 
-	var srv serverRow
-	err = s.db.GetContext(ctx, &srv, q, args...)
+	var serverRows []serverRow
+	err = s.db.SelectContext(ctx, &serverRows, q, args...)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("db.GetContext: %w", err)
+		return nil, fmt.Errorf("db.SelectContext: %w", err)
 	}
 
-	return srv.ToModel(), nil
+	if len(serverRows) == 0 {
+		return nil, nil
+	}
+
+	// Для каждого сервера считаем активные подписки
+	type serverWithLoad struct {
+		server     *servers.Server
+		activeLoad int
+	}
+
+	var availableServers []serverWithLoad
+	for _, row := range serverRows {
+		activeCount, err := s.GetActiveUsersCountByServer(ctx, row.ID)
+		if err != nil {
+			continue // пропускаем сервер при ошибке
+		}
+
+		srv := row.ToModel()
+		// Проверяем что есть место
+		if activeCount < srv.MaxUsers {
+			availableServers = append(availableServers, serverWithLoad{
+				server:     srv,
+				activeLoad: activeCount,
+			})
+		}
+	}
+
+	if len(availableServers) == 0 {
+		return nil, nil
+	}
+
+	// Выбираем сервер с минимальной загрузкой (балансировка)
+	minLoadServer := availableServers[0]
+	for _, s := range availableServers {
+		if s.activeLoad < minLoadServer.activeLoad {
+			minLoadServer = s
+		}
+	}
+
+	return minLoadServer.server, nil
 }
 
 // IncrementServerUsers увеличивает счетчик пользователей на сервере
@@ -253,4 +288,21 @@ func (s *storageImpl) DecrementServerUsers(ctx context.Context, serverID int64) 
 // GetServerByID возвращает сервер по ID (упрощённая обёртка над GetServer)
 func (s *storageImpl) GetServerByID(ctx context.Context, serverID int64) (*servers.Server, error) {
 	return s.GetServer(ctx, servers.GetCriteria{ID: &serverID})
+}
+
+// GetActiveUsersCountByServer возвращает количество активных подписок на сервере
+func (s *storageImpl) GetActiveUsersCountByServer(ctx context.Context, serverID int64) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM subscriptions
+		WHERE server_id = ? AND status = 'active'
+	`
+
+	var count int
+	err := s.db.GetContext(ctx, &count, query, serverID)
+	if err != nil {
+		return 0, fmt.Errorf("db.GetContext: %w", err)
+	}
+
+	return count, nil
 }

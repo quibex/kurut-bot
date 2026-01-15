@@ -78,11 +78,7 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 		return nil, errors.Errorf("failed to create subscription in database: %v", err)
 	}
 
-	// Увеличиваем счетчик пользователей на сервере
-	err = s.storage.IncrementServerUsers(ctx, server.ID)
-	if err != nil {
-		return nil, errors.Errorf("failed to increment server users: %v", err)
-	}
+	// Счетчик пользователей на сервере теперь считается динамически (не нужен инкремент)
 
 	// Генерируем user_id после создания подписки (когда уже есть ID)
 	generatedUserID := subs.GenerateUserID(created.ID, req.CreatedByTelegramID, req.ClientWhatsApp)
