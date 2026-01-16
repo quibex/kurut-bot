@@ -136,6 +136,44 @@ func (c *ExpirationCommand) ExecuteExpiring(ctx context.Context, chatID int64, a
 	return c.sendExpiringMessages(ctx, chatID, subscriptions)
 }
 
+// ExecuteExp3 показывает истекающие через 3 дня подписки с кнопками
+// assistantTelegramID nil = показать все (для админов)
+func (c *ExpirationCommand) ExecuteExp3(ctx context.Context, chatID int64, assistantTelegramID *int64) error {
+	subscriptions, err := c.subStorage.ListExpiringSubscriptionsByAssistant(ctx, assistantTelegramID, 3) // 3 = через 3 дня
+	if err != nil {
+		c.logger.Error("Failed to list subscriptions expiring in 3 days", "error", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Ошибка загрузки истекающих подписок")
+		_, _ = c.bot.Send(msg)
+		return err
+	}
+
+	if len(subscriptions) == 0 {
+		msg := tgbotapi.NewMessage(chatID, "✅ Нет подписок, истекающих через 3 дня")
+		_, _ = c.bot.Send(msg)
+		return nil
+	}
+
+	return c.sendExp3Messages(ctx, chatID, subscriptions)
+}
+
+// sendExp3Messages отправляет сводку и отдельные сообщения для подписок, истекающих через 3 дня
+func (c *ExpirationCommand) sendExp3Messages(ctx context.Context, chatID int64, subscriptions []*subs.Subscription) error {
+	// Сводное сообщение
+	summaryText := fmt.Sprintf("🔔 *У вас %d подписок, истекающих через 3 дня*\n\nНиже отдельные сообщения для каждой подписки.", len(subscriptions))
+	summaryMsg := tgbotapi.NewMessage(chatID, summaryText)
+	summaryMsg.ParseMode = "Markdown"
+	_, _ = c.bot.Send(summaryMsg)
+
+	// Отдельные сообщения для каждой подписки через notification service
+	for _, sub := range subscriptions {
+		if err := c.notificationService.SendExpiringSubscriptionMessage(ctx, chatID, sub, 3); err != nil {
+			c.logger.Error("Failed to send expiring subscription message", "error", err, "sub_id", sub.ID)
+		}
+	}
+
+	return nil
+}
+
 // HandleCallback обрабатывает callback кнопок exp_*
 func (c *ExpirationCommand) HandleCallback(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery) error {
 	chatID := callbackQuery.Message.Chat.ID

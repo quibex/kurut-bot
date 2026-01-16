@@ -10,6 +10,7 @@ import (
 	"kurut-bot/internal/telegram/flows/addserver"
 	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
+	"kurut-bot/internal/telegram/flows/migrateclient"
 	"kurut-bot/internal/telegram/messages"
 	"kurut-bot/internal/telegram/states"
 
@@ -26,12 +27,13 @@ type Router struct {
 	createSubForClientHandler *createsubforclient.Handler
 	createTariffHandler       *createtariff.Handler
 	addServerHandler          *addserver.Handler
+	migrateClientHandler      *migrateclient.Handler
 	mySubsCommand             *cmds.MySubsCommand
 	statsCommand              *cmds.StatsCommand
 	expirationCommand         *cmds.ExpirationCommand
-	tariffsCommand      *cmds.TariffsCommand
-	serversCommand      *cmds.ServersCommand
-	topReferrersCommand *cmds.TopReferrersCommand
+	tariffsCommand            *cmds.TariffsCommand
+	serversCommand            *cmds.ServersCommand
+	topReferrersCommand       *cmds.TopReferrersCommand
 }
 
 type stateManager interface {
@@ -175,6 +177,11 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		return r.addServerHandler.Handle(update, state)
 	}
 
+	// Проверяем состояние флоу миграции клиента
+	if strings.HasPrefix(string(state), "amc_") {
+		return r.migrateClientHandler.Handle(update, state)
+	}
+
 	// Если нет активного состояния - обрабатываем как обычное сообщение
 	return r.sendHelp(extractChatID(update))
 }
@@ -233,6 +240,19 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 			assistantID = &user.TelegramID
 		}
 		return r.expirationCommand.ExecuteExpiring(ctx, chatID, assistantID)
+	case "exp3":
+		// Админы видят все подписки, ассистенты - только свои
+		var assistantID *int64
+		if !r.adminChecker.IsAdmin(user.TelegramID) {
+			assistantID = &user.TelegramID
+		}
+		return r.expirationCommand.ExecuteExp3(ctx, chatID, assistantID)
+	case "migrate_client":
+		if !r.adminChecker.IsAdmin(user.TelegramID) {
+			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав для миграции клиентов"))
+			return r.sendHelp(chatID)
+		}
+		return r.migrateClientHandler.Start(user.ID, user.TelegramID, chatID)
 	default:
 		return r.sendHelp(chatID)
 	}
@@ -258,7 +278,8 @@ func (r *Router) sendWelcome(chatID int64, user *users.User) error {
 			"/stats — Просмотр статистики\n" +
 			"/top_referrers — Топ рефералов за неделю\n" +
 			"/overdue — Просроченные подписки\n" +
-			"/expiring — Истекающие подписки"
+			"/expiring — Истекающие подписки\n" +
+			"/exp3 — Истекающие через 3 дня"
 	}
 
 	text += "\n\nКоманды ассистента:\n" +
@@ -307,7 +328,8 @@ func (r *Router) sendHelp(chatID int64) error {
 			"/stats — Просмотр статистики\n" +
 			"/top_referrers — Топ рефералов за неделю\n" +
 			"/overdue — Просроченные подписки\n" +
-			"/expiring — Истекающие подписки"
+			"/expiring — Истекающие подписки\n" +
+			"/exp3 — Истекающие через 3 дня"
 	}
 	msg := tgbotapi.NewMessage(chatID, text)
 	_, err := r.bot.Send(msg)
@@ -387,7 +409,8 @@ func (r *Router) editToHelp(chatID int64, messageID int) error {
 			"/stats — Просмотр статистики\n" +
 			"/top_referrers — Топ рефералов за неделю\n" +
 			"/overdue — Просроченные подписки\n" +
-			"/expiring — Истекающие подписки"
+			"/expiring — Истекающие подписки\n" +
+			"/exp3 — Истекающие через 3 дня"
 	}
 
 	editMsg := tgbotapi.NewEditMessageText(chatID, messageID, text)
@@ -404,6 +427,7 @@ func NewRouter(
 	createSubForClientHandler *createsubforclient.Handler,
 	createTariffHandler *createtariff.Handler,
 	addServerHandler *addserver.Handler,
+	migrateClientHandler *migrateclient.Handler,
 	mySubsCommand *cmds.MySubsCommand,
 	statsCommand *cmds.StatsCommand,
 	expirationCommand *cmds.ExpirationCommand,
@@ -419,6 +443,7 @@ func NewRouter(
 		createSubForClientHandler: createSubForClientHandler,
 		createTariffHandler:       createTariffHandler,
 		addServerHandler:          addServerHandler,
+		migrateClientHandler:      migrateClientHandler,
 		mySubsCommand:             mySubsCommand,
 		statsCommand:              statsCommand,
 		expirationCommand:         expirationCommand,
@@ -490,6 +515,14 @@ func (r *Router) setupAdminCommands(chatID int64) {
 			Command:     "expiring",
 			Description: "Истекающие сегодня",
 		},
+		{
+			Command:     "exp3",
+			Description: "Истекающие через 3 дня",
+		},
+		{
+			Command:     "migrate_client",
+			Description: "Миграция существующего клиента",
+		},
 	}
 
 	scope := tgbotapi.NewBotCommandScopeChat(chatID)
@@ -524,6 +557,10 @@ func (r *Router) setupAssistantCommands(chatID int64) {
 		{
 			Command:     "expiring",
 			Description: "Мои истекающие подписки",
+		},
+		{
+			Command:     "exp3",
+			Description: "Истекающие через 3 дня",
 		},
 	}
 
