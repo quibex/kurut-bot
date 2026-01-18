@@ -50,12 +50,18 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 	var referrerWhatsApp *string
 
 	if req.ReferrerSubscriptionID != nil {
-		referralBonusApplied = true
-
 		// Get referrer's WhatsApp for display in success message
 		referrerSub, _ := s.storage.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{*req.ReferrerSubscriptionID}})
 		if referrerSub != nil {
 			referrerWhatsApp = referrerSub.ClientWhatsApp
+		}
+
+		// Bonus is only given for PAID subscriptions AND only for the client's FIRST paid subscription
+		if req.PaymentID != nil {
+			hasPaidSub, err := s.storage.HasPaidSubscriptionByPhone(ctx, req.ClientWhatsApp)
+			if err == nil && !hasPaidSub {
+				referralBonusApplied = true
+			}
 		}
 	}
 

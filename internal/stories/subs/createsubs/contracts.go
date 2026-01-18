@@ -20,4 +20,5 @@ type storage interface {
 	FindActiveSubscriptionByWhatsApp(ctx context.Context, whatsapp string) (*subs.Subscription, error)
 	ExtendSubscription(ctx context.Context, subscriptionID int64, additionalDays int) error
 	CountWeeklyReferrals(ctx context.Context, referrerWhatsApp string) (int, error)
+	HasPaidSubscriptionByPhone(ctx context.Context, phoneNumber string) (bool, error)
 }

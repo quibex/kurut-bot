@@ -664,6 +664,26 @@ func (s *storageImpl) HasUsedTrialByPhone(ctx context.Context, phoneNumber strin
 	return count > 0, nil
 }
 
+// HasPaidSubscriptionByPhone checks if client has any paid subscription by phone number
+func (s *storageImpl) HasPaidSubscriptionByPhone(ctx context.Context, phoneNumber string) (bool, error) {
+	normalized := NormalizePhone(phoneNumber)
+
+	query := `
+		SELECT COUNT(*)
+		FROM subscriptions s
+		INNER JOIN payment_subscriptions ps ON s.id = ps.subscription_id
+		WHERE REPLACE(REPLACE(REPLACE(s.client_whatsapp, '+', ''), ' ', ''), '-', '') = ?
+	`
+
+	var count int
+	err := s.db.GetContext(ctx, &count, query, normalized)
+	if err != nil {
+		return false, fmt.Errorf("db.GetContext: %w", err)
+	}
+
+	return count > 0, nil
+}
+
 // CountWeeklyReferrals counts how many people were invited by referrerWhatsApp this week
 func (s *storageImpl) CountWeeklyReferrals(ctx context.Context, referrerWhatsApp string) (int, error) {
 	now := s.now()
