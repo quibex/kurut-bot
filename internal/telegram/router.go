@@ -131,6 +131,9 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		case strings.HasPrefix(callbackData, "pay_"):
 			// Payment callbacks (pay_check, pay_refresh, pay_cancel) - работают независимо от состояния
 			return r.createSubForClientHandler.HandlePaymentCallback(update)
+		case strings.HasPrefix(callbackData, "migpay_"):
+			// Migrate payment callbacks (migpay_check, migpay_refresh, migpay_cancel) - работают независимо от состояния
+			return r.migrateClientHandler.HandleMigratePaymentCallback(update)
 		case strings.HasPrefix(callbackData, "trf_"):
 			// Tariff callbacks
 			if !r.adminChecker.IsAdmin(user.TelegramID) {
