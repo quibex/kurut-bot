@@ -230,26 +230,14 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 		}
 		return r.topReferrersCommand.Execute(ctx, chatID)
 	case "overdue":
-		// Админы видят все подписки, ассистенты - только свои
-		var assistantID *int64
-		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			assistantID = &user.TelegramID
-		}
-		return r.expirationCommand.ExecuteOverdue(ctx, chatID, assistantID)
+		// Все ассистенты видят все просроченные подписки
+		return r.expirationCommand.ExecuteOverdue(ctx, chatID, nil)
 	case "expiring":
-		// Админы видят все подписки, ассистенты - только свои
-		var assistantID *int64
-		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			assistantID = &user.TelegramID
-		}
-		return r.expirationCommand.ExecuteExpiring(ctx, chatID, assistantID)
+		// Все ассистенты видят все истекающие подписки
+		return r.expirationCommand.ExecuteExpiring(ctx, chatID, nil)
 	case "exp3":
-		// Админы видят все подписки, ассистенты - только свои
-		var assistantID *int64
-		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			assistantID = &user.TelegramID
-		}
-		return r.expirationCommand.ExecuteExp3(ctx, chatID, assistantID)
+		// Все ассистенты видят все подписки истекающие через 3 дня
+		return r.expirationCommand.ExecuteExp3(ctx, chatID, nil)
 	case "migrate_client":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
 			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав для миграции клиентов"))
