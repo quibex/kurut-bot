@@ -228,3 +228,31 @@ func (s *storageImpl) UpdatePaymentID(ctx context.Context, id int64, paymentID *
 
 	return nil
 }
+
+// ListActiveMessagesWithPayments returns all active subscription messages that have a payment_id
+func (s *storageImpl) ListActiveMessagesWithPayments(ctx context.Context) ([]*submessages.SubscriptionMessage, error) {
+	query := s.stmpBuilder().
+		Select(subscriptionMessageRowFields).
+		From(subscriptionMessagesTable).
+		Where(sq.Eq{"is_active": true}).
+		Where(sq.NotEq{"payment_id": nil}).
+		OrderBy("created_at ASC")
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var rows []subscriptionMessageRow
+	err = s.db.SelectContext(ctx, &rows, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("db.SelectContext: %w", err)
+	}
+
+	var messages []*submessages.SubscriptionMessage
+	for _, row := range rows {
+		messages = append(messages, row.ToModel())
+	}
+
+	return messages, nil
+}

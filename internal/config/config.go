@@ -28,10 +28,10 @@ type TelegramConfig struct {
 }
 
 type YooKassaConfig struct {
-	ShopID      string `env:"SHOP_ID,required"`
-	SecretKey   string `env:"SECRET_KEY,required"`
-	ReturnURL   string `env:"RETURN_URL,default=https://example.com/payment/return"`
-	MockPayment bool   `env:"MOCK_PAYMENT,default=false"`
+	ShopID        string `env:"SHOP_ID,required"`
+	SecretKey     string `env:"SECRET_KEY,required"`
+	ReturnURL     string `env:"RETURN_URL,default=https://example.com/payment/return"`
+	ManualPayment bool   `env:"MANUAL_PAYMENT,default=false"`
 }
 
 type HTTPClientConfig struct {

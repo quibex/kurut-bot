@@ -23,6 +23,7 @@ import (
 	"kurut-bot/internal/telegram/states"
 	"kurut-bot/internal/workers"
 	"kurut-bot/internal/workers/expiration"
+	"kurut-bot/internal/workers/paymentautocheck"
 
 	"github.com/pkg/errors"
 )
@@ -62,7 +63,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	}
 
 	// Создаем Payment service
-	paymentService := payment.NewService(storageImpl, yookassaClient, cfg.YooKassa.ReturnURL, cfg.YooKassa.MockPayment, logger)
+	paymentService := payment.NewService(storageImpl, yookassaClient, cfg.YooKassa.ReturnURL, cfg.YooKassa.ManualPayment, logger)
 
 	// Создаем Orders service
 	orderService := orders.NewService(storageImpl)
@@ -171,6 +172,20 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
+	// Создаем payment autocheck worker
+	paymentAutocheckWorker := paymentautocheck.NewWorker(
+		storageImpl,      // orderStorage
+		storageImpl,      // messageStorage
+		paymentService,   // paymentService
+		createSubService, // subscriptionService
+		storageImpl,      // subscriptionStorage
+		tariffService,    // tariffService
+		storageImpl,      // serverStorage
+		clients.TelegramBot,
+		cfg.YooKassa.ManualPayment,
+		logger,
+	)
+
 	// Создаем роутер
 	s.TelegramRouter = telegram.NewRouter(
 		clients.TelegramBot.GetBotAPI(),
@@ -193,6 +208,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	s.WorkerManager = workers.NewManager(
 		logger,
 		expirationWorker,
+		paymentAutocheckWorker,
 	)
 
 	return &s, nil

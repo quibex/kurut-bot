@@ -220,7 +220,7 @@ func (s *ExpirationNotificationService) SendExpiringSubscriptionMessage(ctx cont
 
 // paidButtonText возвращает текст кнопки в зависимости от режима оплаты
 func (s *ExpirationNotificationService) paidButtonText() string {
-	if s.paymentService.IsMockPayment() {
+	if s.paymentService.IsManualPayment() {
 		return "✅ Оплачено"
 	}
 	return "✅ Проверить"

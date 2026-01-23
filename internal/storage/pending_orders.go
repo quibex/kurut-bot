@@ -208,3 +208,30 @@ func (s *storageImpl) DeletePendingOrder(ctx context.Context, id int64) error {
 
 	return nil
 }
+
+// ListPendingOrdersWithPayments returns all pending orders that have a payment_id
+func (s *storageImpl) ListPendingOrdersWithPayments(ctx context.Context) ([]*orders.PendingOrder, error) {
+	q, args, err := s.stmpBuilder().
+		Select(pendingOrderRowFields).
+		From(pendingOrdersTable).
+		Where(sq.Eq{"status": string(orders.StatusPending)}).
+		Where(sq.Gt{"payment_id": 0}).
+		OrderBy("created_at ASC").
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var rows []pendingOrderRow
+	err = s.db.SelectContext(ctx, &rows, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("db.SelectContext: %w", err)
+	}
+
+	var result []*orders.PendingOrder
+	for _, row := range rows {
+		result = append(result, row.ToModel())
+	}
+
+	return result, nil
+}

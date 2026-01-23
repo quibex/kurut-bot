@@ -42,7 +42,7 @@ type (
 	paymentService interface {
 		CreatePayment(ctx context.Context, paymentEntity payment.Payment) (*payment.Payment, error)
 		CheckPaymentStatus(ctx context.Context, paymentID int64) (*payment.Payment, error)
-		IsMockPayment() bool
+		IsManualPayment() bool
 	}
 
 	orderService interface {

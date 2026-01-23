@@ -15,17 +15,17 @@ type Service struct {
 	yookassaClient YooKassaClient
 	logger         *slog.Logger
 	returnURL      string
-	mockPayment    bool
+	manualPayment  bool
 }
 
 // NewService creates a new payment service
-func NewService(storage Storage, yookassaClient YooKassaClient, returnURL string, mockPayment bool, logger *slog.Logger) *Service {
+func NewService(storage Storage, yookassaClient YooKassaClient, returnURL string, manualPayment bool, logger *slog.Logger) *Service {
 	return &Service{
 		storage:        storage,
 		yookassaClient: yookassaClient,
 		logger:         logger,
 		returnURL:      returnURL,
-		mockPayment:    mockPayment,
+		manualPayment:  manualPayment,
 	}
 }
 
@@ -34,7 +34,7 @@ func (s *Service) CreatePayment(ctx context.Context, paymentEntity Payment) (*Pa
 	s.logger.Info("Creating payment",
 		"user_id", paymentEntity.UserID,
 		"amount", paymentEntity.Amount,
-		"mock_mode", s.mockPayment,
+		"manual_mode", s.manualPayment,
 	)
 
 	// 1. Валидация входных данных
@@ -47,9 +47,9 @@ func (s *Service) CreatePayment(ctx context.Context, paymentEntity Payment) (*Pa
 		return nil, fmt.Errorf("userID must be positive")
 	}
 
-	// Mock payment mode - создаём платёж сразу со статусом approved без YooKassa
-	if s.mockPayment {
-		return s.createMockPayment(ctx, paymentEntity)
+	// Manual payment mode - создаём платёж сразу со статусом approved без YooKassa
+	if s.manualPayment {
+		return s.createManualPayment(ctx, paymentEntity)
 	}
 
 	// 2. Создаем запись в БД со статусом pending
@@ -117,19 +117,19 @@ func (s *Service) CreatePayment(ctx context.Context, paymentEntity Payment) (*Pa
 	return updatedPayment, nil
 }
 
-// createMockPayment creates a payment with approved status without calling YooKassa
-func (s *Service) createMockPayment(ctx context.Context, paymentEntity Payment) (*Payment, error) {
+// createManualPayment creates a payment with approved status without calling YooKassa
+func (s *Service) createManualPayment(ctx context.Context, paymentEntity Payment) (*Payment, error) {
 	now := time.Now()
 	paymentEntity.Status = StatusApproved
 	paymentEntity.ProcessedAt = &now
 
 	createdPayment, err := s.storage.CreatePayment(ctx, paymentEntity)
 	if err != nil {
-		s.logger.Error("Failed to create mock payment in storage", "error", err, "user_id", paymentEntity.UserID)
-		return nil, fmt.Errorf("failed to create mock payment in storage: %w", err)
+		s.logger.Error("Failed to create manual payment in storage", "error", err, "user_id", paymentEntity.UserID)
+		return nil, fmt.Errorf("failed to create manual payment in storage: %w", err)
 	}
 
-	s.logger.Info("Mock payment created with approved status",
+	s.logger.Info("Manual payment created with approved status",
 		"payment_id", createdPayment.ID,
 		"amount", createdPayment.Amount,
 	)
@@ -153,8 +153,8 @@ func (s *Service) CheckPaymentStatus(ctx context.Context, paymentID int64) (*Pay
 		return nil, fmt.Errorf("payment not found: %d", paymentID)
 	}
 
-	if s.mockPayment {
-		s.logger.Info("Mock payment mode enabled, returning approved status", "payment_id", paymentID)
+	if s.manualPayment {
+		s.logger.Info("Manual payment mode enabled, returning approved status", "payment_id", paymentID)
 		if payment.Status != StatusApproved {
 			newStatus := StatusApproved
 			now := time.Now()
@@ -164,7 +164,7 @@ func (s *Service) CheckPaymentStatus(ctx context.Context, paymentID int64) (*Pay
 			}
 			updatedPayment, err := s.storage.UpdatePayment(ctx, criteria, updateParams)
 			if err != nil {
-				s.logger.Error("Failed to update payment status in mock mode",
+				s.logger.Error("Failed to update payment status in manual mode",
 					"error", err,
 					"payment_id", paymentID,
 				)
@@ -246,9 +246,9 @@ func (s *Service) CheckPaymentStatus(ctx context.Context, paymentID int64) (*Pay
 	return payment, nil
 }
 
-// IsMockPayment returns true if mock payment mode is enabled
-func (s *Service) IsMockPayment() bool {
-	return s.mockPayment
+// IsManualPayment returns true if manual payment mode is enabled
+func (s *Service) IsManualPayment() bool {
+	return s.manualPayment
 }
 
 // LinkPaymentToSubscriptions creates links between payment and subscriptions

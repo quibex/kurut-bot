@@ -53,7 +53,7 @@ type ExpirationTariffService interface {
 type ExpirationPaymentService interface {
 	CreatePayment(ctx context.Context, p payment.Payment) (*payment.Payment, error)
 	CheckPaymentStatus(ctx context.Context, paymentID int64) (*payment.Payment, error)
-	IsMockPayment() bool
+	IsManualPayment() bool
 }
 
 type ExpirationMessageStorage interface {
@@ -90,7 +90,7 @@ func NewExpirationCommand(
 }
 
 func (c *ExpirationCommand) paidButtonText() string {
-	if c.paymentService.IsMockPayment() {
+	if c.paymentService.IsManualPayment() {
 		return "✅ Оплачено"
 	}
 	return "✅ Проверить"
@@ -559,7 +559,7 @@ func (c *ExpirationCommand) handleCheckPayment(ctx context.Context, callbackQuer
 	}
 
 	// 4. Проверить/создать платёж в зависимости от режима
-	if c.paymentService.IsMockPayment() {
+	if c.paymentService.IsManualPayment() {
 		// Mock режим: создаём approved платёж если не было ссылки
 		if subMsg == nil || subMsg.PaymentID == nil {
 			paymentEntity := payment.Payment{
