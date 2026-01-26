@@ -189,3 +189,15 @@ db-reset: | ./bin/goose
 	@echo "Running migrations..."
 	goose -dir migrations sqlite3 $(DATABASE_PATH) up
 	@echo "Database reset complete!"
+
+# Production database sync
+PROD_HOST := root@109.172.86.46
+PROD_DB_PATH := /opt/kurut-bot/data/kurut.db
+LOCAL_PROD_DB := ./data/kurut-prod.db
+
+.PHONY: db-sync-prod
+db-sync-prod:
+	@echo "Downloading production database..."
+	scp $(PROD_HOST):$(PROD_DB_PATH) $(LOCAL_PROD_DB)
+	@echo "Done! Database saved to: $(LOCAL_PROD_DB)"
+	@du -h $(LOCAL_PROD_DB)

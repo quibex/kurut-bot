@@ -29,6 +29,7 @@ type subscriptionRow struct {
 	ActivatedAt         *time.Time `db:"activated_at"`
 	ExpiresAt           *time.Time `db:"expires_at"`
 	LastRenewedAt       *time.Time `db:"last_renewed_at"`
+	RenewalCount        int        `db:"renewal_count"`
 	CreatedAt           time.Time  `db:"created_at"`
 	UpdatedAt           time.Time  `db:"updated_at"`
 }
@@ -47,6 +48,7 @@ func (s subscriptionRow) ToModel() *subs.Subscription {
 		ActivatedAt:         s.ActivatedAt,
 		ExpiresAt:           s.ExpiresAt,
 		LastRenewedAt:       s.LastRenewedAt,
+		RenewalCount:        s.RenewalCount,
 		CreatedAt:           s.CreatedAt,
 		UpdatedAt:           s.UpdatedAt,
 	}
@@ -252,17 +254,15 @@ func (s *storageImpl) ExtendSubscription(ctx context.Context, subscriptionID int
 		newExpiresAt = s.now().AddDate(0, 0, additionalDays)
 	}
 
-	// Update subscription
+	// Update subscription with incremented renewal_count
 	now := s.now()
-	params := map[string]interface{}{
-		"expires_at":      newExpiresAt,
-		"last_renewed_at": now,
-		"updated_at":      now,
-	}
 
 	q, args, err := s.stmpBuilder().
 		Update(subscriptionsTable).
-		SetMap(params).
+		Set("expires_at", newExpiresAt).
+		Set("last_renewed_at", now).
+		Set("renewal_count", sq.Expr("renewal_count + 1")).
+		Set("updated_at", now).
 		Where(sq.Eq{"id": subscriptionID}).
 		ToSql()
 	if err != nil {

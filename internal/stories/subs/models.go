@@ -28,6 +28,7 @@ type Subscription struct {
 	ActivatedAt         *time.Time
 	ExpiresAt           *time.Time
 	LastRenewedAt       *time.Time
+	RenewalCount        int // Number of times this subscription has been renewed
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }

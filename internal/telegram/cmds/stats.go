@@ -18,6 +18,7 @@ type StatsCommand struct {
 
 type StatisticsStorage interface {
 	GetStatistics(ctx context.Context) (*storage.StatisticsData, error)
+	GetCustomerAnalytics(ctx context.Context) (*storage.CustomerAnalytics, error)
 }
 
 func NewStatsCommand(bot *tgbotapi.BotAPI, storage StatisticsStorage) *StatsCommand {
@@ -40,6 +41,7 @@ func (c *StatsCommand) Execute(ctx context.Context, chatID int64) error {
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "stats_refresh"),
+			tgbotapi.NewInlineKeyboardButtonData("📊 Аналитика", "stats_analytics"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("Тарифы", "trf_list"),
@@ -65,6 +67,7 @@ func (c *StatsCommand) Refresh(ctx context.Context, chatID int64, messageID int)
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "stats_refresh"),
+			tgbotapi.NewInlineKeyboardButtonData("📊 Аналитика", "stats_analytics"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("Тарифы", "trf_list"),
@@ -131,4 +134,69 @@ func getMonthName(month time.Month) string {
 		time.December:  "декабрь",
 	}
 	return months[month]
+}
+
+func (c *StatsCommand) ShowAnalytics(ctx context.Context, chatID int64, messageID int) error {
+	analytics, err := c.storage.GetCustomerAnalytics(ctx)
+	if err != nil {
+		return fmt.Errorf("get customer analytics: %w", err)
+	}
+
+	text := c.formatAnalytics(analytics)
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "stats_analytics_refresh"),
+			tgbotapi.NewInlineKeyboardButtonData("📋 Обзор", "stats_overview"),
+		),
+	)
+
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
+	edit.ParseMode = "Markdown"
+	edit.ReplyMarkup = &keyboard
+	_, err = c.bot.Send(edit)
+	if err != nil && strings.Contains(err.Error(), "message is not modified") {
+		return nil
+	}
+	return err
+}
+
+func (c *StatsCommand) RefreshAnalytics(ctx context.Context, chatID int64, messageID int) error {
+	return c.ShowAnalytics(ctx, chatID, messageID)
+}
+
+func (c *StatsCommand) formatAnalytics(analytics *storage.CustomerAnalytics) string {
+	var text strings.Builder
+
+	text.WriteString("📊 *Аналитика клиентов*\n\n")
+
+	// New customers section
+	text.WriteString("👥 *Новые клиенты:*\n")
+
+	weekGrowthStr := formatGrowth(analytics.WeekOverWeekGrowth)
+	text.WriteString(fmt.Sprintf("• Эта неделя: *%d* %s\n", analytics.NewCustomersThisWeek, weekGrowthStr))
+	text.WriteString(fmt.Sprintf("• Прошлая неделя: *%d*\n", analytics.NewCustomersLastWeek))
+	text.WriteString(fmt.Sprintf("• Этот месяц: *%d*\n", analytics.NewCustomersThisMonth))
+	text.WriteString(fmt.Sprintf("• Прошлый месяц: *%d*\n\n", analytics.NewCustomersLastMonth))
+
+	// Retention section
+	text.WriteString("🔄 *Удержание:*\n")
+	text.WriteString(fmt.Sprintf("• Продлили: *%d из %d* (%.1f%%)\n", analytics.RenewedCount, analytics.TotalMature, analytics.RenewalRate))
+	text.WriteString(fmt.Sprintf("• Отток: *%d из %d* (%.1f%%)\n\n", analytics.ChurnedCount, analytics.TotalMature, analytics.ChurnRate))
+
+	// Metrics section
+	text.WriteString("💰 *Метрики:*\n")
+	text.WriteString(fmt.Sprintf("• ARPU (выручка/клиент): *%.2f ₽*\n", analytics.ARPU))
+	text.WriteString(fmt.Sprintf("• Конверсия trial: *%.1f%%*\n", analytics.TrialConversionRate))
+
+	return text.String()
+}
+
+func formatGrowth(growth float64) string {
+	if growth > 0 {
+		return fmt.Sprintf("↑ %.1f%%", growth)
+	} else if growth < 0 {
+		return fmt.Sprintf("↓ %.1f%%", -growth)
+	}
+	return ""
 }
