@@ -408,6 +408,41 @@ func (s *storageImpl) ListOverdueSubscriptionsGroupedByAssistant(ctx context.Con
 	return result, nil
 }
 
+// ListStaleExpiredSubscriptionsGroupedByAssistant returns expired subscriptions that have been expired for more than 24 hours
+// These are subscriptions that need to be disabled but haven't been yet
+func (s *storageImpl) ListStaleExpiredSubscriptionsGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error) {
+	now := s.now()
+	staleThreshold := now.Add(-24 * time.Hour) // expired more than 24 hours ago
+
+	query := s.stmpBuilder().
+		Select(subscriptionRowFields).
+		From(subscriptionsTable).
+		Where(sq.Eq{"status": string(subs.StatusExpired)}).
+		Where(sq.Lt{"expires_at": staleThreshold}).
+		OrderBy("expires_at ASC")
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var rows []subscriptionRow
+	err = s.db.SelectContext(ctx, &rows, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("db.SelectContext: %w", err)
+	}
+
+	result := make(map[int64][]*subs.Subscription)
+	for _, row := range rows {
+		sub := row.ToModel()
+		if sub.CreatedByTelegramID != nil {
+			result[*sub.CreatedByTelegramID] = append(result[*sub.CreatedByTelegramID], sub)
+		}
+	}
+
+	return result, nil
+}
+
 // AssistantStats holds statistics for an assistant
 type AssistantStats struct {
 	TotalActive      int

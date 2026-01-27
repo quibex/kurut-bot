@@ -276,11 +276,13 @@ type CustomerAnalytics struct {
 	WeekOverWeekGrowth    float64
 	MonthOverMonthGrowth  float64
 
-	RenewalRate  float64
-	ChurnRate    float64
-	RenewedCount int // subscriptions with renewal_count > 0
-	ChurnedCount int // expired subscriptions without renewal
-	TotalMature  int // total subscriptions created 30+ days ago
+	RenewalRate         float64
+	ChurnRate           float64
+	PendingDisableRate  float64
+	RenewedCount        int // subscriptions with renewal_count > 0
+	ChurnedCount        int // disabled subscriptions without renewal
+	PendingDisableCount int // expired subscriptions awaiting disable action
+	TotalMature         int // total subscriptions created 30+ days ago
 
 	ARPU                float64
 	TrialConversionRate float64
@@ -346,7 +348,7 @@ func (s *storageImpl) GetCustomerAnalytics(ctx context.Context) (*CustomerAnalyt
 	}
 
 	// Get renewal and churn stats
-	analytics.RenewedCount, analytics.ChurnedCount, analytics.TotalMature, err = s.GetRenewalAndChurnStats(ctx)
+	analytics.RenewedCount, analytics.ChurnedCount, analytics.PendingDisableCount, analytics.TotalMature, err = s.GetRenewalAndChurnStats(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get renewal stats: %w", err)
 	}
@@ -354,6 +356,7 @@ func (s *storageImpl) GetCustomerAnalytics(ctx context.Context) (*CustomerAnalyt
 	if analytics.TotalMature > 0 {
 		analytics.RenewalRate = float64(analytics.RenewedCount) / float64(analytics.TotalMature) * 100
 		analytics.ChurnRate = float64(analytics.ChurnedCount) / float64(analytics.TotalMature) * 100
+		analytics.PendingDisableRate = float64(analytics.PendingDisableCount) / float64(analytics.TotalMature) * 100
 	}
 
 	// Get ARPU
@@ -399,14 +402,18 @@ func (s *storageImpl) GetNewCustomersCount(ctx context.Context, start, end time.
 }
 
 // GetRenewalAndChurnStats returns renewal and churn statistics for mature subscriptions (30+ days old)
-func (s *storageImpl) GetRenewalAndChurnStats(ctx context.Context) (renewed, churned, total int, err error) {
+// - renewed: subscriptions with renewal_count > 0 (client renewed at least once)
+// - churned: subscriptions with status 'disabled' and renewal_count = 0 (client left and was disabled)
+// - pendingDisable: subscriptions with status 'expired' and renewal_count = 0 (awaiting disable action)
+func (s *storageImpl) GetRenewalAndChurnStats(ctx context.Context) (renewed, churned, pendingDisable, total int, err error) {
 	now := s.now()
 	matureDate := now.AddDate(0, 0, -30)
 
 	query := `
 		SELECT
 			COUNT(CASE WHEN s.renewal_count > 0 THEN 1 END) as renewed,
-			COUNT(CASE WHEN s.status = 'expired' AND s.renewal_count = 0 THEN 1 END) as churned,
+			COUNT(CASE WHEN s.status = 'disabled' AND s.renewal_count = 0 THEN 1 END) as churned,
+			COUNT(CASE WHEN s.status = 'expired' AND s.renewal_count = 0 THEN 1 END) as pending_disable,
 			COUNT(*) as total
 		FROM subscriptions s
 		JOIN payment_subscriptions ps ON s.id = ps.subscription_id
@@ -416,17 +423,18 @@ func (s *storageImpl) GetRenewalAndChurnStats(ctx context.Context) (renewed, chu
 	`
 
 	var result struct {
-		Renewed int `db:"renewed"`
-		Churned int `db:"churned"`
-		Total   int `db:"total"`
+		Renewed        int `db:"renewed"`
+		Churned        int `db:"churned"`
+		PendingDisable int `db:"pending_disable"`
+		Total          int `db:"total"`
 	}
 
 	err = s.db.GetContext(ctx, &result, query, matureDate)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("db.GetContext: %w", err)
+		return 0, 0, 0, 0, fmt.Errorf("db.GetContext: %w", err)
 	}
 
-	return result.Renewed, result.Churned, result.Total, nil
+	return result.Renewed, result.Churned, result.PendingDisable, result.Total, nil
 }
 
 // GetARPU returns average revenue per user for the given period

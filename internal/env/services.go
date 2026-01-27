@@ -22,6 +22,8 @@ import (
 	"kurut-bot/internal/telegram/flows/migrateclient"
 	"kurut-bot/internal/telegram/states"
 	"kurut-bot/internal/workers"
+
+	// "kurut-bot/internal/workers/disablereminder" // TODO: включить позже
 	"kurut-bot/internal/workers/expiration"
 	"kurut-bot/internal/workers/paymentautocheck"
 
@@ -186,6 +188,15 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
+	// TODO: включить позже
+	// Создаем disable reminder worker
+	// disableReminderWorker := disablereminder.NewWorker(
+	// 	storageImpl,
+	// 	clients.TelegramBot,
+	// 	expirationNotificationService,
+	// 	logger,
+	// )
+
 	// Создаем роутер
 	s.TelegramRouter = telegram.NewRouter(
 		clients.TelegramBot.GetBotAPI(),
@@ -209,6 +220,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 		expirationWorker,
 		paymentAutocheckWorker,
+		// disableReminderWorker, // TODO: включить позже
 	)
 
 	return &s, nil

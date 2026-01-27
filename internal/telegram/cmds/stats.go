@@ -43,10 +43,6 @@ func (c *StatsCommand) Execute(ctx context.Context, chatID int64) error {
 			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "stats_refresh"),
 			tgbotapi.NewInlineKeyboardButtonData("📊 Аналитика", "stats_analytics"),
 		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Тарифы", "trf_list"),
-			tgbotapi.NewInlineKeyboardButtonData("Серверы", "srv_list"),
-		),
 	)
 
 	msg := tgbotapi.NewMessage(chatID, text)
@@ -68,10 +64,6 @@ func (c *StatsCommand) Refresh(ctx context.Context, chatID int64, messageID int)
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "stats_refresh"),
 			tgbotapi.NewInlineKeyboardButtonData("📊 Аналитика", "stats_analytics"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Тарифы", "trf_list"),
-			tgbotapi.NewInlineKeyboardButtonData("Серверы", "srv_list"),
 		),
 	)
 
@@ -182,7 +174,8 @@ func (c *StatsCommand) formatAnalytics(analytics *storage.CustomerAnalytics) str
 	// Retention section
 	text.WriteString("🔄 *Удержание:*\n")
 	text.WriteString(fmt.Sprintf("• Продлили: *%d из %d* (%.1f%%)\n", analytics.RenewedCount, analytics.TotalMature, analytics.RenewalRate))
-	text.WriteString(fmt.Sprintf("• Отток: *%d из %d* (%.1f%%)\n\n", analytics.ChurnedCount, analytics.TotalMature, analytics.ChurnRate))
+	text.WriteString(fmt.Sprintf("• Отток: *%d из %d* (%.1f%%)\n", analytics.ChurnedCount, analytics.TotalMature, analytics.ChurnRate))
+	text.WriteString(fmt.Sprintf("• Надо отключить: *%d из %d* (%.1f%%)\n\n", analytics.PendingDisableCount, analytics.TotalMature, analytics.PendingDisableRate))
 
 	// Metrics section
 	text.WriteString("💰 *Метрики:*\n")
