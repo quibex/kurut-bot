@@ -645,6 +645,7 @@ func (s *storageImpl) UpdateSubscriptionTariff(ctx context.Context, subscription
 }
 
 // FindActiveSubscriptionByWhatsApp finds an active subscription by client WhatsApp number
+// Returns subscription with earliest expiration date so referral bonuses extend the one expiring soonest
 func (s *storageImpl) FindActiveSubscriptionByWhatsApp(ctx context.Context, whatsapp string) (*subs.Subscription, error) {
 	normalized := NormalizePhone(whatsapp)
 
@@ -653,7 +654,7 @@ func (s *storageImpl) FindActiveSubscriptionByWhatsApp(ctx context.Context, what
 		FROM ` + subscriptionsTable + `
 		WHERE REPLACE(REPLACE(REPLACE(client_whatsapp, '+', ''), ' ', ''), '-', '') = ?
 		AND status = ?
-		ORDER BY expires_at DESC
+		ORDER BY expires_at ASC
 		LIMIT 1
 	`
 
