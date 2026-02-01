@@ -80,89 +80,17 @@ func (w *Worker) RunNow(ctx context.Context) error {
 func (w *Worker) run(ctx context.Context) error {
 	w.logger.Info("Starting expiration worker execution")
 
-	// 1. Уведомления за 3 дня
-	if err := w.sendExpiringNotifications(ctx, 3); err != nil {
-		w.logger.Error("Failed to send 3-day notifications", "error", err)
-	}
-
-	// 2. Уведомления в день истечения
-	if err := w.sendExpiringNotifications(ctx, 0); err != nil {
-		w.logger.Error("Failed to send expiring today notifications", "error", err)
-	}
-
-	// 3. Уведомления о просроченных
-	if err := w.sendOverdueNotifications(ctx); err != nil {
-		w.logger.Error("Failed to send overdue notifications", "error", err)
-	}
-
-	// 4. Пометить истекшие как expired
+	// 1. Пометить истекшие как expired (до отправки уведомлений!)
 	if err := w.markExpiredSubscriptions(ctx); err != nil {
 		w.logger.Error("Failed to mark expired subscriptions", "error", err)
 	}
 
+	// 2. Уведомления о просроченных (status=expired)
+	if err := w.sendOverdueNotifications(ctx); err != nil {
+		w.logger.Error("Failed to send overdue notifications", "error", err)
+	}
+
 	w.logger.Info("Expiration worker execution completed")
-	return nil
-}
-
-// sendExpiringNotifications отправляет уведомления за N дней до истечения
-func (w *Worker) sendExpiringNotifications(ctx context.Context, daysUntilExpiry int) error {
-	expiringByAssistant, err := w.storage.ListExpiringByAssistantAndDays(ctx, daysUntilExpiry)
-	if err != nil {
-		return fmt.Errorf("list expiring subscriptions for %d days: %w", daysUntilExpiry, err)
-	}
-
-	w.logger.Info("Found expiring subscriptions",
-		"assistants_count", len(expiringByAssistant),
-		"days_until_expiry", daysUntilExpiry)
-
-	for assistantID, subscriptions := range expiringByAssistant {
-		if err := w.sendExpiringNotificationToAssistant(ctx, assistantID, subscriptions, daysUntilExpiry); err != nil {
-			w.logger.Error("Failed to send expiring notification",
-				"assistant_id", assistantID,
-				"days_until_expiry", daysUntilExpiry,
-				"error", err)
-		}
-	}
-
-	return nil
-}
-
-// sendExpiringNotificationToAssistant отправляет уведомления об истекающих подписках ассистенту
-func (w *Worker) sendExpiringNotificationToAssistant(
-	ctx context.Context,
-	assistantTelegramID int64,
-	subscriptions []*subs.Subscription,
-	daysUntilExpiry int,
-) error {
-	if len(subscriptions) == 0 {
-		return nil
-	}
-
-	// Формируем сводное сообщение
-	var summaryText string
-	switch daysUntilExpiry {
-	case 0:
-		summaryText = fmt.Sprintf("🔔 *У вас %d подписок истекают сегодня*\n\nНиже отдельные сообщения для каждой подписки.", len(subscriptions))
-	case 3:
-		summaryText = fmt.Sprintf("⏰ *У вас %d подписок истекают через 3 дня*\n\nНиже отдельные сообщения для каждой подписки.", len(subscriptions))
-	default:
-		summaryText = fmt.Sprintf("⏰ *У вас %d подписок истекают через %d дней*\n\nНиже отдельные сообщения для каждой подписки.", len(subscriptions), daysUntilExpiry)
-	}
-
-	summaryMsg := tgbotapi.NewMessage(assistantTelegramID, summaryText)
-	summaryMsg.ParseMode = "Markdown"
-	_, _ = w.telegramBot.Send(summaryMsg)
-
-	// Отправляем отдельные сообщения через notification service
-	for _, sub := range subscriptions {
-		if err := w.notificationService.SendExpiringSubscriptionMessage(ctx, assistantTelegramID, sub, daysUntilExpiry); err != nil {
-			w.logger.Error("Failed to send expiring subscription message",
-				"error", err,
-				"sub_id", sub.ID,
-				"days_until_expiry", daysUntilExpiry)
-		}
-	}
-
 	return nil
 }
 
