@@ -139,6 +139,9 @@ func (h *Handler) showReferrerQuestion(chatID int64) error {
 			tgbotapi.NewInlineKeyboardButtonData("✅ Да, есть", "ref_yes"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🤝 Партнёрка", "ref_partnership"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("❌ Нет", "ref_no"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
@@ -200,6 +203,24 @@ func (h *Handler) handleReferrerInput(ctx context.Context, update *tgbotapi.Upda
 			h.stateManager.SetState(chatID, states.AdminCreateSubWaitTariff, flowData)
 			return h.showTariffs(chatID)
 
+		case "ref_partnership":
+			callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+			_, _ = h.bot.Request(callbackConfig)
+
+			// Помечаем как партнёрку и запрашиваем номер
+			flowData.IsPartnership = true
+			h.stateManager.SetState(chatID, states.AdminCreateSubWaitReferrer, flowData)
+
+			if flowData.MessageID != nil {
+				editMsg := tgbotapi.NewEditMessageText(chatID, *flowData.MessageID,
+					"🤝 Введите номер WhatsApp партнёра (например: +996555123456):")
+				_, _ = h.bot.Send(editMsg)
+			} else {
+				msg := tgbotapi.NewMessage(chatID, "🤝 Введите номер WhatsApp партнёра (например: +996555123456):")
+				_, _ = h.bot.Send(msg)
+			}
+			return nil
+
 		case "cancel":
 			return h.handleCancel(ctx, update)
 
@@ -246,7 +267,15 @@ func (h *Handler) handleReferrerInput(ctx context.Context, update *tgbotapi.Upda
 		return h.sendReferrerError(chatID, flowData, "❌ Нельзя указать номер клиента как реферала")
 	}
 
-	// Ищем активную подписку по номеру реферала
+	// Для партнёрки: просто сохраняем номер без проверки подписки и без бонуса
+	if flowData.IsPartnership {
+		flowData.ReferrerWhatsApp = &referrerWhatsApp
+		// ReferrerSubscriptionID остаётся nil - бонус не начисляется
+		h.stateManager.SetState(chatID, states.AdminCreateSubWaitTariff, flowData)
+		return h.showTariffs(chatID)
+	}
+
+	// Обычный реферал: ищем активную подписку по номеру реферала
 	referrerSub, err := h.subscriptionService.FindActiveSubscriptionByWhatsApp(ctx, referrerWhatsApp)
 	if err != nil {
 		h.logger.Error("Failed to find referrer subscription", "error", err, "whatsapp", referrerWhatsApp)
@@ -319,6 +348,13 @@ func (h *Handler) showTariffs(chatID int64) error {
 
 	// Получаем данные флоу
 	flowData, _ := h.stateManager.GetCreateSubForClientData(chatID)
+
+	// Удаляем предыдущее сообщение (реферальный вопрос)
+	if flowData != nil && flowData.MessageID != nil {
+		deleteMsg := tgbotapi.NewDeleteMessage(chatID, *flowData.MessageID)
+		_, _ = h.bot.Request(deleteMsg)
+		flowData.MessageID = nil
+	}
 
 	// Получаем платные тарифы
 	tariffsList, err := h.tariffService.GetActiveTariffs(ctx)
@@ -486,6 +522,18 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 		return h.sendError(chatID, "❌ Ошибка генерации ссылки на оплату")
 	}
 
+	// Определяем тип реферала
+	var referralType *string
+	if data.ReferrerWhatsApp != nil {
+		if data.IsPartnership {
+			rt := "partnership"
+			referralType = &rt
+		} else {
+			rt := "referral"
+			referralType = &rt
+		}
+	}
+
 	// Создаем pending order для хранения контекста заказа
 	pendingOrder := orders.PendingOrder{
 		PaymentID:              paymentObj.ID,
@@ -498,6 +546,7 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 		TotalAmount:            data.TotalAmount,
 		ReferrerWhatsApp:       data.ReferrerWhatsApp,
 		ReferrerSubscriptionID: data.ReferrerSubscriptionID,
+		ReferralType:           referralType,
 	}
 
 	createdOrder, err := h.orderService.CreatePendingOrder(ctx, pendingOrder)
@@ -700,6 +749,18 @@ func (h *Handler) sendPaymentCheckError(chatID int64, data *flows.CreateSubForCl
 
 // handleSuccessfulPayment обрабатывает успешный платеж и создает подписку
 func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, data *flows.CreateSubForClientFlowData, paymentID int64) error {
+	// Определяем тип реферала
+	var referralType *string
+	if data.ReferrerWhatsApp != nil {
+		if data.IsPartnership {
+			rt := "partnership"
+			referralType = &rt
+		} else {
+			rt := "referral"
+			referralType = &rt
+		}
+	}
+
 	// Создаем подписку после успешной оплаты
 	subReq := &subs.CreateSubscriptionRequest{
 		UserID:                 data.AdminUserID,
@@ -708,6 +769,8 @@ func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, dat
 		ClientWhatsApp:         data.ClientWhatsApp,
 		CreatedByTelegramID:    data.AssistantTelegramID,
 		ReferrerSubscriptionID: data.ReferrerSubscriptionID,
+		ReferrerWhatsApp:       data.ReferrerWhatsApp,
+		ReferralType:           referralType,
 	}
 
 	result, err := h.subscriptionService.CreateSubscription(ctx, subReq)
@@ -828,6 +891,18 @@ func (h *Handler) createSubscriptionWithPayment(ctx context.Context, chatID int6
 		paymentIDPtr = &paymentID
 	}
 
+	// Определяем тип реферала
+	var referralType *string
+	if data.ReferrerWhatsApp != nil {
+		if data.IsPartnership {
+			rt := "partnership"
+			referralType = &rt
+		} else {
+			rt := "referral"
+			referralType = &rt
+		}
+	}
+
 	subReq := &subs.CreateSubscriptionRequest{
 		UserID:                 data.AdminUserID,
 		TariffID:               data.TariffID,
@@ -835,6 +910,8 @@ func (h *Handler) createSubscriptionWithPayment(ctx context.Context, chatID int6
 		ClientWhatsApp:         data.ClientWhatsApp,
 		CreatedByTelegramID:    data.AssistantTelegramID,
 		ReferrerSubscriptionID: data.ReferrerSubscriptionID,
+		ReferrerWhatsApp:       data.ReferrerWhatsApp,
+		ReferralType:           referralType,
 	}
 
 	result, err := h.subscriptionService.CreateSubscription(ctx, subReq)
@@ -1006,6 +1083,8 @@ func (h *Handler) handleSuccessfulPaymentFromOrder(ctx context.Context, chatID i
 		ClientWhatsApp:         order.ClientWhatsApp,
 		CreatedByTelegramID:    order.AssistantTelegramID,
 		ReferrerSubscriptionID: order.ReferrerSubscriptionID,
+		ReferrerWhatsApp:       order.ReferrerWhatsApp,
+		ReferralType:           order.ReferralType,
 	}
 
 	result, err := h.subscriptionService.CreateSubscription(ctx, subReq)

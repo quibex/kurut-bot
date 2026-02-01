@@ -26,6 +26,11 @@ type StatisticsData struct {
 	TodayRevenue             float64
 	YesterdayRevenue         float64
 	AverageRevenuePerDay     float64
+	// Referral statistics
+	ReferralCountThisWeek    int
+	ReferralCountLastWeek    int
+	PartnershipCountThisWeek int
+	PartnershipCountLastWeek int
 }
 
 func (s *storageImpl) GetActiveSubscriptionsCount(ctx context.Context) (int, error) {
@@ -185,6 +190,29 @@ func (s *storageImpl) GetRevenueForDay(ctx context.Context, date time.Time) (flo
 	return revenue, nil
 }
 
+// countReferralsByType counts referrals of a specific type in a time period
+func (s *storageImpl) countReferralsByType(ctx context.Context, refType string, start, end time.Time) (int, error) {
+	query := s.stmpBuilder().
+		Select("COUNT(*)").
+		From(subscriptionsTable).
+		Where(sq.Eq{"referral_type": refType}).
+		Where(sq.GtOrEq{"created_at": start}).
+		Where(sq.Lt{"created_at": end})
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return 0, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var count int
+	err = s.db.GetContext(ctx, &count, q, args...)
+	if err != nil {
+		return 0, fmt.Errorf("db.GetContext: %w", err)
+	}
+
+	return count, nil
+}
+
 func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error) {
 	now := s.now()
 	currentYear, currentMonth, _ := now.Date()
@@ -252,6 +280,21 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		averageRevenuePerDay = currentMonthRevenue / daysInMonth
 	}
 
+	// Calculate week boundaries for referral stats
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	thisWeekStart := todayStart.AddDate(0, 0, -(weekday - 1))
+	lastWeekStart := thisWeekStart.AddDate(0, 0, -7)
+
+	// Get referral counts
+	referralThisWeek, _ := s.countReferralsByType(ctx, "referral", thisWeekStart, now)
+	referralLastWeek, _ := s.countReferralsByType(ctx, "referral", lastWeekStart, thisWeekStart)
+	partnershipThisWeek, _ := s.countReferralsByType(ctx, "partnership", thisWeekStart, now)
+	partnershipLastWeek, _ := s.countReferralsByType(ctx, "partnership", lastWeekStart, thisWeekStart)
+
 	return &StatisticsData{
 		ActiveSubscriptionsCount: activeSubsCount,
 		ActiveUsersCount:         activeUsersCount,
@@ -264,6 +307,10 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		TodayRevenue:             todayRevenue,
 		YesterdayRevenue:         yesterdayRevenue,
 		AverageRevenuePerDay:     averageRevenuePerDay,
+		ReferralCountThisWeek:    referralThisWeek,
+		ReferralCountLastWeek:    referralLastWeek,
+		PartnershipCountThisWeek: partnershipThisWeek,
+		PartnershipCountLastWeek: partnershipLastWeek,
 	}, nil
 }
 

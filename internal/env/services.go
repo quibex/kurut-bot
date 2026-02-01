@@ -148,8 +148,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
-	// Создаем topReferrersCommand
-	topReferrersCommand := cmds.NewTopReferrersCommand(
+	// Создаем partnershipCommand
+	partnershipCommand := cmds.NewPartnershipCommand(
 		clients.TelegramBot.GetBotAPI(),
 		storageImpl,
 	)
@@ -212,7 +212,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		expirationCommand,
 		tariffsCommand,
 		serversCommand,
-		topReferrersCommand,
+		partnershipCommand,
 	)
 
 	// Создаем менеджер воркеров

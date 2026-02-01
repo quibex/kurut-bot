@@ -25,6 +25,7 @@ type Subscription struct {
 	GeneratedUserID     *string
 	CreatedByTelegramID *int64
 	ReferrerWhatsApp    *string // WhatsApp of the person who invited this client
+	ReferralType        *string // 'referral' or 'partnership'
 	ActivatedAt         *time.Time
 	ExpiresAt           *time.Time
 	LastRenewedAt       *time.Time
@@ -69,7 +70,9 @@ type CreateSubscriptionRequest struct {
 	PaymentID              *int64
 	ClientWhatsApp         string
 	CreatedByTelegramID    int64
-	ReferrerSubscriptionID *int64 // ID of referrer's subscription to extend with bonus
+	ReferrerSubscriptionID *int64  // ID of referrer's subscription to extend with bonus
+	ReferrerWhatsApp       *string // WhatsApp of the referrer (for partnership without subscription)
+	ReferralType           *string // 'referral' or 'partnership'
 }
 
 // Запрос для миграции существующего клиента (без увеличения счётчика сервера)

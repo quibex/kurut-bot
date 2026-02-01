@@ -30,6 +30,7 @@ type pendingOrderRow struct {
 	TotalAmount            float64   `db:"total_amount"`
 	ReferrerWhatsApp       *string   `db:"referrer_whatsapp"`
 	ReferrerSubscriptionID *int64    `db:"referrer_subscription_id"`
+	ReferralType           *string   `db:"referral_type"`
 	Status                 string    `db:"status"`
 	CreatedAt              time.Time `db:"created_at"`
 	UpdatedAt              time.Time `db:"updated_at"`
@@ -51,6 +52,7 @@ func (r pendingOrderRow) ToModel() *orders.PendingOrder {
 		TotalAmount:            r.TotalAmount,
 		ReferrerWhatsApp:       r.ReferrerWhatsApp,
 		ReferrerSubscriptionID: r.ReferrerSubscriptionID,
+		ReferralType:           r.ReferralType,
 		Status:                 orders.Status(r.Status),
 		CreatedAt:              r.CreatedAt,
 		UpdatedAt:              r.UpdatedAt,
@@ -74,6 +76,7 @@ func (s *storageImpl) CreatePendingOrder(ctx context.Context, order orders.Pendi
 		"total_amount":             order.TotalAmount,
 		"referrer_whatsapp":        order.ReferrerWhatsApp,
 		"referrer_subscription_id": order.ReferrerSubscriptionID,
+		"referral_type":            order.ReferralType,
 		"status":                   string(orders.StatusPending),
 		"created_at":               now,
 		"updated_at":               now,

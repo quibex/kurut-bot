@@ -27,13 +27,13 @@ type Router struct {
 	createSubForClientHandler *createsubforclient.Handler
 	createTariffHandler       *createtariff.Handler
 	addServerHandler          *addserver.Handler
-	migrateClientHandler      *migrateclient.Handler
-	mySubsCommand             *cmds.MySubsCommand
-	statsCommand              *cmds.StatsCommand
-	expirationCommand         *cmds.ExpirationCommand
-	tariffsCommand            *cmds.TariffsCommand
-	serversCommand            *cmds.ServersCommand
-	topReferrersCommand       *cmds.TopReferrersCommand
+	migrateClientHandler *migrateclient.Handler
+	mySubsCommand        *cmds.MySubsCommand
+	statsCommand         *cmds.StatsCommand
+	expirationCommand    *cmds.ExpirationCommand
+	tariffsCommand       *cmds.TariffsCommand
+	serversCommand       *cmds.ServersCommand
+	partnershipCommand   *cmds.PartnershipCommand
 }
 
 type stateManager interface {
@@ -146,17 +146,13 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 			chatID := update.CallbackQuery.Message.Chat.ID
 			messageID := update.CallbackQuery.Message.MessageID
 			return r.statsCommand.Refresh(ctx, chatID, messageID)
-		case callbackData == "top_ref_refresh":
+		case strings.HasPrefix(callbackData, "partner_"):
 			if !r.adminChecker.IsAdmin(user.TelegramID) {
 				callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ Нет прав")
 				_, _ = r.bot.Request(callback)
 				return nil
 			}
-			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "✅ Обновлено")
-			_, _ = r.bot.Request(callback)
-			chatID := update.CallbackQuery.Message.Chat.ID
-			messageID := update.CallbackQuery.Message.MessageID
-			return r.topReferrersCommand.Refresh(ctx, chatID, messageID)
+			return r.partnershipCommand.HandleCallback(ctx, update.CallbackQuery)
 		case strings.HasPrefix(callbackData, "exp_"):
 			// Expiration callbacks (exp_dis, exp_link, exp_paid, exp_tariff, etc.)
 			// Доступны для всех пользователей с доступом к боту (ассистентов и админов)
@@ -256,12 +252,12 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 			return r.sendHelp(chatID)
 		}
 		return r.statsCommand.Execute(ctx, chatID)
-	case "top_referrers":
+	case "partners":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
-			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав для просмотра топа рефералов"))
+			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав для просмотра партнёров"))
 			return r.sendHelp(chatID)
 		}
-		return r.topReferrersCommand.Execute(ctx, chatID)
+		return r.partnershipCommand.Execute(ctx, chatID)
 	case "overdue":
 		// Все ассистенты видят все просроченные подписки
 		return r.expirationCommand.ExecuteOverdue(ctx, chatID, nil)
@@ -300,7 +296,7 @@ func (r *Router) sendWelcome(chatID int64, user *users.User) error {
 			"/tariffs — Управление тарифами\n" +
 			"/servers — Управление серверами\n" +
 			"/stats — Просмотр статистики\n" +
-			"/top_referrers — Топ рефералов за неделю\n" +
+			"/partners — Статистика партнёров\n" +
 			"/overdue — Просроченные подписки\n" +
 			"/expiring — Истекающие подписки\n" +
 			"/exp3 — Истекающие через 3 дня"
@@ -350,7 +346,7 @@ func (r *Router) sendHelp(chatID int64) error {
 			"/tariffs — Управление тарифами\n" +
 			"/servers — Управление серверами\n" +
 			"/stats — Просмотр статистики\n" +
-			"/top_referrers — Топ рефералов за неделю\n" +
+			"/partners — Статистика партнёров\n" +
 			"/overdue — Просроченные подписки\n" +
 			"/expiring — Истекающие подписки\n" +
 			"/exp3 — Истекающие через 3 дня"
@@ -431,7 +427,7 @@ func (r *Router) editToHelp(chatID int64, messageID int) error {
 			"/tariffs — Управление тарифами\n" +
 			"/servers — Управление серверами\n" +
 			"/stats — Просмотр статистики\n" +
-			"/top_referrers — Топ рефералов за неделю\n" +
+			"/partners — Статистика партнёров\n" +
 			"/overdue — Просроченные подписки\n" +
 			"/expiring — Истекающие подписки\n" +
 			"/exp3 — Истекающие через 3 дня"
@@ -457,7 +453,7 @@ func NewRouter(
 	expirationCommand *cmds.ExpirationCommand,
 	tariffsCommand *cmds.TariffsCommand,
 	serversCommand *cmds.ServersCommand,
-	topReferrersCommand *cmds.TopReferrersCommand,
+	partnershipCommand *cmds.PartnershipCommand,
 ) *Router {
 	return &Router{
 		bot:                       bot,
@@ -471,9 +467,9 @@ func NewRouter(
 		mySubsCommand:             mySubsCommand,
 		statsCommand:              statsCommand,
 		expirationCommand:         expirationCommand,
-		tariffsCommand:            tariffsCommand,
-		serversCommand:            serversCommand,
-		topReferrersCommand:       topReferrersCommand,
+		tariffsCommand:     tariffsCommand,
+		serversCommand:     serversCommand,
+		partnershipCommand: partnershipCommand,
 	}
 }
 
@@ -528,8 +524,8 @@ func (r *Router) setupAdminCommands(chatID int64) {
 			Description: "Просмотр статистики",
 		},
 		{
-			Command:     "top_referrers",
-			Description: "Топ рефералов за неделю",
+			Command:     "partners",
+			Description: "Статистика партнёров",
 		},
 		{
 			Command:     "overdue",

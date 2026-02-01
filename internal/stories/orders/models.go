@@ -25,6 +25,7 @@ type PendingOrder struct {
 	TotalAmount            float64
 	ReferrerWhatsApp       *string // WhatsApp of referrer (who invited)
 	ReferrerSubscriptionID *int64  // ID of referrer's subscription to extend
+	ReferralType           *string // 'referral' or 'partnership'
 	Status                 Status
 	CreatedAt              time.Time
 	UpdatedAt              time.Time

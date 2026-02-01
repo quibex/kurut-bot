@@ -49,8 +49,8 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 	var referralBonusApplied bool
 	var referrerWhatsApp *string
 
+	// For regular referrals: get WhatsApp from the referrer's subscription
 	if req.ReferrerSubscriptionID != nil {
-		// Get referrer's WhatsApp for display in success message
 		referrerSub, _ := s.storage.GetSubscription(ctx, subs.GetCriteria{IDs: []int64{*req.ReferrerSubscriptionID}})
 		if referrerSub != nil {
 			referrerWhatsApp = referrerSub.ClientWhatsApp
@@ -63,6 +63,9 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 				referralBonusApplied = true
 			}
 		}
+	} else if req.ReferrerWhatsApp != nil {
+		// For partnerships: WhatsApp is provided directly (no subscription check, no bonus)
+		referrerWhatsApp = req.ReferrerWhatsApp
 	}
 
 	expiresAt := now.AddDate(0, 0, durationDays)
@@ -75,6 +78,7 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 		ClientWhatsApp:      &req.ClientWhatsApp,
 		CreatedByTelegramID: &req.CreatedByTelegramID,
 		ReferrerWhatsApp:    referrerWhatsApp,
+		ReferralType:        req.ReferralType,
 		ActivatedAt:         &now,
 		ExpiresAt:           &expiresAt,
 	}

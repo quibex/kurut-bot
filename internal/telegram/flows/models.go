@@ -25,6 +25,7 @@ type CreateSubForClientFlowData struct {
 	ClientWhatsApp         string
 	ReferrerWhatsApp       *string // WhatsApp of the referrer (who invited)
 	ReferrerSubscriptionID *int64  // ID of referrer's active subscription to extend
+	IsPartnership          bool    // true if referrer is a partner (no bonus, no subscription check)
 	TariffID               int64
 	TariffName             string
 	Price                  float64

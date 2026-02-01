@@ -203,6 +203,8 @@ func (w *Worker) handleApprovedOrderPayment(ctx context.Context, order *orders.P
 			ClientWhatsApp:         order.ClientWhatsApp,
 			CreatedByTelegramID:    order.AssistantTelegramID,
 			ReferrerSubscriptionID: order.ReferrerSubscriptionID,
+			ReferrerWhatsApp:       order.ReferrerWhatsApp,
+			ReferralType:           order.ReferralType,
 		}
 		result, err = w.subscriptionService.CreateSubscription(ctx, req)
 	}
