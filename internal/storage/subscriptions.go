@@ -26,6 +26,7 @@ type subscriptionRow struct {
 	GeneratedUserID     *string    `db:"generated_user_id"`
 	CreatedByTelegramID *int64     `db:"created_by_telegram_id"`
 	ReferrerWhatsApp    *string    `db:"referrer_whatsapp"`
+	ReferralType        *string    `db:"referral_type"`
 	ActivatedAt         *time.Time `db:"activated_at"`
 	ExpiresAt           *time.Time `db:"expires_at"`
 	LastRenewedAt       *time.Time `db:"last_renewed_at"`
@@ -45,6 +46,7 @@ func (s subscriptionRow) ToModel() *subs.Subscription {
 		GeneratedUserID:     s.GeneratedUserID,
 		CreatedByTelegramID: s.CreatedByTelegramID,
 		ReferrerWhatsApp:    s.ReferrerWhatsApp,
+		ReferralType:        s.ReferralType,
 		ActivatedAt:         s.ActivatedAt,
 		ExpiresAt:           s.ExpiresAt,
 		LastRenewedAt:       s.LastRenewedAt,
@@ -66,6 +68,7 @@ func (s *storageImpl) CreateSubscription(ctx context.Context, subscription subs.
 		"generated_user_id":      subscription.GeneratedUserID,
 		"created_by_telegram_id": subscription.CreatedByTelegramID,
 		"referrer_whatsapp":      subscription.ReferrerWhatsApp,
+		"referral_type":          subscription.ReferralType,
 		"activated_at":           subscription.ActivatedAt,
 		"expires_at":             subscription.ExpiresAt,
 		"last_renewed_at":        now,
@@ -769,6 +772,47 @@ func (s *storageImpl) GetTopReferrersThisWeek(ctx context.Context, limit int) ([
 		Where(sq.NotEq{"referrer_whatsapp": nil}).
 		Where(sq.NotEq{"referrer_whatsapp": ""}).
 		Where(sq.GtOrEq{"created_at": weekStart}).
+		GroupBy("referrer_whatsapp").
+		OrderBy("count DESC").
+		Limit(uint64(limit))
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("db.QueryContext: %w", err)
+	}
+	defer rows.Close()
+
+	var result []ReferrerStats
+	for rows.Next() {
+		var stat ReferrerStats
+		if err := rows.Scan(&stat.ReferrerWhatsApp, &stat.Count); err != nil {
+			return nil, fmt.Errorf("rows.Scan: %w", err)
+		}
+		result = append(result, stat)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows.Err: %w", err)
+	}
+
+	return result, nil
+}
+
+// GetPartnershipStats returns partnership referral stats for a given time period
+func (s *storageImpl) GetPartnershipStats(ctx context.Context, start, end time.Time, limit int) ([]ReferrerStats, error) {
+	query := s.stmpBuilder().
+		Select("referrer_whatsapp", "COUNT(*) as count").
+		From(subscriptionsTable).
+		Where(sq.Eq{"referral_type": "partnership"}).
+		Where(sq.NotEq{"referrer_whatsapp": nil}).
+		Where(sq.NotEq{"referrer_whatsapp": ""}).
+		Where(sq.GtOrEq{"created_at": start}).
+		Where(sq.Lt{"created_at": end}).
 		GroupBy("referrer_whatsapp").
 		OrderBy("count DESC").
 		Limit(uint64(limit))

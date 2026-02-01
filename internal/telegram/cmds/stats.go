@@ -107,6 +107,14 @@ func (c *StatsCommand) formatStatistics(stats *storage.StatisticsData) string {
 	text.WriteString(fmt.Sprintf("• За %s: *%.2f ₽*\n", previousMonth, stats.PreviousMonthRevenue))
 	text.WriteString(fmt.Sprintf("• За %s: *%.2f ₽*\n", currentMonth, stats.CurrentMonthRevenue))
 
+	text.WriteString("\n👥 *Рефералы:*\n")
+	text.WriteString(fmt.Sprintf("• Эта неделя: *%d*\n", stats.ReferralCountThisWeek))
+	text.WriteString(fmt.Sprintf("• Прошлая неделя: *%d*\n", stats.ReferralCountLastWeek))
+
+	text.WriteString("\n🤝 *Партнёрка:*\n")
+	text.WriteString(fmt.Sprintf("• Эта неделя: *%d*\n", stats.PartnershipCountThisWeek))
+	text.WriteString(fmt.Sprintf("• Прошлая неделя: *%d*\n", stats.PartnershipCountLastWeek))
+
 	return text.String()
 }
 
