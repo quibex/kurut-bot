@@ -171,9 +171,10 @@ func (s *storageImpl) ListSubscriptions(ctx context.Context, criteria subs.ListC
 }
 
 // ListExpiringSubscriptions returns active subscriptions expiring in specified number of days
+// Uses todayStart() so the list is stable throughout the day
 func (s *storageImpl) ListExpiringSubscriptions(ctx context.Context, daysUntilExpiry int) ([]*subs.Subscription, error) {
-	// Calculate time window: from now+days to now+days+24h
-	startTime := s.now().AddDate(0, 0, daysUntilExpiry)
+	// Calculate time window: from todayStart+days to todayStart+days+24h
+	startTime := s.todayStart().AddDate(0, 0, daysUntilExpiry)
 	endTime := startTime.Add(24 * time.Hour)
 
 	query := s.stmpBuilder().
@@ -203,15 +204,16 @@ func (s *storageImpl) ListExpiringSubscriptions(ctx context.Context, daysUntilEx
 	return subscriptions, nil
 }
 
-// ListExpiredSubscriptions returns active subscriptions that have expired
+// ListExpiredSubscriptions returns active subscriptions that expired before today
+// Uses todayStart() so the list is stable throughout the day
 func (s *storageImpl) ListExpiredSubscriptions(ctx context.Context) ([]*subs.Subscription, error) {
-	now := s.now()
+	todayStart := s.todayStart()
 
 	query := s.stmpBuilder().
 		Select(subscriptionRowFields).
 		From(subscriptionsTable).
 		Where(sq.Eq{"status": string(subs.StatusActive)}).
-		Where(sq.Lt{"expires_at": now}).
+		Where(sq.Lt{"expires_at": todayStart}).
 		OrderBy("expires_at ASC")
 
 	q, args, err := query.ToSql()
@@ -376,14 +378,12 @@ func (s *storageImpl) ListExpiringByAssistantAndDays(ctx context.Context, daysUn
 }
 
 // ListOverdueSubscriptionsGroupedByAssistant returns expired subscriptions grouped by assistant telegram ID
+// Only checks status=expired, no expires_at check needed (already marked by worker)
 func (s *storageImpl) ListOverdueSubscriptionsGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error) {
-	now := s.now()
-
 	query := s.stmpBuilder().
 		Select(subscriptionRowFields).
 		From(subscriptionsTable).
 		Where(sq.Eq{"status": string(subs.StatusExpired)}).
-		Where(sq.Lt{"expires_at": now}).
 		OrderBy("expires_at ASC")
 
 	q, args, err := query.ToSql()
@@ -410,9 +410,9 @@ func (s *storageImpl) ListOverdueSubscriptionsGroupedByAssistant(ctx context.Con
 
 // ListStaleExpiredSubscriptionsGroupedByAssistant returns expired subscriptions that have been expired for more than 24 hours
 // These are subscriptions that need to be disabled but haven't been yet
+// Uses todayStart() so the list is stable throughout the day
 func (s *storageImpl) ListStaleExpiredSubscriptionsGroupedByAssistant(ctx context.Context) (map[int64][]*subs.Subscription, error) {
-	now := s.now()
-	staleThreshold := now.Add(-24 * time.Hour) // expired more than 24 hours ago
+	staleThreshold := s.todayStart().AddDate(0, 0, -1) // expired before yesterday
 
 	query := s.stmpBuilder().
 		Select(subscriptionRowFields).
@@ -550,8 +550,9 @@ func (s *storageImpl) GetAssistantStats(ctx context.Context, assistantTelegramID
 
 // ListExpiringSubscriptionsByAssistant returns expiring subscriptions for a specific assistant
 // If assistantTelegramID is nil, returns all expiring subscriptions (for admins)
+// Uses todayStart() so the list is stable throughout the day
 func (s *storageImpl) ListExpiringSubscriptionsByAssistant(ctx context.Context, assistantTelegramID *int64, daysUntilExpiry int) ([]*subs.Subscription, error) {
-	startTime := s.now().AddDate(0, 0, daysUntilExpiry)
+	startTime := s.todayStart().AddDate(0, 0, daysUntilExpiry)
 	endTime := startTime.Add(24 * time.Hour)
 
 	query := s.stmpBuilder().
@@ -587,14 +588,12 @@ func (s *storageImpl) ListExpiringSubscriptionsByAssistant(ctx context.Context, 
 
 // ListExpiredSubscriptionsByAssistant returns expired subscriptions for a specific assistant
 // If assistantTelegramID is nil, returns all expired subscriptions (for admins)
+// Only checks status=expired, no expires_at check needed (already marked by worker)
 func (s *storageImpl) ListExpiredSubscriptionsByAssistant(ctx context.Context, assistantTelegramID *int64) ([]*subs.Subscription, error) {
-	now := s.now()
-
 	query := s.stmpBuilder().
 		Select(subscriptionRowFields).
 		From(subscriptionsTable).
 		Where(sq.Eq{"status": string(subs.StatusExpired)}).
-		Where(sq.Lt{"expires_at": now}).
 		OrderBy("expires_at ASC")
 
 	if assistantTelegramID != nil {
@@ -645,6 +644,7 @@ func (s *storageImpl) UpdateSubscriptionTariff(ctx context.Context, subscription
 }
 
 // FindActiveSubscriptionByWhatsApp finds an active subscription by client WhatsApp number
+// Returns subscription with earliest expiration date so referral bonuses extend the one expiring soonest
 func (s *storageImpl) FindActiveSubscriptionByWhatsApp(ctx context.Context, whatsapp string) (*subs.Subscription, error) {
 	normalized := NormalizePhone(whatsapp)
 
@@ -653,7 +653,7 @@ func (s *storageImpl) FindActiveSubscriptionByWhatsApp(ctx context.Context, what
 		FROM ` + subscriptionsTable + `
 		WHERE REPLACE(REPLACE(REPLACE(client_whatsapp, '+', ''), ' ', ''), '-', '') = ?
 		AND status = ?
-		ORDER BY expires_at DESC
+		ORDER BY expires_at ASC
 		LIMIT 1
 	`
 

@@ -21,6 +21,16 @@ func (s *storageImpl) stmpBuilder() sq.StatementBuilderType {
 	return sq.StatementBuilder.PlaceholderFormat(sq.Question)
 }
 
+// moscowLocation is Moscow timezone (UTC+3)
+var moscowLocation = time.FixedZone("MSK", 3*60*60)
+
+// todayStart returns the start of today (00:00:00) in Moscow time
+// Used for stable daily queries - lists don't change throughout the day
+func (s *storageImpl) todayStart() time.Time {
+	now := s.now().In(moscowLocation)
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation)
+}
+
 // Fields возвращает список всех полей структуры, которые есть в БД.
 func fields(data any) string {
 	var s string
