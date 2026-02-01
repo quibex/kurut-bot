@@ -24,11 +24,13 @@ func (s *storageImpl) stmpBuilder() sq.StatementBuilderType {
 // moscowLocation is Moscow timezone (UTC+3)
 var moscowLocation = time.FixedZone("MSK", 3*60*60)
 
-// todayStart returns the start of today (00:00:00) in Moscow time
+// todayStart returns the start of today (00:00:00) in Moscow time, converted to UTC
 // Used for stable daily queries - lists don't change throughout the day
+// Returns UTC to ensure consistent database comparisons (database stores times in UTC)
 func (s *storageImpl) todayStart() time.Time {
-	now := s.now().In(moscowLocation)
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation)
+	nowMoscow := s.now().In(moscowLocation)
+	startOfDayMoscow := time.Date(nowMoscow.Year(), nowMoscow.Month(), nowMoscow.Day(), 0, 0, 0, 0, moscowLocation)
+	return startOfDayMoscow.UTC()
 }
 
 // Fields возвращает список всех полей структуры, которые есть в БД.
