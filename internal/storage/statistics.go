@@ -275,9 +275,11 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 	}
 
 	averageRevenuePerDay := 0.0
-	daysInMonth := float64(now.Day())
+	daysInMonth := float64(now.Day() - 1) // Exclude today from average calculation
 	if daysInMonth > 0 {
-		averageRevenuePerDay = currentMonthRevenue / daysInMonth
+		// Calculate average only for completed days (exclude today's revenue)
+		completedDaysRevenue := currentMonthRevenue - todayRevenue
+		averageRevenuePerDay = completedDaysRevenue / daysInMonth
 	}
 
 	// Calculate week boundaries for referral stats
