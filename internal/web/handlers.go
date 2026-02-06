@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -146,6 +147,10 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 			return
 		}
 
+		sort.Slice(activeTariffs, func(i, j int) bool {
+			return activeTariffs[i].DurationDays < activeTariffs[j].DurationDays
+		})
+
 		// Check if servers are available
 		hasServers := false
 		if server, err := h.serverStorage.GetAvailableServer(ctx); err == nil && server != nil {
@@ -161,7 +166,10 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 			}
 
 			// Status
-			if sub.ExpiresAt != nil {
+			if sub.ExpiresAt != nil && isToday(*sub.ExpiresAt) {
+				view.StatusText = "Истекает сегодня"
+				view.StatusClass = "status-expired"
+			} else if sub.ExpiresAt != nil {
 				switch sub.Status {
 				case subs.StatusActive:
 					dateStr := formatRussianDate(*sub.ExpiresAt)
@@ -172,9 +180,15 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 					dateStr := formatRussianDate(*sub.ExpiresAt)
 					view.StatusText = "Истекла " + dateStr
 					view.StatusClass = "status-expired"
+				case subs.StatusDisabled:
+					view.StatusText = "Отключена"
+					view.StatusClass = "status-disabled"
 				default:
 					view.StatusText = string(sub.Status)
 				}
+			} else if sub.Status == subs.StatusDisabled {
+				view.StatusText = "Отключена"
+				view.StatusClass = "status-disabled"
 			}
 
 			subViews = append(subViews, view)

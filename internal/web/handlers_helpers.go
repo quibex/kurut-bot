@@ -5,27 +5,44 @@ import (
 	"time"
 )
 
+var moscowLocation = func() *time.Location {
+	loc, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		loc = time.FixedZone("MSK", 3*60*60)
+	}
+	return loc
+}()
+
 func formatRussianDate(t time.Time) string {
 	months := []string{
 		"", "января", "февраля", "марта", "апреля", "мая", "июня",
 		"июля", "августа", "сентября", "октября", "ноября", "декабря",
 	}
-	month := t.Month()
-	return fmt.Sprintf("%d %s %d", t.Day(), months[month], t.Year())
+	tMoscow := t.In(moscowLocation)
+	return fmt.Sprintf("%d %s %d", tMoscow.Day(), months[tMoscow.Month()], tMoscow.Year())
+}
+
+func isToday(t time.Time) bool {
+	now := time.Now().In(moscowLocation)
+	tMoscow := t.In(moscowLocation)
+	return now.Year() == tMoscow.Year() && now.YearDay() == tMoscow.YearDay()
 }
 
 func formatRemainingTime(t time.Time) string {
-	now := time.Now()
-	if t.Before(now) {
+	nowMoscow := time.Now().In(moscowLocation)
+	tMoscow := t.In(moscowLocation)
+
+	todayDate := time.Date(nowMoscow.Year(), nowMoscow.Month(), nowMoscow.Day(), 0, 0, 0, 0, moscowLocation)
+	expiryDate := time.Date(tMoscow.Year(), tMoscow.Month(), tMoscow.Day(), 0, 0, 0, 0, moscowLocation)
+
+	if expiryDate.Equal(todayDate) {
+		return "истекает сегодня"
+	}
+	if expiryDate.Before(todayDate) {
 		return "истекла"
 	}
 
-	diff := t.Sub(now)
-	days := int(diff.Hours() / 24)
-
-	if days == 0 {
-		return "сегодня"
-	}
+	days := int(expiryDate.Sub(todayDate).Hours() / 24)
 
 	// Simple pluralization for "days"
 	suffix := "дней"
