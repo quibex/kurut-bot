@@ -341,6 +341,7 @@ func (w *Worker) sendOrderSuccessMessage(order *orders.PendingOrder, result *sub
 	if order.MessageID != nil && order.ChatID != 0 {
 		editMsg := tgbotapi.NewEditMessageText(order.ChatID, *order.MessageID, text)
 		editMsg.ParseMode = "Markdown"
+		editMsg.DisableWebPagePreview = true
 		editMsg.ReplyMarkup = keyboard
 		_, err := w.telegramBot.Send(editMsg)
 		return err
@@ -355,6 +356,7 @@ func (w *Worker) sendOrderSuccessMessage(order *orders.PendingOrder, result *sub
 	// Fallback: send new message
 	msg := tgbotapi.NewMessage(targetChatID, text)
 	msg.ParseMode = "Markdown"
+	msg.DisableWebPagePreview = true
 	if keyboard != nil {
 		msg.ReplyMarkup = keyboard
 	}

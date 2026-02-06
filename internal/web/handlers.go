@@ -14,6 +14,7 @@ import (
 	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
+	"kurut-bot/internal/stories/webtokens"
 )
 
 //go:embed templates/*
@@ -21,24 +22,26 @@ var templatesFS embed.FS
 
 // Handlers provides HTTP handlers for web payments
 type Handlers struct {
-	tariffService      TariffService
-	paymentService     PaymentService
-	subscriptionStore  SubscriptionStorage
-	messageStorage     SubscriptionMessageStorage
-	clientTokenStorage ClientTokenStorage
-	orderStorage       OrderStorage
-	serverStorage      ServerStorage
-	webDomain          string
-	tgChannelURL       string
-	tgSupportURL       string
-	waSupportURL       string
-	logger             *slog.Logger
+	tariffService       TariffService
+	paymentService      PaymentService
+	subscriptionCreator SubscriptionCreator
+	subscriptionStore   SubscriptionStorage
+	messageStorage      SubscriptionMessageStorage
+	clientTokenStorage  ClientTokenStorage
+	orderStorage        OrderStorage
+	serverStorage       ServerStorage
+	webDomain           string
+	tgChannelURL        string
+	tgSupportURL        string
+	waSupportURL        string
+	logger              *slog.Logger
 }
 
 // NewHandlers creates new web handlers
 func NewHandlers(
 	tariffService TariffService,
 	paymentService PaymentService,
+	subscriptionCreator SubscriptionCreator,
 	purchaseStorage PurchaseTokenStorage,
 	renewalStorage RenewalTokenStorage,
 	subscriptionStore SubscriptionStorage,
@@ -53,18 +56,19 @@ func NewHandlers(
 	logger *slog.Logger,
 ) *Handlers {
 	return &Handlers{
-		tariffService:      tariffService,
-		paymentService:     paymentService,
-		subscriptionStore:  subscriptionStore,
-		messageStorage:     messageStorage,
-		clientTokenStorage: clientTokenStorage,
-		orderStorage:       orderStorage,
-		serverStorage:      serverStorage,
-		webDomain:          webDomain,
-		tgChannelURL:       tgChannelURL,
-		tgSupportURL:       tgSupportURL,
-		waSupportURL:       waSupportURL,
-		logger:             logger,
+		tariffService:       tariffService,
+		paymentService:      paymentService,
+		subscriptionCreator: subscriptionCreator,
+		subscriptionStore:   subscriptionStore,
+		messageStorage:      messageStorage,
+		clientTokenStorage:  clientTokenStorage,
+		orderStorage:        orderStorage,
+		serverStorage:       serverStorage,
+		webDomain:           webDomain,
+		tgChannelURL:        tgChannelURL,
+		tgSupportURL:        tgSupportURL,
+		waSupportURL:        waSupportURL,
+		logger:              logger,
 	}
 }
 
@@ -146,6 +150,17 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 			h.logger.Error("Failed to get tariffs", "error", err)
 			http.Error(w, "Ошибка загрузки тарифов", http.StatusInternalServerError)
 			return
+		}
+
+		// Показываем пробный тариф только если у клиента нет подписок
+		if len(subscriptions) == 0 {
+			trialTariff, err := h.tariffService.GetTrialTariff(ctx)
+			if err != nil {
+				h.logger.Error("Failed to get trial tariff", "error", err)
+			}
+			if trialTariff != nil {
+				activeTariffs = append([]*tariffs.Tariff{trialTariff}, activeTariffs...)
+			}
 		}
 
 		sort.Slice(activeTariffs, func(i, j int) bool {
@@ -266,6 +281,12 @@ func (h *Handlers) handleClientSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Пробный тариф (price=0) — создаём подписку без оплаты
+	if tariff.Price == 0 {
+		h.handleTrialSubscription(w, r, token, clientToken, tariff)
+		return
+	}
+
 	// Cancel old pending orders and their payments for this client
 	h.logger.Info("Looking for old pending orders to cancel", "whatsapp", clientToken.WhatsApp)
 	oldPaymentIDs, err := h.orderStorage.CancelPendingOrdersByWhatsApp(ctx, clientToken.WhatsApp)
@@ -380,4 +401,39 @@ func (h *Handlers) handleClientSubmit(w http.ResponseWriter, r *http.Request) {
 
 	// Manual payment mode
 	http.Redirect(w, r, "/payment/success", http.StatusSeeOther)
+}
+
+// handleTrialSubscription creates a trial subscription without payment
+func (h *Handlers) handleTrialSubscription(w http.ResponseWriter, r *http.Request, token string, clientToken *webtokens.ClientToken, tariff *tariffs.Tariff) {
+	ctx := r.Context()
+
+	// Проверяем что у клиента нет подписок (защита от повторного создания)
+	existingSubs, err := h.subscriptionStore.ListSubscriptions(ctx, subs.ListCriteria{
+		ClientWhatsApp: &clientToken.WhatsApp,
+	})
+	if err != nil {
+		h.logger.Error("Failed to check existing subscriptions", "error", err)
+		http.Redirect(w, r, "/c/"+token+"?error=Ошибка+сервера", http.StatusSeeOther)
+		return
+	}
+	if len(existingSubs) > 0 {
+		http.Redirect(w, r, "/c/"+token+"?error=Пробный+период+доступен+только+для+новых+клиентов", http.StatusSeeOther)
+		return
+	}
+
+	req := &subs.CreateSubscriptionRequest{
+		UserID:              clientToken.CreatedByTelegramID,
+		TariffID:            tariff.ID,
+		ClientWhatsApp:      clientToken.WhatsApp,
+		CreatedByTelegramID: clientToken.CreatedByTelegramID,
+	}
+
+	_, err = h.subscriptionCreator.CreateSubscription(ctx, req)
+	if err != nil {
+		h.logger.Error("Failed to create trial subscription", "error", err)
+		http.Redirect(w, r, "/c/"+token+"?error=Ошибка+создания+подписки", http.StatusSeeOther)
+		return
+	}
+
+	http.Redirect(w, r, "/c/"+token+"?payment_result=success&type=new", http.StatusSeeOther)
 }

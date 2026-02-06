@@ -90,10 +90,5 @@ type MigrateClientFlowData struct {
 	ClientWhatsApp      string
 	ServerID            int64
 	ServerName          string
-	TariffID            int64
-	TariffName          string
-	Price               float64
-	PaymentID           *int64
-	PaymentURL          *string
 	MessageID           *int
 }

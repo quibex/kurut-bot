@@ -855,12 +855,14 @@ func (h *Handler) sendSubscriptionCreated(chatID int64, result *subs.CreateSubsc
 	if data.MessageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, messageText)
 		editMsg.ParseMode = "Markdown"
+		editMsg.DisableWebPagePreview = true
 		editMsg.ReplyMarkup = &keyboard
 		_, err := h.bot.Send(editMsg)
 		if err != nil {
 			// Fallback: отправляем новое сообщение
 			msg := tgbotapi.NewMessage(chatID, messageText)
 			msg.ParseMode = "Markdown"
+			msg.DisableWebPagePreview = true
 			msg.ReplyMarkup = keyboard
 			_, err = h.bot.Send(msg)
 		}
@@ -870,6 +872,7 @@ func (h *Handler) sendSubscriptionCreated(chatID int64, result *subs.CreateSubsc
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "Markdown"
+	msg.DisableWebPagePreview = true
 	msg.ReplyMarkup = keyboard
 	_, err := h.bot.Send(msg)
 
@@ -1306,12 +1309,14 @@ func (h *Handler) sendSubscriptionCreatedForOrder(chatID int64, result *subs.Cre
 	if order.MessageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *order.MessageID, messageText)
 		editMsg.ParseMode = "Markdown"
+		editMsg.DisableWebPagePreview = true
 		editMsg.ReplyMarkup = &keyboard
 		_, err := h.bot.Send(editMsg)
 		if err != nil {
 			// Fallback
 			msg := tgbotapi.NewMessage(chatID, messageText)
 			msg.ParseMode = "Markdown"
+			msg.DisableWebPagePreview = true
 			msg.ReplyMarkup = keyboard
 			_, err = h.bot.Send(msg)
 		}
@@ -1320,6 +1325,7 @@ func (h *Handler) sendSubscriptionCreatedForOrder(chatID int64, result *subs.Cre
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "Markdown"
+	msg.DisableWebPagePreview = true
 	msg.ReplyMarkup = keyboard
 	_, err := h.bot.Send(msg)
 	return err

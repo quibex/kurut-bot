@@ -70,10 +70,8 @@ const (
 
 // admin migrate client states (amc -> admin migrate client)
 const (
-	AdminMigrateClientWaitName    State = "amc_wt_name"
-	AdminMigrateClientWaitServer  State = "amc_wt_server"
-	AdminMigrateClientWaitTariff  State = "amc_wt_tariff"
-	AdminMigrateClientWaitPayment State = "amc_wt_payment"
+	AdminMigrateClientWaitName   State = "amc_wt_name"
+	AdminMigrateClientWaitServer State = "amc_wt_server"
 )
 
 // admin new client states (anc -> admin new client)

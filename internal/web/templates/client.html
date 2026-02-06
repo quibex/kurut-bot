@@ -423,7 +423,7 @@
                     <div class="option-title">{{$t.Name}}</div>
                     <div class="option-subtitle">{{$t.DurationDays}} дней</div>
                 </div>
-                <div class="option-price">{{printf "%.0f" $t.Price}} ₽</div>
+                <div class="option-price">{{if eq (printf "%.0f" $t.Price) "0"}}Бесплатно{{else}}{{printf "%.0f" $t.Price}} ₽{{end}}</div>
             </label>
             {{end}}
 
@@ -456,21 +456,25 @@
                 card.classList.toggle('selected', radio.checked);
             });
 
-            // Update button price
+            // Update button price and text
             tariffCards.forEach(card => {
                 const radio = card.querySelector('input[type="radio"]');
                 if (radio.checked) {
-                    btnPrice.textContent = card.dataset.price + ' ₽';
+                    const price = parseFloat(card.dataset.price);
+                    if (price === 0) {
+                        btnPrice.textContent = '';
+                        btnText.textContent = 'Попробовать бесплатно';
+                    } else {
+                        btnPrice.textContent = price + ' ₽';
+                        const subRadio = document.querySelector('input[name="subscription_id"]:checked');
+                        if (subRadio && subRadio.value !== 'new') {
+                            btnText.textContent = 'Продлить';
+                        } else {
+                            btnText.textContent = 'Оплатить';
+                        }
+                    }
                 }
             });
-
-            // Update button text based on subscription selection
-            const subRadio = document.querySelector('input[name="subscription_id"]:checked');
-            if (subRadio && subRadio.value !== 'new') {
-                btnText.textContent = 'Продлить';
-            } else {
-                btnText.textContent = 'Оплатить';
-            }
         }
 
         allCards.forEach(card => {

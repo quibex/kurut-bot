@@ -11,9 +11,14 @@ import (
 	"kurut-bot/internal/stories/webtokens"
 )
 
+type SubscriptionCreator interface {
+	CreateSubscription(ctx context.Context, req *subs.CreateSubscriptionRequest) (*subs.CreateSubscriptionResult, error)
+}
+
 type TariffService interface {
 	GetActiveTariffs(ctx context.Context) ([]*tariffs.Tariff, error)
 	GetTariff(ctx context.Context, criteria tariffs.GetCriteria) (*tariffs.Tariff, error)
+	GetTrialTariff(ctx context.Context) (*tariffs.Tariff, error)
 }
 
 type PaymentService interface {
