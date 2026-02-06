@@ -3,6 +3,8 @@ package web
 import (
 	"context"
 
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
 	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/servers"
 	"kurut-bot/internal/stories/submessages"
@@ -61,6 +63,11 @@ type OrderStorage interface {
 
 type ServerStorage interface {
 	GetAvailableServer(ctx context.Context) (*servers.Server, error)
+	GetServer(ctx context.Context, criteria servers.GetCriteria) (*servers.Server, error)
+}
+
+type TelegramBot interface {
+	Send(c tgbotapi.Chattable) (tgbotapi.Message, error)
 }
 
 // PendingOrder for new subscriptions

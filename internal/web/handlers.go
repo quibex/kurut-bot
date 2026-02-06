@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"fmt"
@@ -11,7 +12,10 @@ import (
 	"strconv"
 	"strings"
 
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
 	"kurut-bot/internal/stories/payment"
+	"kurut-bot/internal/stories/servers"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/stories/webtokens"
@@ -30,6 +34,7 @@ type Handlers struct {
 	clientTokenStorage  ClientTokenStorage
 	orderStorage        OrderStorage
 	serverStorage       ServerStorage
+	telegramBot         TelegramBot
 	webDomain           string
 	tgChannelURL        string
 	tgSupportURL        string
@@ -49,6 +54,7 @@ func NewHandlers(
 	clientTokenStorage ClientTokenStorage,
 	orderStorage OrderStorage,
 	serverStorage ServerStorage,
+	telegramBot TelegramBot,
 	webDomain string,
 	tgChannelURL string,
 	tgSupportURL string,
@@ -64,6 +70,7 @@ func NewHandlers(
 		clientTokenStorage:  clientTokenStorage,
 		orderStorage:        orderStorage,
 		serverStorage:       serverStorage,
+		telegramBot:         telegramBot,
 		webDomain:           webDomain,
 		tgChannelURL:        tgChannelURL,
 		tgSupportURL:        tgSupportURL,
@@ -428,12 +435,72 @@ func (h *Handlers) handleTrialSubscription(w http.ResponseWriter, r *http.Reques
 		CreatedByTelegramID: clientToken.CreatedByTelegramID,
 	}
 
-	_, err = h.subscriptionCreator.CreateSubscription(ctx, req)
+	result, err := h.subscriptionCreator.CreateSubscription(ctx, req)
 	if err != nil {
 		h.logger.Error("Failed to create trial subscription", "error", err)
 		http.Redirect(w, r, "/c/"+token+"?error=Ошибка+создания+подписки", http.StatusSeeOther)
 		return
 	}
 
+	// Отправляем уведомление ассистенту о создании пробной подписки
+	if err := h.sendTrialNotificationToAssistant(clientToken, result); err != nil {
+		h.logger.Error("Failed to send trial notification to assistant", "error", err)
+		// Не прерываем процесс, подписка уже создана
+	}
+
 	http.Redirect(w, r, "/c/"+token+"?payment_result=success&type=new", http.StatusSeeOther)
+}
+
+// sendTrialNotificationToAssistant sends notification to assistant about trial subscription creation
+func (h *Handlers) sendTrialNotificationToAssistant(clientToken *webtokens.ClientToken, result *subs.CreateSubscriptionResult) error {
+	// Get server info
+	var err error
+	if result.Subscription.ServerID != nil {
+		_, err = h.serverStorage.GetServer(context.Background(), servers.GetCriteria{ID: result.Subscription.ServerID})
+		if err != nil {
+			h.logger.Error("Failed to get server for trial notification", "error", err, "server_id", result.Subscription.ServerID)
+		}
+	}
+
+	serverPassword := ""
+	if result.ServerUIPassword != nil {
+		serverPassword = *result.ServerUIPassword
+	}
+
+	// Format WhatsApp link
+	cleanNumber := strings.ReplaceAll(strings.ReplaceAll(clientToken.WhatsApp, "+", ""), " ", "")
+	whatsappDisplay := fmt.Sprintf("[%s](https://wa.me/%s)", clientToken.WhatsApp, cleanNumber)
+
+	text := fmt.Sprintf(
+		"🎁 *Новый клиент подключил пробный тариф!*\n\n"+
+			"📱 *WhatsApp:* %s\n"+
+			"💰 *Тариф:* Пробный период\n"+
+			"🆔 *User ID:* `%s`\n"+
+			"🔑 *Пароль сервера:* `%s`\n\n"+
+			"⚡ *Требуется создать ключ на сервере*",
+		whatsappDisplay,
+		result.GeneratedUserID,
+		serverPassword,
+	)
+
+	// Build keyboard with server link
+	var keyboard *tgbotapi.InlineKeyboardMarkup
+	if result.ServerUIURL != nil && *result.ServerUIURL != "" {
+		kb := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonURL("Сервер", *result.ServerUIURL),
+			),
+		)
+		keyboard = &kb
+	}
+
+	msg := tgbotapi.NewMessage(clientToken.CreatedByTelegramID, text)
+	msg.ParseMode = "Markdown"
+	msg.DisableWebPagePreview = true
+	if keyboard != nil {
+		msg.ReplyMarkup = keyboard
+	}
+
+	_, err = h.telegramBot.Send(msg)
+	return err
 }

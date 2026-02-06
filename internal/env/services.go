@@ -251,14 +251,15 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	s.WebHandlers = web.NewHandlers(
 		tariffService,
 		paymentService,
-		createSubService, // subscriptionCreator (для пробных подписок)
-		storageImpl,      // purchaseStorage
-		storageImpl,      // renewalStorage
-		storageImpl,      // subscriptionStore
-		storageImpl,      // messageStorage
-		storageImpl,      // clientTokenStorage
-		storageImpl,      // orderStorage
-		storageImpl,      // serverStorage
+		createSubService,                // subscriptionCreator (для пробных подписок)
+		storageImpl,                     // purchaseStorage
+		storageImpl,                     // renewalStorage
+		storageImpl,                     // subscriptionStore
+		storageImpl,                     // messageStorage
+		storageImpl,                     // clientTokenStorage
+		storageImpl,                     // orderStorage
+		storageImpl,                     // serverStorage
+		clients.TelegramBot.GetBotAPI(), // telegramBot
 		cfg.Web.Domain,
 		cfg.Web.TelegramChannelURL,
 		cfg.Web.TelegramSupportURL,
