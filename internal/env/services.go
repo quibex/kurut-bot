@@ -154,6 +154,12 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		storageImpl,
 	)
 
+	// Создаем lookupCommand
+	lookupCommand := cmds.NewLookupCommand(
+		clients.TelegramBot.GetBotAPI(),
+		storageImpl,
+	)
+
 	// Создаем migrateClientHandler
 	migrateClientHandler := migrateclient.NewHandler(
 		clients.TelegramBot,
@@ -213,6 +219,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		tariffsCommand,
 		serversCommand,
 		partnershipCommand,
+		lookupCommand,
 	)
 
 	// Создаем менеджер воркеров

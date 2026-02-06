@@ -34,6 +34,7 @@ type Router struct {
 	tariffsCommand       *cmds.TariffsCommand
 	serversCommand       *cmds.ServersCommand
 	partnershipCommand   *cmds.PartnershipCommand
+	lookupCommand        *cmds.LookupCommand
 }
 
 type stateManager interface {
@@ -273,6 +274,14 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 			return r.sendHelp(chatID)
 		}
 		return r.migrateClientHandler.Start(user.ID, user.TelegramID, chatID)
+	case "find":
+		args := update.Message.CommandArguments()
+		if args == "" {
+			msg := tgbotapi.NewMessage(chatID, "Введите последние цифры номера.\nПример: /find 2706")
+			_, _ = r.bot.Send(msg)
+			return nil
+		}
+		return r.lookupCommand.Execute(ctx, chatID, args)
 	default:
 		return r.sendHelp(chatID)
 	}
@@ -304,7 +313,8 @@ func (r *Router) sendWelcome(chatID int64, user *users.User) error {
 
 	text += "\n\nКоманды ассистента:\n" +
 		"/create_sub — Создать подписку для клиента\n" +
-		"/my_subs — Список подписок"
+		"/my_subs — Список подписок\n" +
+		"/find — Поиск подписки по номеру"
 
 	// Проверяем есть ли сохраненное сообщение для редактирования
 	welcomeData, _ := r.stateManager.GetWelcomeData(chatID)
@@ -339,7 +349,8 @@ func (r *Router) sendHelp(chatID int64) error {
 	text := "Доступные команды:\n\n" +
 		"/start — Главное меню\n" +
 		"/create_sub — Создать подписку для клиента\n" +
-		"/my_subs — Список подписок"
+		"/my_subs — Список подписок\n" +
+		"/find — Поиск подписки по номеру"
 
 	if r.adminChecker.IsAdmin(chatID) {
 		text += "\n\nКоманды администратора:\n" +
@@ -420,7 +431,8 @@ func (r *Router) editToHelp(chatID int64, messageID int) error {
 	text := "Доступные команды:\n\n" +
 		"/start — Главное меню\n" +
 		"/create_sub — Создать подписку для клиента\n" +
-		"/my_subs — Список подписок"
+		"/my_subs — Список подписок\n" +
+		"/find — Поиск подписки по номеру"
 
 	if r.adminChecker.IsAdmin(chatID) {
 		text += "\n\nКоманды администратора:\n" +
@@ -454,6 +466,7 @@ func NewRouter(
 	tariffsCommand *cmds.TariffsCommand,
 	serversCommand *cmds.ServersCommand,
 	partnershipCommand *cmds.PartnershipCommand,
+	lookupCommand *cmds.LookupCommand,
 ) *Router {
 	return &Router{
 		bot:                       bot,
@@ -470,6 +483,7 @@ func NewRouter(
 		tariffsCommand:     tariffsCommand,
 		serversCommand:     serversCommand,
 		partnershipCommand: partnershipCommand,
+		lookupCommand:      lookupCommand,
 	}
 }
 
@@ -543,6 +557,10 @@ func (r *Router) setupAdminCommands(chatID int64) {
 			Command:     "migrate_client",
 			Description: "Миграция существующего клиента",
 		},
+		{
+			Command:     "find",
+			Description: "Поиск подписки по номеру",
+		},
 	}
 
 	scope := tgbotapi.NewBotCommandScopeChat(chatID)
@@ -581,6 +599,10 @@ func (r *Router) setupAssistantCommands(chatID int64) {
 		{
 			Command:     "exp3",
 			Description: "Истекающие через 3 дня",
+		},
+		{
+			Command:     "find",
+			Description: "Поиск подписки по номеру",
 		},
 	}
 
