@@ -3,28 +3,46 @@ package cmds
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode"
 
 	"kurut-bot/internal/storage"
+	"kurut-bot/internal/stories/webtokens"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 type LookupCommand struct {
-	bot     *tgbotapi.BotAPI
-	storage LookupStorage
+	bot                *tgbotapi.BotAPI
+	storage            LookupStorage
+	clientTokenStorage LookupClientTokenStorage
+	webDomain          string
+	logger             *slog.Logger
 }
 
 type LookupStorage interface {
 	SearchSubscriptionsByPhoneSuffix(ctx context.Context, suffix string) ([]storage.SubscriptionLookupResult, error)
 }
 
-func NewLookupCommand(bot *tgbotapi.BotAPI, storage LookupStorage) *LookupCommand {
+type LookupClientTokenStorage interface {
+	GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64) (*webtokens.ClientToken, error)
+}
+
+func NewLookupCommand(
+	bot *tgbotapi.BotAPI,
+	storage LookupStorage,
+	clientTokenStorage LookupClientTokenStorage,
+	webDomain string,
+	logger *slog.Logger,
+) *LookupCommand {
 	return &LookupCommand{
-		bot:     bot,
-		storage: storage,
+		bot:                bot,
+		storage:            storage,
+		clientTokenStorage: clientTokenStorage,
+		webDomain:          webDomain,
+		logger:             logger,
 	}
 }
 
@@ -51,15 +69,34 @@ func (c *LookupCommand) Execute(ctx context.Context, chatID int64, phoneSuffix s
 		return nil
 	}
 
-	text := c.formatResults(results, digits)
+	// Build client links for unique WhatsApp numbers
+	clientLinks := make(map[string]string)
+	for _, r := range results {
+		if r.ClientWhatsApp == nil || *r.ClientWhatsApp == "" {
+			continue
+		}
+		wa := *r.ClientWhatsApp
+		if _, ok := clientLinks[wa]; ok {
+			continue
+		}
+		token, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, wa, chatID)
+		if err != nil {
+			c.logger.Error("Failed to get client token", "error", err, "whatsapp", wa)
+			continue
+		}
+		clientLinks[wa] = fmt.Sprintf("%s/c/%s", c.webDomain, token.Token)
+	}
+
+	text := c.formatResults(results, digits, clientLinks)
 
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
+	msg.DisableWebPagePreview = true
 	_, err = c.bot.Send(msg)
 	return err
 }
 
-func (c *LookupCommand) formatResults(results []storage.SubscriptionLookupResult, suffix string) string {
+func (c *LookupCommand) formatResults(results []storage.SubscriptionLookupResult, suffix string, clientLinks map[string]string) string {
 	var b strings.Builder
 
 	b.WriteString(fmt.Sprintf("🔍 *Подписки по номеру ...%s*\n", suffix))
@@ -89,6 +126,12 @@ func (c *LookupCommand) formatResults(results []storage.SubscriptionLookupResult
 		}
 
 		b.WriteString(fmt.Sprintf("📅 Создан: %s\n", formatDate(r.CreatedAt)))
+
+		if r.ClientWhatsApp != nil {
+			if link, ok := clientLinks[*r.ClientWhatsApp]; ok {
+				b.WriteString(fmt.Sprintf("🔗 [Личный кабинет](%s)\n", link))
+			}
+		}
 
 		// Limit to 10 results to avoid message being too long
 		if i >= 9 {

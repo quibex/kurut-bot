@@ -162,6 +162,9 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	lookupCommand := cmds.NewLookupCommand(
 		clients.TelegramBot.GetBotAPI(),
 		storageImpl,
+		storageImpl,
+		cfg.Web.Domain,
+		logger,
 	)
 
 	// Создаем newClientCommand

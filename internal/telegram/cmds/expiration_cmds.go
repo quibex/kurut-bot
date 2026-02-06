@@ -376,15 +376,39 @@ func (c *ExpirationCommand) updateToDisabledMessage(ctx context.Context, chatID 
 		passwordLine = fmt.Sprintf("\n🔐 Пароль: `%s`", server.UIPassword)
 	}
 
+	// Получаем ссылку на личный кабинет клиента
+	clientLink := ""
+	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
+		createdByTgID := int64(0)
+		if sub.CreatedByTelegramID != nil {
+			createdByTgID = *sub.CreatedByTelegramID
+		}
+		clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID)
+		if err != nil {
+			c.logger.Error("Failed to get client token", "error", err)
+		} else {
+			clientLink = fmt.Sprintf("%s/c/%s", c.webDomain, clientToken.Token)
+		}
+	}
+
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
 		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, "Здравствуйте! Ваша подписка VPN истекла. Для продолжения работы необходимо оплатить подписку.")
-		text = fmt.Sprintf(
-			"⏸ *Подписка отключена*\n\n"+
-				"📱 Клиент: [%s](%s)\n"+
-				"📅 Тариф: %s (%.0f ₽)%s",
-			whatsapp, whatsappLink, tariffName, price, passwordLine)
+		if clientLink != "" {
+			text = fmt.Sprintf(
+				"⏸ *Подписка отключена*\n\n"+
+					"📱 Клиент: [%s](%s)\n"+
+					"📅 Тариф: %s (%.0f ₽)%s\n\n"+
+					"🔗 [Ссылка для оплаты](%s)",
+				whatsapp, whatsappLink, tariffName, price, passwordLine, clientLink)
+		} else {
+			text = fmt.Sprintf(
+				"⏸ *Подписка отключена*\n\n"+
+					"📱 Клиент: [%s](%s)\n"+
+					"📅 Тариф: %s (%.0f ₽)%s",
+				whatsapp, whatsappLink, tariffName, price, passwordLine)
+		}
 	} else {
 		text = fmt.Sprintf(
 			"⏸ *Подписка отключена*\n\n"+
@@ -393,22 +417,8 @@ func (c *ExpirationCommand) updateToDisabledMessage(ctx context.Context, chatID 
 			whatsapp, tariffName, price, passwordLine)
 	}
 
-	// Кнопки после отключения: Сменить тариф, Ссылка/Оплачено
-	var rows [][]tgbotapi.InlineKeyboardButton
-
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("📋 Сменить тариф", fmt.Sprintf("exp_tariff:%d", sub.ID)),
-	))
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("🔗 Ссылка", fmt.Sprintf("exp_link:%d", sub.ID)),
-		tgbotapi.NewInlineKeyboardButtonData(c.paidButtonText(), fmt.Sprintf("exp_paid:%d", sub.ID)),
-	))
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
-
 	editMsg := tgbotapi.NewEditMessageText(chatID, messageID, text)
 	editMsg.ParseMode = "Markdown"
-	editMsg.ReplyMarkup = &keyboard
 	editMsg.DisableWebPagePreview = true
 	_, err := c.bot.Send(editMsg)
 
