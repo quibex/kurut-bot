@@ -843,3 +843,45 @@ func (s *storageImpl) GetPartnershipStats(ctx context.Context, start, end time.T
 
 	return result, nil
 }
+
+// SubscriptionLookupResult holds data for subscription lookup by phone suffix
+type SubscriptionLookupResult struct {
+	ID             int64      `db:"id"`
+	ClientWhatsApp *string    `db:"client_whatsapp"`
+	TariffName     string     `db:"tariff_name"`
+	Status         string     `db:"status"`
+	ExpiresAt      *time.Time `db:"expires_at"`
+	LastRenewedAt  *time.Time `db:"last_renewed_at"`
+	CreatedAt      time.Time  `db:"created_at"`
+	ServerName     *string    `db:"server_name"`
+}
+
+// SearchSubscriptionsByPhoneSuffix finds subscriptions where client_whatsapp ends with the given digit suffix
+func (s *storageImpl) SearchSubscriptionsByPhoneSuffix(ctx context.Context, suffix string) ([]SubscriptionLookupResult, error) {
+	query := `
+		SELECT
+			s.id,
+			s.client_whatsapp,
+			t.name AS tariff_name,
+			s.status,
+			s.expires_at,
+			s.last_renewed_at,
+			s.created_at,
+			srv.name AS server_name
+		FROM subscriptions s
+		JOIN tariffs t ON s.tariff_id = t.id
+		LEFT JOIN servers srv ON s.server_id = srv.id
+		WHERE REPLACE(REPLACE(REPLACE(s.client_whatsapp, '+', ''), ' ', ''), '-', '') LIKE ?
+		ORDER BY s.created_at DESC
+	`
+
+	pattern := "%" + suffix
+
+	var results []SubscriptionLookupResult
+	err := s.db.SelectContext(ctx, &results, query, pattern)
+	if err != nil {
+		return nil, fmt.Errorf("db.SelectContext: %w", err)
+	}
+
+	return results, nil
+}
