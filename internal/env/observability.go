@@ -33,7 +33,7 @@ func initObservability(
 	// simple health checks
 	mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "OK")
+		fmt.Fprintf(w, "OK") //nolint:errcheck // health check response
 	})
 
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +42,7 @@ func initObservability(
 		_ = clients // Suppress unused variable warning
 
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "Ready")
+		fmt.Fprintf(w, "Ready") //nolint:errcheck // readiness check response
 	})
 
 	return &http.Server{

@@ -99,7 +99,7 @@ jobs:
           username: ${{ vars.USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ vars.PORT }}
-          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,TELEGRAM_ASSISTANT_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_MANUAL_PAYMENT,YOOKASSA_RETURN_URL
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,TELEGRAM_ASSISTANT_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_MANUAL_PAYMENT,YOOKASSA_RETURN_URL,WEB_DOMAIN,WEB_TG_CHANNEL_URL,WEB_TG_SUPPORT_URL,WEB_WA_SUPPORT_URL
           script: |
             set -e
             cd /opt/kurut-bot
@@ -120,6 +120,10 @@ jobs:
             export YOOKASSA_SECRET_KEY="$YOOKASSA_SECRET_KEY"
             export YOOKASSA_MANUAL_PAYMENT="$YOOKASSA_MANUAL_PAYMENT"
             export YOOKASSA_RETURN_URL="$YOOKASSA_RETURN_URL"
+            export WEB_DOMAIN="$WEB_DOMAIN"
+            export WEB_TG_CHANNEL_URL="$WEB_TG_CHANNEL_URL"
+            export WEB_TG_SUPPORT_URL="$WEB_TG_SUPPORT_URL"
+            export WEB_WA_SUPPORT_URL="$WEB_WA_SUPPORT_URL"
 
             docker compose up -d
 
@@ -146,6 +150,10 @@ jobs:
           YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
           YOOKASSA_MANUAL_PAYMENT: ${{ vars.YOOKASSA_MANUAL_PAYMENT }}
           YOOKASSA_RETURN_URL: ${{ vars.YOOKASSA_RETURN_URL }}
+          WEB_DOMAIN: ${{ vars.WEB_DOMAIN }}
+          WEB_TG_CHANNEL_URL: ${{ vars.WEB_TG_CHANNEL_URL }}
+          WEB_TG_SUPPORT_URL: ${{ vars.WEB_TG_SUPPORT_URL }}
+          WEB_WA_SUPPORT_URL: ${{ vars.WEB_WA_SUPPORT_URL }}
 
   deploy-production:
     runs-on: ubuntu-latest
@@ -172,7 +180,7 @@ jobs:
           username: ${{ vars.USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ vars.PORT }}
-          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,TELEGRAM_ASSISTANT_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_MANUAL_PAYMENT,YOOKASSA_RETURN_URL
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,TELEGRAM_ASSISTANT_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_MANUAL_PAYMENT,YOOKASSA_RETURN_URL,WEB_DOMAIN,WEB_TG_CHANNEL_URL,WEB_TG_SUPPORT_URL,WEB_WA_SUPPORT_URL
           script: |
             set -e
             cd /opt/kurut-bot
@@ -193,6 +201,10 @@ jobs:
             export YOOKASSA_SECRET_KEY="$YOOKASSA_SECRET_KEY"
             export YOOKASSA_MANUAL_PAYMENT="$YOOKASSA_MANUAL_PAYMENT"
             export YOOKASSA_RETURN_URL="$YOOKASSA_RETURN_URL"
+            export WEB_DOMAIN="$WEB_DOMAIN"
+            export WEB_TG_CHANNEL_URL="$WEB_TG_CHANNEL_URL"
+            export WEB_TG_SUPPORT_URL="$WEB_TG_SUPPORT_URL"
+            export WEB_WA_SUPPORT_URL="$WEB_WA_SUPPORT_URL"
 
             docker compose up -d
 
@@ -219,3 +231,7 @@ jobs:
           YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
           YOOKASSA_MANUAL_PAYMENT: ${{ vars.YOOKASSA_MANUAL_PAYMENT }}
           YOOKASSA_RETURN_URL: ${{ vars.YOOKASSA_RETURN_URL }}
+          WEB_DOMAIN: ${{ vars.WEB_DOMAIN }}
+          WEB_TG_CHANNEL_URL: ${{ vars.WEB_TG_CHANNEL_URL }}
+          WEB_TG_SUPPORT_URL: ${{ vars.WEB_TG_SUPPORT_URL }}
+          WEB_WA_SUPPORT_URL: ${{ vars.WEB_WA_SUPPORT_URL }}

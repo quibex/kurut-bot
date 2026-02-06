@@ -8,23 +8,28 @@ import (
 	"strings"
 
 	"kurut-bot/internal/stories/servers"
-	"kurut-bot/internal/stories/submessages"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
+	"kurut-bot/internal/stories/webtokens"
 	"kurut-bot/internal/telegram/messages"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+// NotificationClientTokenStorage интерфейс для получения client tokens
+type NotificationClientTokenStorage interface {
+	GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64) (*webtokens.ClientToken, error)
+}
+
 // ExpirationNotificationService отвечает за отправку уведомлений о подписках
 // Используется и командами (/overdue, /expiring) и воркером expiration
 type ExpirationNotificationService struct {
-	bot            *tgbotapi.BotAPI
-	tariffService  ExpirationTariffService
-	serverStorage  ExpirationServerStorage
-	messageStorage ExpirationMessageStorage
-	paymentService ExpirationPaymentService
-	logger         *slog.Logger
+	bot                *tgbotapi.BotAPI
+	tariffService      ExpirationTariffService
+	serverStorage      ExpirationServerStorage
+	clientTokenStorage NotificationClientTokenStorage
+	webDomain          string
+	logger             *slog.Logger
 }
 
 // NewExpirationNotificationService создает новый сервис уведомлений
@@ -32,17 +37,17 @@ func NewExpirationNotificationService(
 	bot *tgbotapi.BotAPI,
 	tariffService ExpirationTariffService,
 	serverStorage ExpirationServerStorage,
-	messageStorage ExpirationMessageStorage,
-	paymentService ExpirationPaymentService,
+	clientTokenStorage NotificationClientTokenStorage,
+	webDomain string,
 	logger *slog.Logger,
 ) *ExpirationNotificationService {
 	return &ExpirationNotificationService{
-		bot:            bot,
-		tariffService:  tariffService,
-		serverStorage:  serverStorage,
-		messageStorage: messageStorage,
-		paymentService: paymentService,
-		logger:         logger,
+		bot:                bot,
+		tariffService:      tariffService,
+		serverStorage:      serverStorage,
+		clientTokenStorage: clientTokenStorage,
+		webDomain:          webDomain,
+		logger:             logger,
 	}
 }
 
@@ -61,8 +66,10 @@ func (s *ExpirationNotificationService) SendOverdueSubscriptionMessage(ctx conte
 	}
 
 	tariffName := "Неизвестный"
+	price := 0.0
 	if tariff != nil {
 		tariffName = tariff.Name
+		price = tariff.Price
 	}
 
 	// Формируем строку пароля если есть сервер
@@ -71,24 +78,48 @@ func (s *ExpirationNotificationService) SendOverdueSubscriptionMessage(ctx conte
 		passwordLine = fmt.Sprintf("\n🔐 Пароль: `%s`", server.UIPassword)
 	}
 
+	// Получаем ссылку на личный кабинет клиента
+	clientLink := ""
+	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
+		createdByTgID := int64(0)
+		if sub.CreatedByTelegramID != nil {
+			createdByTgID = *sub.CreatedByTelegramID
+		}
+		clientToken, err := s.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID)
+		if err != nil {
+			s.logger.Error("Failed to get client token", "error", err, "whatsapp", *sub.ClientWhatsApp)
+		} else {
+			clientLink = fmt.Sprintf("%s/c/%s", s.webDomain, clientToken.Token)
+		}
+	}
+
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := GenerateWhatsAppLink(*sub.ClientWhatsApp, "Здравствуйте! Ваша подписка VPN истекла. Для продолжения работы необходимо оплатить подписку.")
-		text = fmt.Sprintf(
-			"⚠️ *Просроченная подписка*\n\n"+
-				"📱 Клиент: [%s](%s)\n"+
-				"📅 Тариф: %s%s",
-			whatsapp, whatsappLink, tariffName, passwordLine)
+		whatsappLink := GenerateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgExpired)
+		if clientLink != "" {
+			text = fmt.Sprintf(
+				"⚠️ *Просроченная подписка*\n\n"+
+					"📱 Клиент: [%s](%s)\n"+
+					"📅 Тариф: %s (%.0f ₽)%s\n\n"+
+					"🔗 [Ссылка для оплаты](%s)",
+				whatsapp, whatsappLink, tariffName, price, passwordLine, clientLink)
+		} else {
+			text = fmt.Sprintf(
+				"⚠️ *Просроченная подписка*\n\n"+
+					"📱 Клиент: [%s](%s)\n"+
+					"📅 Тариф: %s (%.0f ₽)%s",
+				whatsapp, whatsappLink, tariffName, price, passwordLine)
+		}
 	} else {
 		text = fmt.Sprintf(
 			"⚠️ *Просроченная подписка*\n\n"+
 				"📱 Клиент: `%s`\n"+
-				"📅 Тариф: %s%s",
-			whatsapp, tariffName, passwordLine)
+				"📅 Тариф: %s (%.0f ₽)%s",
+			whatsapp, tariffName, price, passwordLine)
 	}
 
-	// Кнопки до отключения: Сервер, Отключить
+	// Кнопки: Сервер (опционально) и Отключить
 	var rows [][]tgbotapi.InlineKeyboardButton
 
 	if server != nil && server.UIURL != "" {
@@ -108,24 +139,8 @@ func (s *ExpirationNotificationService) SendOverdueSubscriptionMessage(ctx conte
 	msg.ReplyMarkup = keyboard
 	msg.DisableWebPagePreview = true
 
-	sentMsg, err := s.bot.Send(msg)
-	if err != nil {
-		return err
-	}
-
-	// Сохраняем сообщение в БД для отслеживания конфликтов
-	_, err = s.messageStorage.CreateSubscriptionMessage(ctx, submessages.SubscriptionMessage{
-		SubscriptionID: sub.ID,
-		ChatID:         chatID,
-		MessageID:      sentMsg.MessageID,
-		Type:           submessages.TypeOverdue,
-		IsActive:       true,
-	})
-	if err != nil {
-		s.logger.Error("Failed to save subscription message", "error", err, "sub_id", sub.ID)
-	}
-
-	return nil
+	_, err := s.bot.Send(msg)
+	return err
 }
 
 // SendExpiringSubscriptionMessage отправляет сообщение для одной истекающей подписки
@@ -160,15 +175,39 @@ func (s *ExpirationNotificationService) SendExpiringSubscriptionMessage(ctx cont
 		whatsappMsg = messages.WhatsAppMsgToday
 	}
 
+	// Получаем ссылку на личный кабинет клиента
+	clientLink := ""
+	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
+		createdByTgID := int64(0)
+		if sub.CreatedByTelegramID != nil {
+			createdByTgID = *sub.CreatedByTelegramID
+		}
+		clientToken, err := s.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID)
+		if err != nil {
+			s.logger.Error("Failed to get client token", "error", err, "whatsapp", *sub.ClientWhatsApp)
+		} else {
+			clientLink = fmt.Sprintf("%s/c/%s", s.webDomain, clientToken.Token)
+		}
+	}
+
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
 		whatsappLink := GenerateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsg)
-		text = fmt.Sprintf(
-			"%s\n\n"+
-				"📱 Клиент: [%s](%s)\n"+
-				"📅 Тариф: %s (%.0f ₽)",
-			headerText, whatsapp, whatsappLink, tariffName, price)
+		if clientLink != "" {
+			text = fmt.Sprintf(
+				"%s\n\n"+
+					"📱 Клиент: [%s](%s)\n"+
+					"📅 Тариф: %s (%.0f ₽)\n\n"+
+					"🔗 [Ссылка для оплаты](%s)",
+				headerText, whatsapp, whatsappLink, tariffName, price, clientLink)
+		} else {
+			text = fmt.Sprintf(
+				"%s\n\n"+
+					"📱 Клиент: [%s](%s)\n"+
+					"📅 Тариф: %s (%.0f ₽)",
+				headerText, whatsapp, whatsappLink, tariffName, price)
+		}
 	} else {
 		text = fmt.Sprintf(
 			"%s\n\n"+
@@ -177,53 +216,12 @@ func (s *ExpirationNotificationService) SendExpiringSubscriptionMessage(ctx cont
 			headerText, whatsapp, tariffName, price)
 	}
 
-	// Формируем кнопки
-	var rows [][]tgbotapi.InlineKeyboardButton
-
-	// Кнопка "Сменить тариф"
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("📋 Сменить тариф", fmt.Sprintf("exp_tariff:%d", sub.ID)),
-	))
-
-	// Кнопки "Ссылка" и "Оплачено"
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("🔗 Ссылка", fmt.Sprintf("exp_link:%d", sub.ID)),
-		tgbotapi.NewInlineKeyboardButtonData(s.paidButtonText(), fmt.Sprintf("exp_paid:%d", sub.ID)),
-	))
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
-
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = keyboard
 	msg.DisableWebPagePreview = true
 
-	sentMsg, err := s.bot.Send(msg)
-	if err != nil {
-		return err
-	}
-
-	// Сохраняем сообщение в БД для отслеживания конфликтов
-	_, err = s.messageStorage.CreateSubscriptionMessage(ctx, submessages.SubscriptionMessage{
-		SubscriptionID: sub.ID,
-		ChatID:         chatID,
-		MessageID:      sentMsg.MessageID,
-		Type:           submessages.TypeExpiring,
-		IsActive:       true,
-	})
-	if err != nil {
-		s.logger.Error("Failed to save subscription message", "error", err, "sub_id", sub.ID)
-	}
-
-	return nil
-}
-
-// paidButtonText возвращает текст кнопки в зависимости от режима оплаты
-func (s *ExpirationNotificationService) paidButtonText() string {
-	if s.paymentService.IsManualPayment() {
-		return "✅ Оплачено"
-	}
-	return "✅ Проверить"
+	_, err := s.bot.Send(msg)
+	return err
 }
 
 // GenerateWhatsAppLink генерирует ссылку на WhatsApp с предзаполненным сообщением

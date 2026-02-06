@@ -54,7 +54,7 @@ func Setup(ctx context.Context) (*Env, error) {
 		return nil, fmt.Errorf("newServices: %w", err)
 	}
 
-	servers := newServers(ctx, cfg, logger, clients, configStore)
+	servers := newServers(ctx, cfg, logger, clients, configStore, services)
 
 	e.Servers = servers
 	e.Config = &cfg

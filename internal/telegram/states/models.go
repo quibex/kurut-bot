@@ -75,3 +75,8 @@ const (
 	AdminMigrateClientWaitTariff  State = "amc_wt_tariff"
 	AdminMigrateClientWaitPayment State = "amc_wt_payment"
 )
+
+// admin new client states (anc -> admin new client)
+const (
+	AdminNewClientWaitWhatsApp State = "anc_wt_whatsapp"
+)

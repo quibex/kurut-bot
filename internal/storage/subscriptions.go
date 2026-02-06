@@ -144,6 +144,9 @@ func (s *storageImpl) ListSubscriptions(ctx context.Context, criteria subs.ListC
 	if criteria.CreatedByTelegramID != nil {
 		query = query.Where(sq.Eq{"created_by_telegram_id": *criteria.CreatedByTelegramID})
 	}
+	if criteria.ClientWhatsApp != nil {
+		query = query.Where(sq.Eq{"client_whatsapp": *criteria.ClientWhatsApp})
+	}
 
 	if criteria.Limit > 0 {
 		query = query.Limit(uint64(criteria.Limit))
@@ -785,7 +788,7 @@ func (s *storageImpl) GetTopReferrersThisWeek(ctx context.Context, limit int) ([
 	if err != nil {
 		return nil, fmt.Errorf("db.QueryContext: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // rows close error is not actionable
 
 	var result []ReferrerStats
 	for rows.Next() {

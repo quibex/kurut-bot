@@ -21,6 +21,7 @@ import (
 	"kurut-bot/internal/telegram/flows/createtariff"
 	"kurut-bot/internal/telegram/flows/migrateclient"
 	"kurut-bot/internal/telegram/states"
+	"kurut-bot/internal/web"
 	"kurut-bot/internal/workers"
 
 	// "kurut-bot/internal/workers/disablereminder" // TODO: включить позже
@@ -34,6 +35,7 @@ type Services struct {
 	TelegramRouter      *telegram.Router
 	CreateTariffHandler *createtariff.Handler
 	WorkerManager       *workers.Manager
+	WebHandlers         *web.Handlers
 }
 
 func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger *slog.Logger, _ *telegram.ConfigStore) (*Services, error) {
@@ -116,8 +118,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		clients.TelegramBot.GetBotAPI(),
 		tariffService,
 		storageImpl, // serverStorage
-		storageImpl, // messageStorage
-		paymentService,
+		storageImpl, // clientTokenStorage
+		cfg.Web.Domain,
 		logger,
 	)
 
@@ -129,6 +131,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		tariffService,
 		paymentService,
 		storageImpl, // messageStorage
+		storageImpl, // clientTokenStorage
+		cfg.Web.Domain,
 		expirationNotificationService,
 		logger,
 	)
@@ -160,6 +164,14 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		storageImpl,
 	)
 
+	// Создаем newClientCommand
+	newClientCommand := cmds.NewNewClientCommand(
+		clients.TelegramBot.GetBotAPI(),
+		storageImpl, // purchaseStorage
+		cfg.Web.Domain,
+		logger,
+	)
+
 	// Создаем migrateClientHandler
 	migrateClientHandler := migrateclient.NewHandler(
 		clients.TelegramBot,
@@ -184,6 +196,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	paymentAutocheckWorker := paymentautocheck.NewWorker(
 		storageImpl,      // orderStorage
 		storageImpl,      // messageStorage
+		storageImpl,      // purchaseStorage
+		storageImpl,      // renewalStorage
 		paymentService,   // paymentService
 		createSubService, // subscriptionService
 		storageImpl,      // subscriptionStorage
@@ -220,6 +234,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		serversCommand,
 		partnershipCommand,
 		lookupCommand,
+		newClientCommand,
 	)
 
 	// Создаем менеджер воркеров
@@ -228,6 +243,24 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		expirationWorker,
 		paymentAutocheckWorker,
 		// disableReminderWorker, // TODO: включить позже
+	)
+
+	// Создаем web handlers
+	s.WebHandlers = web.NewHandlers(
+		tariffService,
+		paymentService,
+		storageImpl, // purchaseStorage
+		storageImpl, // renewalStorage
+		storageImpl, // subscriptionStore
+		storageImpl, // messageStorage
+		storageImpl, // clientTokenStorage
+		storageImpl, // orderStorage
+		storageImpl, // serverStorage
+		cfg.Web.Domain,
+		cfg.Web.TelegramChannelURL,
+		cfg.Web.TelegramSupportURL,
+		cfg.Web.WhatsAppSupportURL,
+		logger,
 	)
 
 	return &s, nil

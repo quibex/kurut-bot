@@ -9,6 +9,7 @@ import (
 	"kurut-bot/internal/stories/submessages"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
+	"kurut-bot/internal/stories/webtokens"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -60,5 +61,16 @@ type (
 	// TelegramBot provides telegram messaging
 	TelegramBot interface {
 		Send(c tgbotapi.Chattable) (tgbotapi.Message, error)
+	}
+
+	// PurchaseTokenStorage provides purchase token operations
+	PurchaseTokenStorage interface {
+		ListPaidPurchaseTokens(ctx context.Context) ([]*webtokens.PurchaseToken, error)
+		UpdatePurchaseTokenStatus(ctx context.Context, id int64, status webtokens.PurchaseTokenStatus) error
+	}
+
+	// RenewalTokenStorage provides renewal token operations
+	RenewalTokenStorage interface {
+		GetOrCreateRenewalToken(ctx context.Context, subscriptionID int64) (*webtokens.RenewalToken, error)
 	}
 )

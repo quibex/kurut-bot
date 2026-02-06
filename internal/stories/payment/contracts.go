@@ -21,6 +21,8 @@ type (
 	// YooKassaClient provides YooKassa API operations
 	YooKassaClient interface {
 		CreatePayment(ctx context.Context, amount float64, description string, metadata map[string]string) (*yoopayment.Payment, error)
+		CreatePaymentWithReturnURL(ctx context.Context, amount float64, description string, metadata map[string]string, returnURL string) (*yoopayment.Payment, error)
 		GetPaymentStatus(ctx context.Context, paymentID string) (*yoopayment.Payment, error)
+		CancelPayment(ctx context.Context, paymentID string) error
 	}
 )

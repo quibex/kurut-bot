@@ -8,7 +8,7 @@ PROTOC_VERSION := 26.1
 GOOSE_VERSION := 3.24.3
 GRPCUI_VERSION := 1.4.1
 OGEN_VERSION ?= v1.14.0
-GOLANG_CI_LINT_VERSION ?= v1.64.8
+GOLANG_CI_LINT_VERSION ?= v2.8.0
 MOCKGEN_VERSION ?= v1.6.0
 GOWRAP_VERSION ?= v1.4.0
 
@@ -82,7 +82,7 @@ vendor:
 
 .PHONY: ./bin/golangci-lint
 ./bin/golangci-lint: | ./bin
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANG_CI_LINT_VERSION)
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ./bin $(GOLANG_CI_LINT_VERSION)
 
 .PHONY: ./bin/ogen
 ./bin/ogen: | ./bin
@@ -189,6 +189,21 @@ db-reset: | ./bin/goose
 	@echo "Running migrations..."
 	goose -dir migrations sqlite3 $(DATABASE_PATH) up
 	@echo "Database reset complete!"
+
+.PHONY: db-reset-keep-config
+db-reset-keep-config: | ./bin/goose
+	@echo "Backing up tariffs and servers..."
+	@sqlite3 $(DATABASE_PATH) ".mode insert tariffs" "SELECT * FROM tariffs;" > /tmp/tariffs_backup.sql 2>/dev/null || true
+	@sqlite3 $(DATABASE_PATH) ".mode insert servers" "SELECT * FROM servers;" > /tmp/servers_backup.sql 2>/dev/null || true
+	@echo "Resetting database..."
+	rm -f $(DATABASE_PATH)
+	@echo "Running migrations..."
+	goose -dir migrations sqlite3 $(DATABASE_PATH) up
+	@echo "Restoring tariffs and servers..."
+	@sqlite3 $(DATABASE_PATH) < /tmp/tariffs_backup.sql 2>/dev/null || true
+	@sqlite3 $(DATABASE_PATH) < /tmp/servers_backup.sql 2>/dev/null || true
+	@rm -f /tmp/tariffs_backup.sql /tmp/servers_backup.sql
+	@echo "Database reset complete with tariffs and servers preserved!"
 
 # Production database sync
 PROD_HOST := root@109.172.86.46

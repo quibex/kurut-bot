@@ -153,7 +153,7 @@ func (s *storageImpl) ListUsers(ctx context.Context, criteria users.ListCriteria
 	if err != nil {
 		return nil, fmt.Errorf("db.QueryContext: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // rows close error is not actionable
 
 	var result []*users.User
 	for rows.Next() {

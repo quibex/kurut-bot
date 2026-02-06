@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"kurut-bot/internal/stories/users"
@@ -27,14 +28,15 @@ type Router struct {
 	createSubForClientHandler *createsubforclient.Handler
 	createTariffHandler       *createtariff.Handler
 	addServerHandler          *addserver.Handler
-	migrateClientHandler *migrateclient.Handler
-	mySubsCommand        *cmds.MySubsCommand
-	statsCommand         *cmds.StatsCommand
-	expirationCommand    *cmds.ExpirationCommand
-	tariffsCommand       *cmds.TariffsCommand
-	serversCommand       *cmds.ServersCommand
-	partnershipCommand   *cmds.PartnershipCommand
-	lookupCommand        *cmds.LookupCommand
+	migrateClientHandler      *migrateclient.Handler
+	mySubsCommand             *cmds.MySubsCommand
+	statsCommand              *cmds.StatsCommand
+	expirationCommand         *cmds.ExpirationCommand
+	tariffsCommand            *cmds.TariffsCommand
+	serversCommand            *cmds.ServersCommand
+	partnershipCommand        *cmds.PartnershipCommand
+	lookupCommand             *cmds.LookupCommand
+	newClientCommand          *cmds.NewClientCommand
 }
 
 type stateManager interface {
@@ -94,6 +96,9 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 
 	// Используем внутренний ID для состояния
 	state := r.stateManager.GetState(telegramID)
+
+	// DEBUG: логируем состояние
+	slog.Info("Router state check", "telegramID", telegramID, "state", state, "isCallback", update.CallbackQuery != nil, "hasMessage", update.Message != nil)
 
 	// Проверяем callback кнопки из главного меню
 	if update.CallbackQuery != nil {
@@ -192,6 +197,9 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 				return r.addServerHandler.Start(extractChatID(update))
 			}
 			return r.serversCommand.HandleCallback(ctx, update.CallbackQuery)
+		case strings.HasPrefix(callbackData, "sub_enabled:"):
+			// Subscription enabled callback (from renewal message)
+			return r.handleSubEnabledCallback(ctx, update.CallbackQuery)
 		}
 	}
 
@@ -215,8 +223,35 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		return r.migrateClientHandler.Handle(update, state)
 	}
 
+	// Проверяем состояние new_client (ожидание WhatsApp)
+	if strings.HasPrefix(string(state), "anc_") {
+		return r.handleNewClientState(update, user, state)
+	}
+
 	// Если нет активного состояния - обрабатываем как обычное сообщение
 	return r.sendHelp(extractChatID(update))
+}
+
+// handleNewClientState обрабатывает состояние создания ссылки для нового клиента
+func (r *Router) handleNewClientState(update *tgbotapi.Update, user *users.User, state states.State) error {
+	ctx := context.Background()
+	chatID := extractChatID(update)
+
+	if state == states.AdminNewClientWaitWhatsApp {
+		if update.Message == nil || update.Message.Text == "" {
+			return nil
+		}
+
+		whatsapp := update.Message.Text
+
+		// Clear state
+		r.stateManager.Clear(user.TelegramID)
+
+		// Handle WhatsApp input
+		return r.newClientCommand.HandleWhatsAppInput(ctx, chatID, user.TelegramID, whatsapp)
+	}
+
+	return nil
 }
 
 func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User) error {
@@ -282,6 +317,10 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 			return nil
 		}
 		return r.lookupCommand.Execute(ctx, chatID, args)
+	case "new_client":
+		// Команда доступна всем (ассистентам и админам)
+		r.stateManager.SetState(user.TelegramID, states.AdminNewClientWaitWhatsApp, nil)
+		return r.newClientCommand.Execute(ctx, chatID)
 	default:
 		return r.sendHelp(chatID)
 	}
@@ -467,6 +506,7 @@ func NewRouter(
 	serversCommand *cmds.ServersCommand,
 	partnershipCommand *cmds.PartnershipCommand,
 	lookupCommand *cmds.LookupCommand,
+	newClientCommand *cmds.NewClientCommand,
 ) *Router {
 	return &Router{
 		bot:                       bot,
@@ -479,11 +519,12 @@ func NewRouter(
 		migrateClientHandler:      migrateClientHandler,
 		mySubsCommand:             mySubsCommand,
 		statsCommand:              statsCommand,
+		newClientCommand:          newClientCommand,
 		expirationCommand:         expirationCommand,
-		tariffsCommand:     tariffsCommand,
-		serversCommand:     serversCommand,
-		partnershipCommand: partnershipCommand,
-		lookupCommand:      lookupCommand,
+		tariffsCommand:            tariffsCommand,
+		serversCommand:            serversCommand,
+		partnershipCommand:        partnershipCommand,
+		lookupCommand:             lookupCommand,
 	}
 }
 
@@ -613,4 +654,30 @@ func (r *Router) setupAssistantCommands(chatID int64) {
 	}
 
 	_, _ = r.bot.Request(setCommandsConfig)
+}
+
+// handleSubEnabledCallback handles the "Включил" button callback
+func (r *Router) handleSubEnabledCallback(ctx context.Context, callback *tgbotapi.CallbackQuery) error {
+	// Parse subscription ID from callback data "sub_enabled:123"
+	callbackData := callback.Data
+	parts := strings.Split(callbackData, ":")
+	if len(parts) != 2 {
+		tgCallback := tgbotapi.NewCallback(callback.ID, "❌ Неверные данные")
+		_, _ = r.bot.Request(tgCallback)
+		return nil
+	}
+
+	// Acknowledge callback
+	tgCallback := tgbotapi.NewCallback(callback.ID, "✅ Подписка отмечена как включенная")
+	_, _ = r.bot.Request(tgCallback)
+
+	// Edit message to remove buttons and add confirmation
+	if callback.Message != nil {
+		newText := callback.Message.Text + "\n\n✅ *Включено*"
+		editMsg := tgbotapi.NewEditMessageText(callback.Message.Chat.ID, callback.Message.MessageID, newText)
+		editMsg.ParseMode = "Markdown"
+		_, _ = r.bot.Send(editMsg)
+	}
+
+	return nil
 }

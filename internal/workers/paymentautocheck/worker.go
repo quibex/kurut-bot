@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"kurut-bot/internal/stories/orders"
@@ -12,6 +13,7 @@ import (
 	"kurut-bot/internal/stories/submessages"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
+	"kurut-bot/internal/stories/webtokens"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/robfig/cron/v3"
@@ -21,6 +23,8 @@ import (
 type Worker struct {
 	orderStorage        OrderStorage
 	messageStorage      MessageStorage
+	purchaseStorage     PurchaseTokenStorage
+	renewalStorage      RenewalTokenStorage
 	paymentService      PaymentService
 	subscriptionService SubscriptionService
 	subscriptionStorage SubscriptionStorage
@@ -34,12 +38,15 @@ type Worker struct {
 	// Track orders being processed to prevent race conditions
 	processingOrders   sync.Map
 	processingMessages sync.Map
+	processingTokens   sync.Map
 }
 
 // NewWorker creates a new payment autocheck worker
 func NewWorker(
 	orderStorage OrderStorage,
 	messageStorage MessageStorage,
+	purchaseStorage PurchaseTokenStorage,
+	renewalStorage RenewalTokenStorage,
 	paymentService PaymentService,
 	subscriptionService SubscriptionService,
 	subscriptionStorage SubscriptionStorage,
@@ -52,6 +59,8 @@ func NewWorker(
 	return &Worker{
 		orderStorage:        orderStorage,
 		messageStorage:      messageStorage,
+		purchaseStorage:     purchaseStorage,
+		renewalStorage:      renewalStorage,
 		paymentService:      paymentService,
 		subscriptionService: subscriptionService,
 		subscriptionStorage: subscriptionStorage,
@@ -114,6 +123,11 @@ func (w *Worker) run(ctx context.Context) error {
 	// Process subscription messages (extensions/renewals)
 	if err := w.processSubscriptionMessages(ctx); err != nil {
 		w.logger.Error("Failed to process subscription messages", "error", err)
+	}
+
+	// Process purchase tokens (web purchases)
+	if err := w.processPurchaseTokens(ctx); err != nil {
+		w.logger.Error("Failed to process purchase tokens", "error", err)
 	}
 
 	return nil
@@ -216,6 +230,15 @@ func (w *Worker) handleApprovedOrderPayment(ctx context.Context, order *orders.P
 		return fmt.Errorf("create subscription: %w", err)
 	}
 
+	// Generate renewal token for the subscription
+	_, err = w.renewalStorage.GetOrCreateRenewalToken(ctx, result.Subscription.ID)
+	if err != nil {
+		w.logger.Error("Failed to create renewal token",
+			"subscription_id", result.Subscription.ID,
+			"error", err)
+		// Don't fail - just log
+	}
+
 	// Update Telegram message to show success
 	if err := w.sendOrderSuccessMessage(order, result); err != nil {
 		w.logger.Error("Failed to send order success message",
@@ -253,6 +276,14 @@ func (w *Worker) sendOrderSuccessMessage(order *orders.PendingOrder, result *sub
 		serverName = *order.ServerName
 	}
 
+	// Format WhatsApp link for web orders
+	whatsappDisplay := order.ClientWhatsApp
+	isWebOrder := order.ChatID == 0
+	if isWebOrder {
+		cleanNumber := strings.ReplaceAll(strings.ReplaceAll(order.ClientWhatsApp, "+", ""), " ", "")
+		whatsappDisplay = fmt.Sprintf("[%s](https://wa.me/%s)", order.ClientWhatsApp, cleanNumber)
+	}
+
 	var text string
 	if order.IsMigration() {
 		text = fmt.Sprintf(
@@ -262,17 +293,29 @@ func (w *Worker) sendOrderSuccessMessage(order *orders.PendingOrder, result *sub
 				"*Тариф:* %s\n"+
 				"*User ID:* `%s`\n"+
 				"*Пароль:* `%s`",
-			order.ClientWhatsApp, serverName, order.TariffName,
+			whatsappDisplay, serverName, order.TariffName,
 			result.GeneratedUserID, serverPassword)
 	} else {
-		text = fmt.Sprintf(
-			"*Подписка создана*\n\n"+
-				"*Клиент:* %s\n"+
-				"*Тариф:* %s\n"+
-				"*User ID:* `%s`\n"+
-				"*Пароль:* `%s`",
-			order.ClientWhatsApp, order.TariffName,
-			result.GeneratedUserID, serverPassword)
+		if isWebOrder {
+			text = fmt.Sprintf(
+				"✅ *Новый клиент оплатил через сайт!*\n\n"+
+					"📱 *WhatsApp:* %s\n"+
+					"💰 *Тариф:* %s\n"+
+					"🆔 *User ID:* `%s`\n"+
+					"🔑 *Пароль сервера:* `%s`\n\n"+
+					"⚡ *Требуется создать ключ на сервере*",
+				whatsappDisplay, order.TariffName,
+				result.GeneratedUserID, serverPassword)
+		} else {
+			text = fmt.Sprintf(
+				"*Подписка создана*\n\n"+
+					"*Клиент:* %s\n"+
+					"*Тариф:* %s\n"+
+					"*User ID:* `%s`\n"+
+					"*Пароль:* `%s`",
+				whatsappDisplay, order.TariffName,
+				result.GeneratedUserID, serverPassword)
+		}
 	}
 
 	// Add referral bonus info if applicable
@@ -295,7 +338,7 @@ func (w *Worker) sendOrderSuccessMessage(order *orders.PendingOrder, result *sub
 	}
 
 	// Edit existing message or send new one
-	if order.MessageID != nil {
+	if order.MessageID != nil && order.ChatID != 0 {
 		editMsg := tgbotapi.NewEditMessageText(order.ChatID, *order.MessageID, text)
 		editMsg.ParseMode = "Markdown"
 		editMsg.ReplyMarkup = keyboard
@@ -303,8 +346,14 @@ func (w *Worker) sendOrderSuccessMessage(order *orders.PendingOrder, result *sub
 		return err
 	}
 
+	// For web orders (ChatID=0), send to assistant
+	targetChatID := order.ChatID
+	if targetChatID == 0 {
+		targetChatID = order.AssistantTelegramID
+	}
+
 	// Fallback: send new message
-	msg := tgbotapi.NewMessage(order.ChatID, text)
+	msg := tgbotapi.NewMessage(targetChatID, text)
 	msg.ParseMode = "Markdown"
 	if keyboard != nil {
 		msg.ReplyMarkup = keyboard
@@ -429,11 +478,17 @@ func (w *Worker) handleApprovedRenewalPayment(ctx context.Context, msg *submessa
 		server, _ = w.serverStorage.GetServer(ctx, servers.GetCriteria{ID: sub.ServerID})
 	}
 
-	// Update Telegram message
-	if err := w.sendRenewalSuccessMessage(msg, sub, tariff, server, wasDisabled); err != nil {
-		w.logger.Error("Failed to send renewal success message",
-			"msg_id", msg.ID,
-			"error", err)
+	// Update Telegram message only if subscription was disabled (needs assistant action)
+	// For active subscriptions, no notification needed - it's already renewed
+	if wasDisabled {
+		if err := w.sendRenewalSuccessMessage(msg, sub, tariff, server, wasDisabled); err != nil {
+			w.logger.Error("Failed to send renewal success message",
+				"msg_id", msg.ID,
+				"error", err)
+		}
+	} else {
+		w.logger.Info("Skipping notification for active subscription renewal",
+			"subscription_id", msg.SubscriptionID)
 	}
 
 	// Deactivate the subscription message
@@ -460,40 +515,240 @@ func (w *Worker) sendRenewalSuccessMessage(
 	wasDisabled bool,
 ) error {
 	whatsapp := "Не указан"
+	whatsappLink := ""
 	if sub.ClientWhatsApp != nil {
 		whatsapp = *sub.ClientWhatsApp
+		// Format WhatsApp link
+		cleanNumber := strings.ReplaceAll(strings.ReplaceAll(*sub.ClientWhatsApp, "+", ""), " ", "")
+		whatsappLink = fmt.Sprintf("https://wa.me/%s", cleanNumber)
 	}
 
 	// Add password line only if subscription was disabled
 	passwordLine := ""
 	if wasDisabled && server != nil && server.UIPassword != "" {
-		passwordLine = fmt.Sprintf("\n*Пароль:* `%s`", server.UIPassword)
+		passwordLine = fmt.Sprintf("\n🔑 *Пароль:* `%s`", server.UIPassword)
 	}
 
 	text := fmt.Sprintf(
-		"*Подписка продлена*\n\n"+
-			"*Клиент:* %s\n"+
-			"*Тариф:* %s\n"+
-			"*Продлено на:* %d дней%s",
-		whatsapp, tariff.Name, tariff.DurationDays, passwordLine)
+		"🔄 *Продление отключенной подписки*\n\n"+
+			"📱 *Клиент:* [%s](%s)\n"+
+			"💰 *Тариф:* %s\n"+
+			"📅 *Продлено на:* %d дней%s\n\n"+
+			"⚡ *Требуется включить подписку на сервере*",
+		whatsapp, whatsappLink, tariff.Name, tariff.DurationDays, passwordLine)
 
-	// Build keyboard with server link if subscription was disabled
+	// Build keyboard with server link and "Включил" button
 	var rows [][]tgbotapi.InlineKeyboardButton
-	if wasDisabled && server != nil && server.UIURL != "" {
+	if server != nil && server.UIURL != "" {
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonURL("Сервер", server.UIURL),
+			tgbotapi.NewInlineKeyboardButtonURL("🌐 Сервер", server.UIURL),
 		))
 	}
+	// Add "Включил" button with callback data
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("✅ Включил", fmt.Sprintf("sub_enabled:%d", sub.ID)),
+	))
 
-	var keyboard *tgbotapi.InlineKeyboardMarkup
-	if len(rows) > 0 {
-		kb := tgbotapi.NewInlineKeyboardMarkup(rows...)
-		keyboard = &kb
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	// For web renewals (ChatID=0), send new message to the creator
+	if msg.ChatID == 0 && sub.CreatedByTelegramID != nil {
+		newMsg := tgbotapi.NewMessage(*sub.CreatedByTelegramID, text)
+		newMsg.ParseMode = "Markdown"
+		newMsg.ReplyMarkup = keyboard
+		_, err := w.telegramBot.Send(newMsg)
+		return err
 	}
 
 	editMsg := tgbotapi.NewEditMessageText(msg.ChatID, msg.MessageID, text)
 	editMsg.ParseMode = "Markdown"
-	editMsg.ReplyMarkup = keyboard
+	editMsg.ReplyMarkup = &keyboard
 	_, err := w.telegramBot.Send(editMsg)
+	return err
+}
+
+// processPurchaseTokens handles purchase tokens with payments (web purchases)
+func (w *Worker) processPurchaseTokens(ctx context.Context) error {
+	tokens, err := w.purchaseStorage.ListPaidPurchaseTokens(ctx)
+	if err != nil {
+		return fmt.Errorf("list paid purchase tokens: %w", err)
+	}
+
+	for _, token := range tokens {
+		// Check if already being processed
+		if _, loaded := w.processingTokens.LoadOrStore(token.ID, true); loaded {
+			continue
+		}
+
+		// Process in goroutine
+		go func(token *webtokens.PurchaseToken) {
+			defer w.processingTokens.Delete(token.ID)
+
+			if err := w.processPurchaseToken(ctx, token); err != nil {
+				w.logger.Error("Failed to process purchase token",
+					"token_id", token.ID,
+					"payment_id", token.PaymentID,
+					"error", err)
+			}
+		}(token)
+	}
+
+	return nil
+}
+
+// processPurchaseToken processes a single purchase token
+func (w *Worker) processPurchaseToken(ctx context.Context, token *webtokens.PurchaseToken) error {
+	if token.PaymentID == nil {
+		return nil
+	}
+
+	// Check payment status
+	paymentObj, err := w.paymentService.CheckPaymentStatus(ctx, *token.PaymentID)
+	if err != nil {
+		return fmt.Errorf("check payment status: %w", err)
+	}
+
+	switch paymentObj.Status {
+	case payment.StatusApproved:
+		return w.handleApprovedPurchasePayment(ctx, token)
+	case payment.StatusRejected, payment.StatusCancelled:
+		w.logger.Info("Purchase payment rejected/cancelled",
+			"token_id", token.ID,
+			"payment_id", *token.PaymentID,
+			"status", paymentObj.Status)
+		// Update status to cancelled
+		_ = w.purchaseStorage.UpdatePurchaseTokenStatus(ctx, token.ID, webtokens.PurchaseStatusCancelled)
+		return nil
+	case payment.StatusPending:
+		// Still pending, will check again
+		return nil
+	default:
+		return nil
+	}
+}
+
+// handleApprovedPurchasePayment handles a successful payment for purchase token
+func (w *Worker) handleApprovedPurchasePayment(ctx context.Context, token *webtokens.PurchaseToken) error {
+	w.logger.Info("Processing approved payment for purchase token",
+		"token_id", token.ID,
+		"payment_id", *token.PaymentID)
+
+	if token.TariffID == nil {
+		return fmt.Errorf("purchase token has no tariff_id")
+	}
+
+	// Find referrer subscription ID if referrer WhatsApp is provided
+	var referrerSubID *int64
+	if token.ReferrerWhatsApp != nil && *token.ReferrerWhatsApp != "" {
+		// Find active subscription by WhatsApp
+		sub, err := w.subscriptionStorage.GetSubscription(ctx, subs.GetCriteria{})
+		if err == nil && sub != nil && sub.ClientWhatsApp != nil && *sub.ClientWhatsApp == *token.ReferrerWhatsApp {
+			referrerSubID = &sub.ID
+		}
+	}
+
+	// Create subscription
+	req := &subs.CreateSubscriptionRequest{
+		UserID:                 token.CreatedByTelegramID,
+		TariffID:               *token.TariffID,
+		PaymentID:              token.PaymentID,
+		ClientWhatsApp:         token.ClientWhatsApp,
+		CreatedByTelegramID:    token.CreatedByTelegramID,
+		ReferrerSubscriptionID: referrerSubID,
+	}
+
+	result, err := w.subscriptionService.CreateSubscription(ctx, req)
+	if err != nil {
+		w.logger.Error("Failed to create subscription for purchase token",
+			"token_id", token.ID,
+			"error", err)
+		return fmt.Errorf("create subscription: %w", err)
+	}
+
+	// Generate renewal token for the subscription
+	_, err = w.renewalStorage.GetOrCreateRenewalToken(ctx, result.Subscription.ID)
+	if err != nil {
+		w.logger.Error("Failed to create renewal token",
+			"subscription_id", result.Subscription.ID,
+			"error", err)
+		// Don't fail - just log
+	}
+
+	// Send notification to admin
+	if err := w.sendPurchaseSuccessMessage(token, result); err != nil {
+		w.logger.Error("Failed to send purchase success message",
+			"token_id", token.ID,
+			"error", err)
+	}
+
+	// Update token status to completed
+	if err := w.purchaseStorage.UpdatePurchaseTokenStatus(ctx, token.ID, webtokens.PurchaseStatusCompleted); err != nil {
+		w.logger.Error("Failed to update purchase token status",
+			"token_id", token.ID,
+			"error", err)
+	}
+
+	w.logger.Info("Successfully processed purchase token payment",
+		"token_id", token.ID,
+		"subscription_id", result.Subscription.ID)
+
+	return nil
+}
+
+// sendPurchaseSuccessMessage sends notification to admin about successful purchase
+func (w *Worker) sendPurchaseSuccessMessage(token *webtokens.PurchaseToken, result *subs.CreateSubscriptionResult) error {
+	serverURL := ""
+	serverPassword := ""
+	if result.ServerUIURL != nil {
+		serverURL = *result.ServerUIURL
+	}
+	if result.ServerUIPassword != nil {
+		serverPassword = *result.ServerUIPassword
+	}
+
+	// Get tariff name
+	tariffName := "Неизвестно"
+	if token.TariffID != nil {
+		tariff, err := w.tariffService.GetTariff(context.Background(), tariffs.GetCriteria{ID: token.TariffID})
+		if err == nil && tariff != nil {
+			tariffName = tariff.Name
+		}
+	}
+
+	// Format WhatsApp link
+	whatsappLink := ""
+	cleanNumber := strings.ReplaceAll(strings.ReplaceAll(token.ClientWhatsApp, "+", ""), " ", "")
+	whatsappLink = fmt.Sprintf("https://wa.me/%s", cleanNumber)
+
+	text := fmt.Sprintf(
+		"✅ *Новый клиент оплатил через сайт!*\n\n"+
+			"📱 *WhatsApp:* [%s](%s)\n"+
+			"💰 *Тариф:* %s\n"+
+			"🆔 *User ID:* `%s`\n"+
+			"🔑 *Пароль сервера:* `%s`\n\n"+
+			"⚡ *Требуется создать ключ на сервере*",
+		token.ClientWhatsApp, whatsappLink, tariffName,
+		result.GeneratedUserID, serverPassword)
+
+	// Add referral bonus info if applicable
+	if result.ReferralBonusApplied && result.ReferrerWhatsApp != nil {
+		text += fmt.Sprintf("\n\n👤 *Пригласил:* %s (+10 дней бонус)", *result.ReferrerWhatsApp)
+	}
+
+	// Build keyboard with server link
+	var rows [][]tgbotapi.InlineKeyboardButton
+	if serverURL != "" {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("🌐 Сервер", serverURL),
+		))
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	// Send to admin who created the token
+	msg := tgbotapi.NewMessage(token.CreatedByTelegramID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	_, err := w.telegramBot.Send(msg)
 	return err
 }

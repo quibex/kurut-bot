@@ -16,6 +16,10 @@ services:
       - YOOKASSA_SECRET_KEY=${YOOKASSA_SECRET_KEY}
       - YOOKASSA_MANUAL_PAYMENT=${YOOKASSA_MANUAL_PAYMENT:-false}
       - YOOKASSA_RETURN_URL=${YOOKASSA_RETURN_URL}
+      - WEB_DOMAIN=${WEB_DOMAIN:-https://kurutvpn.com}
+      - WEB_TG_CHANNEL_URL=${WEB_TG_CHANNEL_URL:-https://t.me/kurutkyrgyz}
+      - WEB_TG_SUPPORT_URL=${WEB_TG_SUPPORT_URL:-https://t.me/kurutsupport}
+      - WEB_WA_SUPPORT_URL=${WEB_WA_SUPPORT_URL:-https://wa.me/79670042901}
       - DB_PATH=${DB_PATH:-/app/data/kurut.db}
     ports:
       - "8080:8080"

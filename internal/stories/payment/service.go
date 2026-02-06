@@ -31,10 +31,16 @@ func NewService(storage Storage, yookassaClient YooKassaClient, returnURL string
 
 // CreatePayment creates a new payment and processes it with YooKassa
 func (s *Service) CreatePayment(ctx context.Context, paymentEntity Payment) (*Payment, error) {
+	return s.CreatePaymentWithReturnURL(ctx, paymentEntity, "")
+}
+
+// CreatePaymentWithReturnURL creates a new payment with a custom return URL
+func (s *Service) CreatePaymentWithReturnURL(ctx context.Context, paymentEntity Payment, returnURL string) (*Payment, error) {
 	s.logger.Info("Creating payment",
 		"user_id", paymentEntity.UserID,
 		"amount", paymentEntity.Amount,
 		"manual_mode", s.manualPayment,
+		"return_url", returnURL,
 	)
 
 	// 1. Валидация входных данных
@@ -69,7 +75,12 @@ func (s *Service) CreatePayment(ctx context.Context, paymentEntity Payment) (*Pa
 	// 4. Вызываем YooKassa API
 	s.logger.Info("Calling YooKassa API", "payment_id", createdPayment.ID, "amount", createdPayment.Amount)
 
-	yookassaPayment, err := s.yookassaClient.CreatePayment(ctx, createdPayment.Amount, description, metadata)
+	var yookassaPayment *yoopayment.Payment
+	if returnURL != "" {
+		yookassaPayment, err = s.yookassaClient.CreatePaymentWithReturnURL(ctx, createdPayment.Amount, description, metadata, returnURL)
+	} else {
+		yookassaPayment, err = s.yookassaClient.CreatePayment(ctx, createdPayment.Amount, description, metadata)
+	}
 	if err != nil {
 		s.logger.Error("Failed to create payment in YooKassa",
 			"error", err,
@@ -115,6 +126,60 @@ func (s *Service) CreatePayment(ctx context.Context, paymentEntity Payment) (*Pa
 	)
 
 	return updatedPayment, nil
+}
+
+// CancelPayment cancels a pending payment (both in DB and YooKassa)
+func (s *Service) CancelPayment(ctx context.Context, paymentID int64) error {
+	s.logger.Info("Cancelling payment", "payment_id", paymentID)
+
+	// First get the payment to retrieve YooKassaID
+	criteria := GetCriteria{ID: &paymentID}
+	payment, err := s.storage.GetPayment(ctx, criteria)
+	if err != nil {
+		s.logger.Error("Failed to get payment for cancellation", "error", err, "payment_id", paymentID)
+		return fmt.Errorf("failed to get payment: %w", err)
+	}
+
+	if payment == nil {
+		s.logger.Warn("Payment not found for cancellation", "payment_id", paymentID)
+		return nil
+	}
+
+	s.logger.Info("Found payment for cancellation",
+		"payment_id", paymentID,
+		"status", payment.Status,
+		"has_yookassa_id", payment.YooKassaID != nil,
+	)
+
+	// Only cancel in YooKassa if payment is still pending
+	if payment.Status == StatusPending && payment.YooKassaID != nil && *payment.YooKassaID != "" {
+		s.logger.Info("Calling YooKassa to cancel payment", "yookassa_id", *payment.YooKassaID)
+		if err := s.yookassaClient.CancelPayment(ctx, *payment.YooKassaID); err != nil {
+			s.logger.Error("Failed to cancel payment in YooKassa", "error", err, "payment_id", paymentID, "yookassa_id", *payment.YooKassaID)
+			// Continue to update DB status even if YooKassa cancellation fails
+		} else {
+			s.logger.Info("Payment cancelled in YooKassa", "payment_id", paymentID, "yookassa_id", *payment.YooKassaID)
+		}
+	} else {
+		s.logger.Info("Skipping YooKassa cancellation",
+			"payment_id", paymentID,
+			"status", payment.Status,
+			"has_yookassa_id", payment.YooKassaID != nil,
+		)
+	}
+
+	// Update status in DB
+	cancelledStatus := StatusCancelled
+	_, err = s.storage.UpdatePayment(ctx, criteria, UpdateParams{
+		Status: &cancelledStatus,
+	})
+	if err != nil {
+		s.logger.Error("Failed to cancel payment in DB", "error", err, "payment_id", paymentID)
+		return fmt.Errorf("failed to cancel payment: %w", err)
+	}
+
+	s.logger.Info("Payment cancelled in DB", "payment_id", paymentID)
+	return nil
 }
 
 // createManualPayment creates a payment with approved status without calling YooKassa

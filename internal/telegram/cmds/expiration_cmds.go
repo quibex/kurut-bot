@@ -13,6 +13,7 @@ import (
 	"kurut-bot/internal/stories/submessages"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
+	"kurut-bot/internal/stories/webtokens"
 	"kurut-bot/internal/telegram/messages"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -25,8 +26,14 @@ type ExpirationCommand struct {
 	tariffService       ExpirationTariffService
 	paymentService      ExpirationPaymentService
 	messageStorage      ExpirationMessageStorage
+	clientTokenStorage  ExpirationClientTokenStorage
 	notificationService *ExpirationNotificationService
+	webDomain           string
 	logger              *slog.Logger
+}
+
+type ExpirationClientTokenStorage interface {
+	GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64) (*webtokens.ClientToken, error)
 }
 
 type ExpirationSubStorage interface {
@@ -74,6 +81,8 @@ func NewExpirationCommand(
 	tariffService ExpirationTariffService,
 	paymentService ExpirationPaymentService,
 	messageStorage ExpirationMessageStorage,
+	clientTokenStorage ExpirationClientTokenStorage,
+	webDomain string,
 	notificationService *ExpirationNotificationService,
 	logger *slog.Logger,
 ) *ExpirationCommand {
@@ -84,6 +93,8 @@ func NewExpirationCommand(
 		tariffService:       tariffService,
 		paymentService:      paymentService,
 		messageStorage:      messageStorage,
+		clientTokenStorage:  clientTokenStorage,
+		webDomain:           webDomain,
 		notificationService: notificationService,
 		logger:              logger,
 	}
@@ -407,7 +418,7 @@ func (c *ExpirationCommand) updateToDisabledMessage(ctx context.Context, chatID 
 	return err
 }
 
-// handleCreatePayment - кнопка "Получить ссылку"
+// handleCreatePayment - кнопка "Получить ссылку" (теперь возвращает ссылку на веб-продление)
 func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery, chatID int64, messageID int, subID int64) error {
 	// Проверяем актуальность сообщения
 	if active, err := c.checkMessageActive(ctx, chatID, messageID); !active {
@@ -439,38 +450,39 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 		return c.answerCallback(callbackQuery.ID, "Тариф не найден")
 	}
 
-	// 4. Создать платеж
-	paymentEntity := payment.Payment{
-		UserID: sub.UserID,
-		Amount: tariff.Price,
-		Status: payment.StatusPending,
+	// 4. Получить WhatsApp клиента и Telegram ID ассистента для создания client token
+	whatsapp := ""
+	if sub.ClientWhatsApp != nil {
+		whatsapp = *sub.ClientWhatsApp
+	}
+	if whatsapp == "" {
+		c.logger.Error("Subscription has no client WhatsApp", "sub_id", subID)
+		return c.answerCallback(callbackQuery.ID, "У клиента не указан WhatsApp")
 	}
 
-	paymentObj, err := c.paymentService.CreatePayment(ctx, paymentEntity)
+	createdByTgID := int64(0)
+	if sub.CreatedByTelegramID != nil {
+		createdByTgID = *sub.CreatedByTelegramID
+	}
+
+	clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, whatsapp, createdByTgID)
 	if err != nil {
-		c.logger.Error("Failed to create payment", "error", err, "sub_id", subID)
-		return c.answerCallback(callbackQuery.ID, "Ошибка создания платежа")
+		c.logger.Error("Failed to get/create client token", "error", err, "sub_id", subID)
+		return c.answerCallback(callbackQuery.ID, "Ошибка создания ссылки")
 	}
 
-	// Mock mode: платёж уже approved, но не продлеваем автоматически
-	if paymentObj.PaymentURL == nil && paymentObj.Status == payment.StatusApproved {
-		return c.answerCallback(callbackQuery.ID, "Mock mode: используйте кнопку Оплачено")
-	}
+	// 5. Сформировать личную ссылку клиента
+	renewalURL := fmt.Sprintf("%s/c/%s", c.webDomain, clientToken.Token)
 
-	if paymentObj.PaymentURL == nil || *paymentObj.PaymentURL == "" {
-		c.logger.Error("Payment URL is empty", "payment_id", paymentObj.ID)
-		return c.answerCallback(callbackQuery.ID, "Ссылка на оплату недоступна")
-	}
-
-	// 5. Ответить на callback
+	// 6. Ответить на callback
 	if err := c.answerCallback(callbackQuery.ID, "Ссылка создана"); err != nil {
 		c.logger.Error("Failed to answer callback", "error", err)
 	}
 
-	// 6. Редактировать сообщение со ссылкой
-	whatsapp := "Не указан"
-	if sub.ClientWhatsApp != nil {
-		whatsapp = *sub.ClientWhatsApp
+	// 7. Редактировать сообщение со ссылкой
+	whatsappDisplay := whatsapp
+	if whatsappDisplay == "" {
+		whatsappDisplay = "Не указан"
 	}
 
 	// Формируем текст со ссылкой как кликабельный alias "link"
@@ -478,30 +490,29 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
 		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgExpired)
 		text = fmt.Sprintf(
-			"💳 *Ссылка на оплату*\n\n"+
+			"🔗 *Ссылка на продление*\n\n"+
 				"📱 Клиент: [%s](%s)\n"+
 				"📅 Тариф: %s\n"+
 				"💰 Сумма: %.0f ₽\n\n"+
-				"🔗 [link](%s)",
-			whatsapp, whatsappLink, tariff.Name, tariff.Price, *paymentObj.PaymentURL)
+				"🌐 [link](%s)",
+			whatsappDisplay, whatsappLink, tariff.Name, tariff.Price, renewalURL)
 	} else {
 		text = fmt.Sprintf(
-			"💳 *Ссылка на оплату*\n\n"+
+			"🔗 *Ссылка на продление*\n\n"+
 				"📱 Клиент: `%s`\n"+
 				"📅 Тариф: %s\n"+
 				"💰 Сумма: %.0f ₽\n\n"+
-				"🔗 [link](%s)",
-			whatsapp, tariff.Name, tariff.Price, *paymentObj.PaymentURL)
+				"🌐 [link](%s)",
+			whatsappDisplay, tariff.Name, tariff.Price, renewalURL)
 	}
 
-	// Кнопки: Сменить тариф, Новый, Оплачено/Проверить
+	// Кнопки: Сменить тариф, Новый
 	var rows [][]tgbotapi.InlineKeyboardButton
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("📋 Сменить тариф", fmt.Sprintf("exp_tariff:%d", sub.ID)),
 	))
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("🔗 Новый", fmt.Sprintf("exp_link:%d", sub.ID)),
-		tgbotapi.NewInlineKeyboardButtonData(c.paidButtonText(), fmt.Sprintf("exp_paid:%d", sub.ID)),
 	))
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
@@ -511,13 +522,6 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 	editMsg.ReplyMarkup = &keyboard
 	editMsg.DisableWebPagePreview = true
 	_, err = c.bot.Send(editMsg)
-
-	// Сохраняем payment_id в subscription_message для последующей проверки
-	if subMsg != nil {
-		if err := c.messageStorage.UpdatePaymentID(ctx, subMsg.ID, &paymentObj.ID); err != nil {
-			c.logger.Error("Failed to update payment ID", "error", err, "msg_id", subMsg.ID, "payment_id", paymentObj.ID)
-		}
-	}
 
 	return err
 }

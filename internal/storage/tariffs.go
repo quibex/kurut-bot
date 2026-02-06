@@ -167,7 +167,7 @@ func (s *storageImpl) ListTariffs(ctx context.Context, criteria tariffs.ListCrit
 	if err != nil {
 		return nil, fmt.Errorf("db.QueryContext: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // rows close error is not actionable
 
 	var result []*tariffs.Tariff
 	for rows.Next() {

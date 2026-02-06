@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kurut VPN</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --brand-red: #D42631;
+            --brand-yellow: #FFD400;
+            --text-main: #111827;
+            --text-secondary: #6B7280;
+            --bg-color: #F3F4F6;
+            --card-bg: #FFFFFF;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background: var(--bg-color);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            color: var(--text-main);
+        }
+
+        .container {
+            background: var(--card-bg);
+            border-radius: 24px;
+            padding: 30px 40px 40px;
+            max-width: 480px;
+            width: 100%;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.05);
+            text-align: center;
+        }
+
+        .logo-area {
+            font-size: 64px;
+            margin-bottom: 12px;
+            line-height: 1;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .whatsapp {
+            color: var(--text-secondary);
+            font-size: 16px;
+            margin-bottom: 32px;
+            font-family: 'JetBrains Mono', monospace;
+            background: #F3F4F6;
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 99px;
+        }
+
+        .section-title {
+            text-align: left;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin: 32px 0 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #E5E7EB;
+        }
+
+        .option-card {
+            background: #F9FAFB;
+            border: 2px solid transparent;
+            border-radius: 16px;
+            padding: 16px;
+            margin: 8px 0;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .option-card:hover {
+            background: #fff;
+            border-color: #E5E7EB;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+
+        .option-card.selected {
+            border-color: #0D9488;
+            background: #F0FDFA;
+        }
+        
+        .option-card:has(input:checked) {
+            border-color: #0D9488;
+            background: #F0FDFA;
+        }
+
+        .option-card input[type="radio"] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #D1D5DB;
+            border-radius: 50%;
+            margin: 0;
+            background-color: white;
+            cursor: pointer;
+            position: relative;
+            display: grid;
+            place-content: center;
+        }
+
+        .option-card input[type="radio"]::before {
+            content: "";
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            transform: scale(0);
+            transition: 120ms transform ease-in-out;
+            box-shadow: inset 1em 1em #0D9488;
+            background-color: #0D9488;
+        }
+
+        .option-card input[type="radio"]:checked {
+            border-color: #0D9488;
+        }
+
+        .option-card input[type="radio"]:checked::before {
+            transform: scale(1);
+        }
+
+        .option-content {
+            flex: 1;
+        }
+
+        .option-title {
+            font-weight: 600;
+            font-size: 15px;
+            color: var(--text-main);
+        }
+
+        .option-subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .option-price {
+            font-weight: 700;
+            font-size: 16px;
+            color: #0D9488;
+        }
+
+        .status-active { color: #059669; font-weight: 500; }
+        .status-expired { color: #DC2626; font-weight: 500; }
+
+        .form-group {
+            margin: 24px 0;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+            margin-bottom: 8px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 1px solid #E5E7EB;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: all 0.2s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #24A1DE;
+            box-shadow: 0 0 0 3px rgba(36, 161, 222, 0.2);
+        }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 18px 24px;
+            margin: 32px 0 0;
+            border-radius: 16px;
+            font-size: 16px;
+            font-weight: 700;
+            font-family: inherit;
+            cursor: pointer;
+            border: none;
+            width: 100%;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: #24A1DE;
+            color: white;
+            box-shadow: 0 4px 12px rgba(36, 161, 222, 0.3);
+        }
+
+        .btn-primary:hover {
+            background: #1d81b3;
+            transform: translateY(-1px);
+        }
+
+        .btn-tg {
+            background: #24A1DE;
+            color: white;
+            margin-top: 16px;
+            box-shadow: 0 0 0 3px rgba(36, 161, 222, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-tg:hover {
+            background: #1d90c9;
+            transform: translateY(-1px);
+            box-shadow: 0 0 0 4px rgba(36, 161, 222, 0.35);
+        }
+
+        .btn-secondary {
+            background: #F3F4F6;
+            color: var(--text-main);
+            margin-top: 12px;
+        }
+
+        .btn-secondary:hover {
+            background: #E5E7EB;
+        }
+
+        .payment-instruction {
+            margin-top: 16px;
+            padding: 12px;
+            background: #F3F4F6;
+            border-radius: 12px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .error {
+            background: #FEF2F2;
+            color: #DC2626;
+            padding: 12px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .success-message {
+            background: #ECFDF5;
+            color: #065F46;
+            padding: 20px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+            font-size: 15px;
+            border: 1px solid #A7F3D0;
+        }
+
+        .success-message h2 {
+            margin-bottom: 8px;
+            font-size: 18px;
+            color: #047857;
+        }
+
+        .warning-message {
+            background: #FFFBEB;
+            color: #92400E;
+            padding: 16px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            text-align: left;
+            border: 1px solid #FDE68A;
+        }
+
+        .support-buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 32px;
+            justify-content: center;
+        }
+
+        .support-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+
+        .support-btn-whatsapp {
+            background: #DCFCE7;
+            color: #166534;
+        }
+
+        .support-btn-whatsapp:hover {
+            background: #BBF7D0;
+        }
+
+        .support-btn-telegram {
+            background: #E0F2FE;
+            color: #0369A1;
+        }
+
+        .support-btn-telegram:hover {
+            background: #BAE6FD;
+        }
+
+        @media (max-width: 600px) {
+            .container { padding: 30px 20px; }
+            h1 { font-size: 24px; }
+            .support-buttons { flex-direction: column; }
+            .support-btn { justify-content: center; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo-area">
+            <img src="/static/kurut.jpg" alt="Kurut VPN" style="height: 140px; width: auto; border-radius: 50%;">
+        </div>
+        <h1>Kurut VPN</h1>
+        {{if .WhatsApp}}
+        <p class="whatsapp">{{.WhatsApp}}</p>
+        {{end}}
+
+        {{if .Error}}
+        <div class="error">{{.Error}}</div>
+        {{end}}
+
+        {{if .PaymentResult}}
+        <!-- Страница успешной оплаты -->
+        <div class="success-message">
+            <h2>✅ Оплата получена!</h2>
+            {{if eq .PaymentType "renew_active"}}
+            <p>Подписка успешно продлена. Хорошего дня!</p>
+            {{else if eq .PaymentType "renew_disabled"}}
+            <p>Поддержка обработает и подключит вас в ближайшее время.</p>
+            {{else}}
+            <p>Поддержка обработает и напишет вам в ближайшее время.</p>
+            {{end}}
+        </div>
+
+        <a href="{{if .TgChannelURL}}{{.TgChannelURL}}{{else}}https://t.me/kurut_vpn{{end}}" target="_blank" class="btn btn-tg">
+            Подписаться на канал<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+        </a>
+
+        <a href="/c/{{.Token}}" class="btn btn-secondary">← На главную</a>
+
+        <p style="margin-top: 20px; color: #666; font-size: 14px;">Написать в поддержку:</p>
+        <div class="support-buttons">
+            <a href="https://wa.me/996700123456" class="support-btn support-btn-whatsapp" target="_blank">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                WhatsApp
+            </a>
+            <a href="https://t.me/kurutvpn_support" class="support-btn support-btn-telegram" target="_blank">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                Telegram
+            </a>
+        </div>
+        {{else}}
+        <!-- Основная форма -->
+        <form method="POST" action="/c/{{.Token}}" id="clientForm">
+            {{if .Subscriptions}}
+            <!-- Шаг 1: Выбор подписки -->
+            <div class="section-title">1. Выберите подписку</div>
+
+            {{range .Subscriptions}}
+            <label class="option-card" data-sub-id="{{.ID}}">
+                <input type="radio" name="subscription_id" value="{{.ID}}">
+                <div class="option-content">
+                    <div class="option-title">{{.TariffName}}</div>
+                    <div class="option-subtitle {{.StatusClass}}">{{.StatusText}}</div>
+                </div>
+            </label>
+            {{end}}
+
+            <label class="option-card" data-sub-id="new">
+                <input type="radio" name="subscription_id" value="new" checked>
+                <div class="option-content">
+                    <div class="option-title">➕ Новая подписка</div>
+                    <div class="option-subtitle">Купить дополнительную</div>
+                </div>
+            </label>
+
+            <div class="section-title">2. Выберите тариф</div>
+            {{else}}
+            <!-- Нет подписок - только тарифы -->
+            <p class="no-subs-hint">Выберите тариф для подключения VPN</p>
+            <input type="hidden" name="subscription_id" value="new">
+            {{end}}
+
+            <!-- Тарифы -->
+            {{if not .Tariffs}}
+            <div class="warning-message">
+                <p><strong>⚠️ Активных тарифов нет</strong></p>
+                <p>Пожалуйста, обратитесь в поддержку.</p>
+            </div>
+            <div class="support-buttons">
+                <a href="https://wa.me/996700123456" class="support-btn support-btn-whatsapp" target="_blank">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                    WhatsApp
+                </a>
+                <a href="https://t.me/kurutvpn_support" class="support-btn support-btn-telegram" target="_blank">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                    Telegram
+                </a>
+            </div>
+            {{else if not .HasServers}}
+            <div class="warning-message">
+                <p><strong>⚠️ Нет доступных серверов</strong></p>
+                <p>Пожалуйста, обратитесь в поддержку.</p>
+            </div>
+            <div class="support-buttons">
+                <a href="https://wa.me/996700123456" class="support-btn support-btn-whatsapp" target="_blank">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                    WhatsApp
+                </a>
+                <a href="https://t.me/kurutvpn_support" class="support-btn support-btn-telegram" target="_blank">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                    Telegram
+                </a>
+            </div>
+            {{else}}
+            {{range $i, $t := .Tariffs}}
+            <label class="option-card tariff-card" data-price="{{$t.Price}}">
+                <input type="radio" name="tariff_id" value="{{$t.ID}}" {{if eq $i 0}}checked{{end}}>
+                <div class="option-content">
+                    <div class="option-title">{{$t.Name}}</div>
+                    <div class="option-subtitle">{{$t.DurationDays}} дней</div>
+                </div>
+                <div class="option-price">{{printf "%.0f" $t.Price}} ₽</div>
+            </label>
+            {{end}}
+
+            <button type="submit" class="btn btn-primary" id="submitBtn">
+                <span id="btnText">Оплатить</span>
+                <span id="btnPrice"></span>
+            </button>
+
+            <div class="payment-instruction">
+                В способах оплаты выберите:<br>
+                <b>Прочее → СБП → Ваш Банк</b>
+            </div>
+            {{end}}
+        </form>
+        {{end}}
+    </div>
+
+    <script>
+        const form = document.getElementById('clientForm');
+        const tariffCards = document.querySelectorAll('.tariff-card');
+        const allCards = document.querySelectorAll('.option-card');
+        const btnPrice = document.getElementById('btnPrice');
+        const btnText = document.getElementById('btnText');
+        const submitBtn = document.getElementById('submitBtn');
+
+        function updateUI() {
+            // Update selected state for all cards
+            allCards.forEach(card => {
+                const radio = card.querySelector('input[type="radio"]');
+                card.classList.toggle('selected', radio.checked);
+            });
+
+            // Update button price
+            tariffCards.forEach(card => {
+                const radio = card.querySelector('input[type="radio"]');
+                if (radio.checked) {
+                    btnPrice.textContent = card.dataset.price + ' ₽';
+                }
+            });
+
+            // Update button text based on subscription selection
+            const subRadio = document.querySelector('input[name="subscription_id"]:checked');
+            if (subRadio && subRadio.value !== 'new') {
+                btnText.textContent = 'Продлить';
+            } else {
+                btnText.textContent = 'Оплатить';
+            }
+        }
+
+        allCards.forEach(card => {
+            card.addEventListener('click', () => {
+                const radio = card.querySelector('input[type="radio"]');
+                radio.checked = true;
+                updateUI();
+            });
+        });
+
+        updateUI();
+
+        form.addEventListener('submit', function() {
+            submitBtn.disabled = true;
+            btnText.textContent = 'Переход к оплате...';
+            btnPrice.textContent = '';
+        });
+
+        // Reset on back button
+        window.addEventListener('pageshow', function(event) {
+            if (event.persisted) {
+                submitBtn.disabled = false;
+                updateUI();
+            }
+        });
+    </script>
+</body>
+</html>

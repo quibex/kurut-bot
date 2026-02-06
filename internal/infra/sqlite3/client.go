@@ -89,7 +89,7 @@ func New(ctx context.Context, opts ...Option) (*DB, error) {
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		db.Close() //nolint:errcheck // already returning ping error
 		return nil, fmt.Errorf("failed to ping SQLite3 database: %w", err)
 	}
 

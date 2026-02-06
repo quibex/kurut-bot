@@ -178,7 +178,7 @@ func (s *storageImpl) ListPayments(ctx context.Context, criteria payment.ListCri
 	if err != nil {
 		return nil, fmt.Errorf("db.QueryContext: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // rows close error is not actionable
 
 	var result []*payment.Payment
 	for rows.Next() {
@@ -255,7 +255,7 @@ func (s *storageImpl) GetPaymentSubscriptions(ctx context.Context, paymentID int
 	if err != nil {
 		return nil, fmt.Errorf("db.QueryContext: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // rows close error is not actionable
 
 	var result []int64
 	for rows.Next() {
@@ -333,7 +333,7 @@ func (s *storageImpl) ListOrphanedPayments(ctx context.Context) ([]*payment.Paym
 	if err != nil {
 		return nil, fmt.Errorf("db.QueryContext: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // rows close error is not actionable
 
 	var result []*payment.Payment
 	for rows.Next() {

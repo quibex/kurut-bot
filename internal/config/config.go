@@ -13,11 +13,19 @@ type Config struct {
 	DB               SQLiteConfig            `env:",prefix=DB_"`
 	Telegram         TelegramConfig          `env:",prefix=TELEGRAM_"`
 	YooKassa         YooKassaConfig          `env:",prefix=YOOKASSA_"`
+	Web              WebConfig               `env:",prefix=WEB_"`
 	Metrics          struct {
 		Collector struct {
 			Timeout time.Duration `env:"COLLECTOR_TIMEOUT,default=10s"`
 		} `env:",prefix=COLLECTOR_"`
 	} `env:"METRICS"`
+}
+
+type WebConfig struct {
+	Domain             string `env:"DOMAIN,default=https://kurutvpn.com"`
+	TelegramChannelURL string `env:"TG_CHANNEL_URL,default=https://t.me/kurutkyrgyz"`
+	TelegramSupportURL string `env:"TG_SUPPORT_URL,default=https://t.me/kurutsupport"`
+	WhatsAppSupportURL string `env:"WA_SUPPORT_URL,default=https://wa.me/79670042901"`
 }
 
 type TelegramConfig struct {

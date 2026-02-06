@@ -565,7 +565,7 @@ func (s *storageImpl) GetRevenueByTariff(ctx context.Context, start, end time.Ti
 	if err != nil {
 		return nil, fmt.Errorf("db.QueryContext: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // rows close error is not actionable
 
 	var result []TariffRevenue
 	for rows.Next() {

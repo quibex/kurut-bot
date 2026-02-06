@@ -467,12 +467,12 @@ func (h *Handler) handlePaymentConfirmation(ctx context.Context, update *tgbotap
 	}
 
 	// Обрабатываем разные типы callback
-	switch {
-	case callbackData == "payment_completed":
+	switch callbackData {
+	case "payment_completed":
 		return h.handlePaymentCompleted(ctx, update, data)
-	case callbackData == "refresh_payment_link":
+	case "refresh_payment_link":
 		return h.handleRefreshPaymentLink(ctx, update, data)
-	case callbackData == "cancel_purchase" || callbackData == "cancel":
+	case "cancel_purchase", "cancel":
 		return h.handleCancel(ctx, update)
 	default:
 		return h.sendError(chatID, "Неизвестная команда")

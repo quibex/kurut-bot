@@ -229,6 +229,35 @@ func (s *storageImpl) UpdatePaymentID(ctx context.Context, id int64, paymentID *
 	return nil
 }
 
+// CreateSubscriptionMessageWithPayment creates a subscription message with payment_id for web renewals
+func (s *storageImpl) CreateSubscriptionMessageWithPayment(ctx context.Context, subscriptionID int64, tariffID int64, paymentID int64) error {
+	params := map[string]interface{}{
+		"subscription_id":    subscriptionID,
+		"chat_id":            0, // Web renewal - no Telegram chat
+		"message_id":         0, // Web renewal - no Telegram message
+		"type":               string(submessages.TypeExpiring),
+		"is_active":          true,
+		"selected_tariff_id": tariffID,
+		"payment_id":         paymentID,
+		"created_at":         s.now(),
+	}
+
+	q, args, err := s.stmpBuilder().
+		Insert(subscriptionMessagesTable).
+		SetMap(params).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build sql query: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("db.ExecContext: %w", err)
+	}
+
+	return nil
+}
+
 // ListActiveMessagesWithPayments returns all active subscription messages that have a payment_id
 func (s *storageImpl) ListActiveMessagesWithPayments(ctx context.Context) ([]*submessages.SubscriptionMessage, error) {
 	query := s.stmpBuilder().
@@ -255,4 +284,40 @@ func (s *storageImpl) ListActiveMessagesWithPayments(ctx context.Context) ([]*su
 	}
 
 	return messages, nil
+}
+
+// CancelActiveMessagesWithPayments deactivates all active subscription messages with payment_id
+// for a given subscription and returns the payment IDs for cancellation
+func (s *storageImpl) CancelActiveMessagesWithPayments(ctx context.Context, subscriptionID int64) ([]int64, error) {
+	// Find active messages with payments for this subscription
+	query := s.stmpBuilder().
+		Select(subscriptionMessageRowFields).
+		From(subscriptionMessagesTable).
+		Where(sq.Eq{"subscription_id": subscriptionID}).
+		Where(sq.Eq{"is_active": true}).
+		Where(sq.NotEq{"payment_id": nil})
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var rows []subscriptionMessageRow
+	err = s.db.SelectContext(ctx, &rows, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("db.SelectContext: %w", err)
+	}
+
+	var paymentIDs []int64
+	for _, row := range rows {
+		if row.PaymentID != nil {
+			paymentIDs = append(paymentIDs, *row.PaymentID)
+		}
+		// Deactivate the message
+		if err := s.DeactivateSubscriptionMessage(ctx, row.ID); err != nil {
+			return nil, fmt.Errorf("deactivate message %d: %w", row.ID, err)
+		}
+	}
+
+	return paymentIDs, nil
 }

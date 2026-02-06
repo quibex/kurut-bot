@@ -32,7 +32,12 @@ func NewClient(shopID, secretKey, returnURL string, logger *slog.Logger) (*Clien
 
 // CreatePayment creates a new payment in YooKassa
 func (c *Client) CreatePayment(ctx context.Context, amount float64, description string, metadata map[string]string) (*yoopayment.Payment, error) {
-	c.logger.Info("Creating payment in YooKassa", "amount", amount)
+	return c.CreatePaymentWithReturnURL(ctx, amount, description, metadata, c.returnURL)
+}
+
+// CreatePaymentWithReturnURL creates a new payment in YooKassa with custom return URL
+func (c *Client) CreatePaymentWithReturnURL(ctx context.Context, amount float64, description string, metadata map[string]string, returnURL string) (*yoopayment.Payment, error) {
+	c.logger.Info("Creating payment in YooKassa", "amount", amount, "return_url", returnURL)
 
 	idempotenceKey := fmt.Sprintf("%s_%d", uuid.New().String(), time.Now().Unix())
 
@@ -43,7 +48,7 @@ func (c *Client) CreatePayment(ctx context.Context, amount float64, description 
 		},
 		Confirmation: &yoopayment.Redirect{
 			Type:      yoopayment.TypeRedirect,
-			ReturnURL: c.returnURL,
+			ReturnURL: returnURL,
 		},
 		Description: description,
 		Metadata:    metadata,
@@ -92,4 +97,21 @@ func (c *Client) GetPaymentStatus(ctx context.Context, paymentID string) (*yoopa
 
 	c.logger.Info("Payment status retrieved", "payment_id", paymentID, "status", result.Status)
 	return result, nil
+}
+
+// CancelPayment cancels a pending payment in YooKassa
+func (c *Client) CancelPayment(ctx context.Context, paymentID string) error {
+	c.logger.Info("Cancelling payment in YooKassa", "payment_id", paymentID)
+
+	idempotenceKey := fmt.Sprintf("cancel_%s_%d", paymentID, time.Now().Unix())
+
+	paymentHandler := yookassa.NewPaymentHandler(c.client).WithIdempotencyKey(idempotenceKey)
+	_, err := paymentHandler.CancelPayment(paymentID)
+	if err != nil {
+		c.logger.Error("Failed to cancel payment in YooKassa", "error", err, "payment_id", paymentID)
+		return fmt.Errorf("failed to cancel payment: %w", err)
+	}
+
+	c.logger.Info("Payment cancelled in YooKassa", "payment_id", paymentID)
+	return nil
 }

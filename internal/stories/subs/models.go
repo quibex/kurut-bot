@@ -52,6 +52,7 @@ type ListCriteria struct {
 	TariffIDs           []int64
 	Status              []Status
 	CreatedByTelegramID *int64
+	ClientWhatsApp      *string
 	Limit               int
 	Offset              int
 }
