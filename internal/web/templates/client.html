@@ -161,7 +161,8 @@
         }
 
         .status-active { color: #059669; font-weight: 500; }
-        .status-expired { color: #DC2626; font-weight: 500; }
+        .status-expired { color: #E8636C; font-weight: 500; }
+        .status-disabled { color: #C4878E; font-weight: 500; }
 
         .form-group {
             margin: 24px 0;
@@ -387,18 +388,18 @@
             <!-- Шаг 1: Выбор подписки -->
             <div class="section-title">1. Выберите подписку</div>
 
-            {{range .Subscriptions}}
-            <label class="option-card" data-sub-id="{{.ID}}">
-                <input type="radio" name="subscription_id" value="{{.ID}}">
+            {{range $i, $sub := .Subscriptions}}
+            <label class="option-card" data-sub-id="{{$sub.ID}}">
+                <input type="radio" name="subscription_id" value="{{$sub.ID}}" {{if eq $i 0}}checked{{end}}>
                 <div class="option-content">
-                    <div class="option-title">{{.TariffName}}</div>
-                    <div class="option-subtitle {{.StatusClass}}">{{.StatusText}}</div>
+                    <div class="option-title">{{$sub.TariffName}}</div>
+                    <div class="option-subtitle {{$sub.StatusClass}}">{{$sub.StatusText}}</div>
                 </div>
             </label>
             {{end}}
 
             <label class="option-card" data-sub-id="new">
-                <input type="radio" name="subscription_id" value="new" checked>
+                <input type="radio" name="subscription_id" value="new">
                 <div class="option-content">
                     <div class="option-title">➕ Новая подписка</div>
                     <div class="option-subtitle">Купить дополнительную</div>
