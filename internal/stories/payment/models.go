@@ -1,6 +1,12 @@
 package payment
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrPaymentAlreadyApproved is returned when trying to cancel an already approved payment
+var ErrPaymentAlreadyApproved = errors.New("payment already approved")
 
 type Status string
 

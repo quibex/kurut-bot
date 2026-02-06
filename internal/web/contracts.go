@@ -5,6 +5,7 @@ import (
 
 	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/servers"
+	"kurut-bot/internal/stories/submessages"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/stories/webtokens"
@@ -40,6 +41,8 @@ type SubscriptionStorage interface {
 type SubscriptionMessageStorage interface {
 	CreateSubscriptionMessageWithPayment(ctx context.Context, subscriptionID int64, tariffID int64, paymentID int64) error
 	CancelActiveMessagesWithPayments(ctx context.Context, subscriptionID int64) ([]int64, error)
+	ListActiveSubscriptionMessages(ctx context.Context, subscriptionID int64) ([]*submessages.SubscriptionMessage, error)
+	DeactivateSubscriptionMessage(ctx context.Context, id int64) error
 }
 
 type ClientTokenStorage interface {

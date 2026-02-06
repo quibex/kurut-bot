@@ -351,7 +351,7 @@ func (r *Router) sendWelcome(chatID int64, user *users.User) error {
 	}
 
 	text += "\n\nКоманды ассистента:\n" +
-		"/create_sub — Создать подписку для клиента\n" +
+		"/new_client — Новый клиент\n" +
 		"/my_subs — Список подписок\n" +
 		"/find — Поиск подписки по номеру"
 
@@ -387,7 +387,7 @@ func (r *Router) sendHelp(chatID int64) error {
 	}
 	text := "Доступные команды:\n\n" +
 		"/start — Главное меню\n" +
-		"/create_sub — Создать подписку для клиента\n" +
+		"/new_client — Новый клиент\n" +
 		"/my_subs — Список подписок\n" +
 		"/find — Поиск подписки по номеру"
 
@@ -469,7 +469,7 @@ func (r *Router) handleGlobalCancelWithInternalID(update *tgbotapi.Update, user 
 func (r *Router) editToHelp(chatID int64, messageID int) error {
 	text := "Доступные команды:\n\n" +
 		"/start — Главное меню\n" +
-		"/create_sub — Создать подписку для клиента\n" +
+		"/new_client — Новый клиент\n" +
 		"/my_subs — Список подписок\n" +
 		"/find — Поиск подписки по номеру"
 
@@ -537,8 +537,8 @@ func (r *Router) SetupBotCommands() error {
 			Description: "Главное меню",
 		},
 		{
-			Command:     "create_sub",
-			Description: "Создать подписку для клиента",
+			Command:     "new_client",
+			Description: "Новый клиент",
 		},
 		{
 			Command:     "my_subs",
@@ -559,8 +559,8 @@ func (r *Router) setupAdminCommands(chatID int64) {
 			Description: "Главное меню",
 		},
 		{
-			Command:     "create_sub",
-			Description: "Создать подписку для клиента",
+			Command:     "new_client",
+			Description: "Новый клиент",
 		},
 		{
 			Command:     "my_subs",
@@ -622,8 +622,8 @@ func (r *Router) setupAssistantCommands(chatID int64) {
 			Description: "Главное меню",
 		},
 		{
-			Command:     "create_sub",
-			Description: "Создать подписку для клиента",
+			Command:     "new_client",
+			Description: "Новый клиент",
 		},
 		{
 			Command:     "my_subs",

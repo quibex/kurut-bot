@@ -630,7 +630,7 @@ func (h *Handler) handleCancel(ctx context.Context, update *tgbotapi.Update) err
 // sendMainMenu отправляет главное меню
 func (h *Handler) sendMainMenu(chatID int64) error {
 	text := "📱 Доступные команды:\n" +
-		"/create_sub — Создать подписку для клиента\n" +
+		"/new_client — Новый клиент\n" +
 		"/my_subs — Список подписок"
 
 	msg := tgbotapi.NewMessage(chatID, text)

@@ -2,6 +2,7 @@ package web
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -335,17 +336,31 @@ func (h *Handlers) handleClientSubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Cancel old active messages with payments for this subscription
+		// Cancel old active messages with payments for this subscription,
+		// but skip messages whose payments are already approved in YooKassa
 		h.logger.Info("Looking for old subscription messages to cancel", "subscription_id", subID)
-		oldRenewalPaymentIDs, err := h.messageStorage.CancelActiveMessagesWithPayments(ctx, subID)
+		activeMessages, err := h.messageStorage.ListActiveSubscriptionMessages(ctx, subID)
 		if err != nil {
-			h.logger.Error("Failed to cancel old subscription messages", "error", err)
+			h.logger.Error("Failed to list active subscription messages", "error", err)
 		} else {
-			h.logger.Info("Found old subscription messages to cancel", "count", len(oldRenewalPaymentIDs), "payment_ids", oldRenewalPaymentIDs)
-			for _, paymentID := range oldRenewalPaymentIDs {
-				h.logger.Info("Cancelling old renewal payment", "payment_id", paymentID)
-				if err := h.paymentService.CancelPayment(ctx, paymentID); err != nil {
-					h.logger.Error("Failed to cancel old renewal payment", "error", err, "payment_id", paymentID)
+			for _, msg := range activeMessages {
+				if msg.PaymentID == nil {
+					continue
+				}
+				h.logger.Info("Checking old renewal payment before cancel", "msg_id", msg.ID, "payment_id", *msg.PaymentID)
+				if err := h.paymentService.CancelPayment(ctx, *msg.PaymentID); err != nil {
+					if errors.Is(err, payment.ErrPaymentAlreadyApproved) {
+						// Payment was already paid — don't deactivate the message,
+						// the worker will process it and extend the subscription
+						h.logger.Info("Old renewal payment already approved, keeping message for worker",
+							"msg_id", msg.ID, "payment_id", *msg.PaymentID)
+						continue
+					}
+					h.logger.Error("Failed to cancel old renewal payment", "error", err, "payment_id", *msg.PaymentID)
+				}
+				// Payment was cancelled or failed — deactivate the message
+				if err := h.messageStorage.DeactivateSubscriptionMessage(ctx, msg.ID); err != nil {
+					h.logger.Error("Failed to deactivate subscription message", "error", err, "msg_id", msg.ID)
 				}
 			}
 		}

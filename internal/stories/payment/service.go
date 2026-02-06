@@ -128,43 +128,73 @@ func (s *Service) CreatePaymentWithReturnURL(ctx context.Context, paymentEntity 
 	return updatedPayment, nil
 }
 
-// CancelPayment cancels a pending payment (both in DB and YooKassa)
+// CancelPayment cancels a pending payment (both in DB and YooKassa).
+// Returns ErrPaymentAlreadyApproved if the payment was already paid in YooKassa.
 func (s *Service) CancelPayment(ctx context.Context, paymentID int64) error {
 	s.logger.Info("Cancelling payment", "payment_id", paymentID)
 
 	// First get the payment to retrieve YooKassaID
 	criteria := GetCriteria{ID: &paymentID}
-	payment, err := s.storage.GetPayment(ctx, criteria)
+	p, err := s.storage.GetPayment(ctx, criteria)
 	if err != nil {
 		s.logger.Error("Failed to get payment for cancellation", "error", err, "payment_id", paymentID)
 		return fmt.Errorf("failed to get payment: %w", err)
 	}
 
-	if payment == nil {
+	if p == nil {
 		s.logger.Warn("Payment not found for cancellation", "payment_id", paymentID)
 		return nil
 	}
 
+	// If already approved in DB, don't cancel
+	if p.Status == StatusApproved {
+		s.logger.Info("Payment already approved in DB, skipping cancellation", "payment_id", paymentID)
+		return ErrPaymentAlreadyApproved
+	}
+
 	s.logger.Info("Found payment for cancellation",
 		"payment_id", paymentID,
-		"status", payment.Status,
-		"has_yookassa_id", payment.YooKassaID != nil,
+		"status", p.Status,
+		"has_yookassa_id", p.YooKassaID != nil,
 	)
 
-	// Only cancel in YooKassa if payment is still pending
-	if payment.Status == StatusPending && payment.YooKassaID != nil && *payment.YooKassaID != "" {
-		s.logger.Info("Calling YooKassa to cancel payment", "yookassa_id", *payment.YooKassaID)
-		if err := s.yookassaClient.CancelPayment(ctx, *payment.YooKassaID); err != nil {
-			s.logger.Error("Failed to cancel payment in YooKassa", "error", err, "payment_id", paymentID, "yookassa_id", *payment.YooKassaID)
+	// Check actual YooKassa status before cancelling to prevent race condition
+	if p.Status == StatusPending && p.YooKassaID != nil && *p.YooKassaID != "" {
+		yookassaPayment, err := s.yookassaClient.GetPaymentStatus(ctx, *p.YooKassaID)
+		if err != nil {
+			s.logger.Error("Failed to check YooKassa status before cancel", "error", err, "payment_id", paymentID)
+			// Fall through to cancellation attempt
+		} else {
+			actualStatus := mapYooKassaStatusToInternal(yookassaPayment.Status)
+			if actualStatus == StatusApproved {
+				// Payment was already paid in YooKassa — update DB and return
+				s.logger.Info("Payment already approved in YooKassa, updating DB and skipping cancellation",
+					"payment_id", paymentID,
+					"yookassa_id", *p.YooKassaID,
+				)
+				now := time.Now()
+				approvedStatus := StatusApproved
+				_, _ = s.storage.UpdatePayment(ctx, criteria, UpdateParams{
+					Status:      &approvedStatus,
+					ProcessedAt: &now,
+				})
+				return ErrPaymentAlreadyApproved
+			}
+		}
+
+		// Payment is still pending in YooKassa — proceed with cancellation
+		s.logger.Info("Calling YooKassa to cancel payment", "yookassa_id", *p.YooKassaID)
+		if err := s.yookassaClient.CancelPayment(ctx, *p.YooKassaID); err != nil {
+			s.logger.Error("Failed to cancel payment in YooKassa", "error", err, "payment_id", paymentID, "yookassa_id", *p.YooKassaID)
 			// Continue to update DB status even if YooKassa cancellation fails
 		} else {
-			s.logger.Info("Payment cancelled in YooKassa", "payment_id", paymentID, "yookassa_id", *payment.YooKassaID)
+			s.logger.Info("Payment cancelled in YooKassa", "payment_id", paymentID, "yookassa_id", *p.YooKassaID)
 		}
 	} else {
 		s.logger.Info("Skipping YooKassa cancellation",
 			"payment_id", paymentID,
-			"status", payment.Status,
-			"has_yookassa_id", payment.YooKassaID != nil,
+			"status", p.Status,
+			"has_yookassa_id", p.YooKassaID != nil,
 		)
 	}
 
