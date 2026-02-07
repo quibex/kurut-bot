@@ -254,16 +254,22 @@ func (s *storageImpl) ExtendSubscription(ctx context.Context, subscriptionID int
 	}
 
 	// Calculate new expiration date
+	now := s.now()
 	var newExpiresAt time.Time
 	if subscription.ExpiresAt != nil {
-		newExpiresAt = subscription.ExpiresAt.AddDate(0, 0, additionalDays)
+		// If subscription is expired (expires_at is in the past), start from now
+		if subscription.ExpiresAt.Before(now) {
+			newExpiresAt = now.AddDate(0, 0, additionalDays)
+		} else {
+			// If subscription is still active, add days to existing expires_at
+			newExpiresAt = subscription.ExpiresAt.AddDate(0, 0, additionalDays)
+		}
 	} else {
 		// If no expiration set, start from now
-		newExpiresAt = s.now().AddDate(0, 0, additionalDays)
+		newExpiresAt = now.AddDate(0, 0, additionalDays)
 	}
 
 	// Update subscription with incremented renewal_count
-	now := s.now()
 
 	q, args, err := s.stmpBuilder().
 		Update(subscriptionsTable).
