@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"strings"
 
 	"kurut-bot/internal/stories/webtokens"
 
@@ -96,7 +95,7 @@ func (c *NewClientCommand) HandlePartnerInput(ctx context.Context, chatID int64,
 		partnerWhatsApp = normalizePhone(partnerWhatsApp)
 
 		if !isValidPhoneNumber(partnerWhatsApp) {
-			return c.sendError(chatID, "❌ Неверный формат номера партнера. Введите номер в формате +996555123456")
+			return c.sendError(chatID, "❌ Неверный формат номера партнера. Введите номер телефона")
 		}
 
 		partner = &partnerWhatsApp
@@ -152,12 +151,6 @@ func normalizePhone(phone string) string {
 
 // isValidPhoneNumber проверяет что нормализованный номер телефона валиден
 func isValidPhoneNumber(normalizedPhone string) bool {
-	// Kyrgyzstan phone numbers start with 996 and have 12 digits total
-	if len(normalizedPhone) != 12 {
-		return false
-	}
-	if !strings.HasPrefix(normalizedPhone, "996") {
-		return false
-	}
-	return true
+	// International phone numbers: 7-15 digits
+	return len(normalizedPhone) >= 7 && len(normalizedPhone) <= 15
 }

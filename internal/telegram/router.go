@@ -246,7 +246,7 @@ func (r *Router) handleNewClientState(update *tgbotapi.Update, user *users.User,
 		// Нормализуем и валидируем WhatsApp
 		whatsapp = normalizePhone(whatsapp)
 		if !isValidPhone(whatsapp) {
-			msg := tgbotapi.NewMessage(chatID, "❌ Неверный формат номера. Введите номер в формате +996555123456")
+			msg := tgbotapi.NewMessage(chatID, "❌ Неверный формат номера. Введите номер телефона (например: +79015279515 или +996555123456)")
 			_, _ = r.bot.Send(msg)
 			return nil
 		}
@@ -352,15 +352,10 @@ func normalizePhone(phone string) string {
 	return result
 }
 
-// isValidPhone checks if normalized phone is valid
+// isValidPhone checks if normalized phone is valid (any international number)
 func isValidPhone(normalizedPhone string) bool {
-	if len(normalizedPhone) != 12 {
-		return false
-	}
-	if !strings.HasPrefix(normalizedPhone, "996") {
-		return false
-	}
-	return true
+	// International phone numbers: 7-15 digits
+	return len(normalizedPhone) >= 7 && len(normalizedPhone) <= 15
 }
 
 func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User) error {
