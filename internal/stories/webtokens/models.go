@@ -40,6 +40,7 @@ type ClientToken struct {
 	ID                  int64
 	Token               string
 	WhatsApp            string
+	PartnerWhatsApp     *string // WhatsApp партнера, если клиент пришел от партнера
 	CreatedByTelegramID int64
 	CreatedAt           time.Time
 }

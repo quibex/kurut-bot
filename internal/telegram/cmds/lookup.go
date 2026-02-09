@@ -27,7 +27,7 @@ type LookupStorage interface {
 }
 
 type LookupClientTokenStorage interface {
-	GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64) (*webtokens.ClientToken, error)
+	GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64, partnerWhatsApp *string) (*webtokens.ClientToken, error)
 }
 
 func NewLookupCommand(
@@ -79,7 +79,7 @@ func (c *LookupCommand) Execute(ctx context.Context, chatID int64, phoneSuffix s
 		if _, ok := clientLinks[wa]; ok {
 			continue
 		}
-		token, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, wa, chatID)
+		token, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, wa, chatID, nil)
 		if err != nil {
 			c.logger.Error("Failed to get client token", "error", err, "whatsapp", wa)
 			continue

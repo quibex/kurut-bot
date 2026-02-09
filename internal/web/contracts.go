@@ -76,6 +76,7 @@ type PendingOrder struct {
 	ClientWhatsApp      string
 	TariffID            int64
 	ReferrerWhatsApp    *string
+	ReferralType        *string // 'referral' or 'partnership'
 	PaymentID           int64
 	CreatedByTelegramID int64
 }

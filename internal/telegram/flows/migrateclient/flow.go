@@ -196,7 +196,7 @@ func (h *Handler) handleServerSelection(ctx context.Context, update *tgbotapi.Up
 	}
 
 	// Генерируем личную ссылку для клиента
-	clientToken, err := h.clientTokenStorage.GetOrCreateClientToken(ctx, flowData.ClientWhatsApp, flowData.AssistantTelegramID)
+	clientToken, err := h.clientTokenStorage.GetOrCreateClientToken(ctx, flowData.ClientWhatsApp, flowData.AssistantTelegramID, nil)
 	if err != nil {
 		h.logger.Error("Failed to create client token", "error", err, "whatsapp", flowData.ClientWhatsApp)
 		h.stateManager.Clear(chatID)

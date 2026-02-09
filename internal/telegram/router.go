@@ -44,6 +44,7 @@ type stateManager interface {
 	SetState(chatID int64, state states.State, data any)
 	Clear(tgUserID int64)
 	GetWelcomeData(chatID int64) (*flows.WelcomeFlowData, error)
+	GetNewClientData(chatID int64) (*flows.NewClientFlowData, error)
 }
 
 type userService interface {
@@ -234,21 +235,109 @@ func (r *Router) handleNewClientState(update *tgbotapi.Update, user *users.User,
 	ctx := context.Background()
 	chatID := extractChatID(update)
 
+	// Handle WhatsApp input
 	if state == states.AdminNewClientWaitWhatsApp {
 		if update.Message == nil || update.Message.Text == "" {
 			return nil
 		}
 
-		whatsapp := update.Message.Text
+		whatsapp := strings.TrimSpace(update.Message.Text)
 
-		// Clear state
-		r.stateManager.Clear(user.TelegramID)
+		// Нормализуем и валидируем WhatsApp
+		whatsapp = normalizePhone(whatsapp)
+		if !isValidPhone(whatsapp) {
+			msg := tgbotapi.NewMessage(chatID, "❌ Неверный формат номера. Введите номер в формате +996555123456")
+			_, _ = r.bot.Send(msg)
+			return nil
+		}
 
-		// Handle WhatsApp input
-		return r.newClientCommand.HandleWhatsAppInput(ctx, chatID, user.TelegramID, whatsapp)
+		// Save WhatsApp to flow data and move to partner question
+		flowData := &flows.NewClientFlowData{
+			AssistantTelegramID: user.TelegramID,
+			ClientWhatsApp:      whatsapp,
+		}
+		r.stateManager.SetState(user.TelegramID, states.AdminNewClientWaitPartner, flowData)
+
+		// Show partner question
+		return r.newClientCommand.ShowPartnerQuestion(ctx, chatID, nil)
+	}
+
+	// Handle partner state
+	if state == states.AdminNewClientWaitPartner {
+		flowData, err := r.stateManager.GetNewClientData(user.TelegramID)
+		if err != nil {
+			r.stateManager.Clear(user.TelegramID)
+			return r.sendError(chatID)
+		}
+
+		// Handle callback buttons
+		if update.CallbackQuery != nil {
+			callbackData := update.CallbackQuery.Data
+
+			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+			_, _ = r.bot.Request(callback)
+
+			switch callbackData {
+			case "partner_yes":
+				// Ask for partner WhatsApp
+				if flowData.MessageID != nil {
+					editMsg := tgbotapi.NewEditMessageText(chatID, *flowData.MessageID,
+						"📱 Введите WhatsApp партнёра (например: +996555123456):")
+					_, _ = r.bot.Send(editMsg)
+				} else {
+					msg := tgbotapi.NewMessage(chatID, "📱 Введите WhatsApp партнёра (например: +996555123456):")
+					_, _ = r.bot.Send(msg)
+				}
+				return nil
+
+			case "partner_no":
+				// No partner - finalize without partner
+				r.stateManager.Clear(user.TelegramID)
+				return r.newClientCommand.HandlePartnerInput(ctx, chatID, user.TelegramID, flowData.ClientWhatsApp, "")
+
+			case "cancel":
+				r.stateManager.Clear(user.TelegramID)
+				return r.sendWelcome(chatID, user)
+			}
+
+			return nil
+		}
+
+		// Handle text input (partner WhatsApp)
+		if update.Message != nil && update.Message.Text != "" {
+			partnerWhatsApp := strings.TrimSpace(update.Message.Text)
+
+			// Clear state before processing
+			r.stateManager.Clear(user.TelegramID)
+
+			// Handle partner input
+			return r.newClientCommand.HandlePartnerInput(ctx, chatID, user.TelegramID, flowData.ClientWhatsApp, partnerWhatsApp)
+		}
 	}
 
 	return nil
+}
+
+// normalizePhone removes all non-digit characters from phone
+func normalizePhone(phone string) string {
+	result := ""
+	for _, ch := range phone {
+		if ch >= '0' && ch <= '9' {
+			result += string(ch)
+		}
+	}
+	return result
+}
+
+// isValidPhone checks if normalized phone is valid
+func isValidPhone(normalizedPhone string) bool {
+	if len(normalizedPhone) != 12 {
+		return false
+	}
+	if !strings.HasPrefix(normalizedPhone, "996") {
+		return false
+	}
+	return true
 }
 
 func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User) error {

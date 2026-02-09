@@ -36,6 +36,7 @@ func (s *storageImpl) CreatePendingOrderFromWeb(ctx context.Context, order web.P
 		TotalAmount:            tariff.Price,
 		ReferrerWhatsApp:       order.ReferrerWhatsApp,
 		ReferrerSubscriptionID: nil, // Will be set by worker
+		ReferralType:           order.ReferralType,
 		Status:                 orders.StatusPending,
 	}
 
@@ -51,6 +52,7 @@ func (s *storageImpl) CreatePendingOrderFromWeb(ctx context.Context, order web.P
 		ClientWhatsApp:      created.ClientWhatsApp,
 		TariffID:            created.TariffID,
 		ReferrerWhatsApp:    created.ReferrerWhatsApp,
+		ReferralType:        created.ReferralType,
 		PaymentID:           created.PaymentID,
 		CreatedByTelegramID: created.AssistantTelegramID,
 	}, nil

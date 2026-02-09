@@ -187,3 +187,21 @@ func (m *Manager) GetMigrateClientData(chatID int64) (*flows.MigrateClientFlowDa
 
 	return flowData, nil
 }
+
+// GetNewClientData получает данные флоу создания ссылки для клиента
+func (m *Manager) GetNewClientData(chatID int64) (*flows.NewClientFlowData, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	data, exists := m.userData[chatID]
+	if !exists {
+		return nil, fmt.Errorf("no data for chat %d", chatID)
+	}
+
+	flowData, ok := data.(*flows.NewClientFlowData)
+	if !ok {
+		return nil, fmt.Errorf("invalid data type for chat %d", chatID)
+	}
+
+	return flowData, nil
+}

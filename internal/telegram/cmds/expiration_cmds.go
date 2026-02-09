@@ -33,7 +33,7 @@ type ExpirationCommand struct {
 }
 
 type ExpirationClientTokenStorage interface {
-	GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64) (*webtokens.ClientToken, error)
+	GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64, partnerWhatsApp *string) (*webtokens.ClientToken, error)
 }
 
 type ExpirationSubStorage interface {
@@ -383,7 +383,7 @@ func (c *ExpirationCommand) updateToDisabledMessage(ctx context.Context, chatID 
 		if sub.CreatedByTelegramID != nil {
 			createdByTgID = *sub.CreatedByTelegramID
 		}
-		clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID)
+		clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID, nil)
 		if err != nil {
 			c.logger.Error("Failed to get client token", "error", err)
 		} else {
@@ -475,7 +475,7 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 		createdByTgID = *sub.CreatedByTelegramID
 	}
 
-	clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, whatsapp, createdByTgID)
+	clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, whatsapp, createdByTgID, nil)
 	if err != nil {
 		c.logger.Error("Failed to get/create client token", "error", err, "sub_id", subID)
 		return c.answerCallback(callbackQuery.ID, "Ошибка создания ссылки")

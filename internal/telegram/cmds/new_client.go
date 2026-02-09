@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strings"
 
 	"kurut-bot/internal/stories/webtokens"
 
@@ -11,14 +13,14 @@ import (
 )
 
 type NewClientCommand struct {
-	bot                 *tgbotapi.BotAPI
-	clientTokenStorage  clientTokenStorage
-	webDomain           string
-	logger              *slog.Logger
+	bot                *tgbotapi.BotAPI
+	clientTokenStorage clientTokenStorage
+	webDomain          string
+	logger             *slog.Logger
 }
 
 type clientTokenStorage interface {
-	GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64) (*webtokens.ClientToken, error)
+	GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64, partnerWhatsApp *string) (*webtokens.ClientToken, error)
 }
 
 func NewNewClientCommand(
@@ -54,10 +56,60 @@ func (c *NewClientCommand) Execute(ctx context.Context, chatID int64) error {
 	return err
 }
 
-// HandleWhatsAppInput обрабатывает ввод WhatsApp и генерирует ссылку
-func (c *NewClientCommand) HandleWhatsAppInput(ctx context.Context, chatID int64, telegramID int64, whatsapp string) error {
+// ShowPartnerQuestion показывает вопрос о партнере
+func (c *NewClientCommand) ShowPartnerQuestion(ctx context.Context, chatID int64, messageID *int) error {
+	text := "🤝 Есть партнёр, который привёл этого клиента?\n\n" +
+		"(партнёрская статистика, без бонусов)"
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Да, есть", "partner_yes"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Нет", "partner_no"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("◀️ Отменить", "cancel"),
+		),
+	)
+
+	if messageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, text)
+		editMsg.ReplyMarkup = &keyboard
+		_, err := c.bot.Send(editMsg)
+		return err
+	}
+
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ReplyMarkup = keyboard
+	_, err := c.bot.Send(msg)
+	return err
+}
+
+// HandlePartnerInput обрабатывает ввод номера партнера
+func (c *NewClientCommand) HandlePartnerInput(ctx context.Context, chatID int64, telegramID int64, whatsapp string, partnerWhatsApp string) error {
+	var partner *string
+
+	// If partnerWhatsApp is not empty, validate it
+	if partnerWhatsApp != "" {
+		// Нормализуем и валидируем номер партнера
+		partnerWhatsApp = normalizePhone(partnerWhatsApp)
+
+		if !isValidPhoneNumber(partnerWhatsApp) {
+			return c.sendError(chatID, "❌ Неверный формат номера партнера. Введите номер в формате +996555123456")
+		}
+
+		partner = &partnerWhatsApp
+	}
+
+	// Get or create client token with or without partner
+	return c.finalizeClientLink(ctx, chatID, telegramID, whatsapp, partner)
+}
+
+// FinalizeClientLink генерирует финальную ссылку для клиента
+func (c *NewClientCommand) finalizeClientLink(ctx context.Context, chatID int64, telegramID int64, whatsapp string, partnerWhatsApp *string) error {
 	// Get or create client token (one permanent token per client)
-	clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, whatsapp, telegramID)
+	clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, whatsapp, telegramID, partnerWhatsApp)
 	if err != nil {
 		c.logger.Error("Failed to get or create client token", "error", err)
 		return c.sendError(chatID, "Ошибка создания ссылки")
@@ -74,6 +126,10 @@ func (c *NewClientCommand) HandleWhatsAppInput(ctx context.Context, chatID int64
 			"Клиент сможет купить новую подписку или продлить существующую.",
 		whatsapp, clientLink)
 
+	if partnerWhatsApp != nil {
+		text += fmt.Sprintf("\n\n🤝 Партнёр: %s", *partnerWhatsApp)
+	}
+
 	msg := tgbotapi.NewMessage(chatID, text)
 
 	_, err = c.bot.Send(msg)
@@ -84,4 +140,24 @@ func (c *NewClientCommand) sendError(chatID int64, text string) error {
 	msg := tgbotapi.NewMessage(chatID, "❌ "+text)
 	_, err := c.bot.Send(msg)
 	return err
+}
+
+// normalizePhone очищает номер телефона, оставляя только цифры
+func normalizePhone(phone string) string {
+	// Remove all non-digit characters
+	re := regexp.MustCompile(`\D`)
+	cleaned := re.ReplaceAllString(phone, "")
+	return cleaned
+}
+
+// isValidPhoneNumber проверяет что нормализованный номер телефона валиден
+func isValidPhoneNumber(normalizedPhone string) bool {
+	// Kyrgyzstan phone numbers start with 996 and have 12 digits total
+	if len(normalizedPhone) != 12 {
+		return false
+	}
+	if !strings.HasPrefix(normalizedPhone, "996") {
+		return false
+	}
+	return true
 }

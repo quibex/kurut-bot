@@ -92,3 +92,11 @@ type MigrateClientFlowData struct {
 	ServerName          string
 	MessageID           *int
 }
+
+// NewClientFlowData - data for creating new client link
+type NewClientFlowData struct {
+	AssistantTelegramID int64
+	ClientWhatsApp      string
+	PartnerWhatsApp     *string
+	MessageID           *int
+}

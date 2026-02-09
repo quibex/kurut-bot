@@ -835,7 +835,7 @@ func (s *storageImpl) GetPartnershipStats(ctx context.Context, start, end time.T
 	if err != nil {
 		return nil, fmt.Errorf("db.QueryContext: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var result []ReferrerStats
 	for rows.Next() {

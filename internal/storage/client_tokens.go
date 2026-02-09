@@ -19,6 +19,7 @@ type clientTokenRow struct {
 	ID                  int64     `db:"id"`
 	Token               string    `db:"token"`
 	WhatsApp            string    `db:"whatsapp"`
+	PartnerWhatsApp     *string   `db:"partner_whatsapp"`
 	CreatedByTelegramID int64     `db:"created_by_telegram_id"`
 	CreatedAt           time.Time `db:"created_at"`
 }
@@ -28,6 +29,7 @@ func (r clientTokenRow) ToModel() *webtokens.ClientToken {
 		ID:                  r.ID,
 		Token:               r.Token,
 		WhatsApp:            r.WhatsApp,
+		PartnerWhatsApp:     r.PartnerWhatsApp,
 		CreatedByTelegramID: r.CreatedByTelegramID,
 		CreatedAt:           r.CreatedAt,
 	}
@@ -88,6 +90,7 @@ func (s *storageImpl) CreateClientToken(ctx context.Context, token webtokens.Cli
 	params := map[string]interface{}{
 		"token":                  token.Token,
 		"whatsapp":               token.WhatsApp,
+		"partner_whatsapp":       token.PartnerWhatsApp,
 		"created_by_telegram_id": token.CreatedByTelegramID,
 		"created_at":             now,
 	}
@@ -138,13 +141,22 @@ func (s *storageImpl) GetClientTokenByID(ctx context.Context, id int64) (*webtok
 }
 
 // GetOrCreateClientToken returns existing token for whatsapp or creates new one
-func (s *storageImpl) GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64) (*webtokens.ClientToken, error) {
+// If partnerWhatsApp is provided and token is newly created, it will be associated with the partner
+func (s *storageImpl) GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64, partnerWhatsApp *string) (*webtokens.ClientToken, error) {
 	// Try to find existing
 	existing, err := s.GetClientTokenByWhatsApp(ctx, whatsapp)
 	if err != nil {
 		return nil, fmt.Errorf("get by whatsapp: %w", err)
 	}
 	if existing != nil {
+		// If token exists, update partner if provided and not already set
+		if partnerWhatsApp != nil && existing.PartnerWhatsApp == nil {
+			// Update existing token with partner
+			if err := s.updateClientTokenPartner(ctx, existing.ID, partnerWhatsApp); err != nil {
+				return nil, fmt.Errorf("update partner: %w", err)
+			}
+			existing.PartnerWhatsApp = partnerWhatsApp
+		}
 		return existing, nil
 	}
 
@@ -158,8 +170,28 @@ func (s *storageImpl) GetOrCreateClientToken(ctx context.Context, whatsapp strin
 	newToken := webtokens.ClientToken{
 		Token:               tokenStr,
 		WhatsApp:            whatsapp,
+		PartnerWhatsApp:     partnerWhatsApp,
 		CreatedByTelegramID: createdByTelegramID,
 	}
 
 	return s.CreateClientToken(ctx, newToken)
+}
+
+// updateClientTokenPartner updates partner_whatsapp for a client token
+func (s *storageImpl) updateClientTokenPartner(ctx context.Context, id int64, partnerWhatsApp *string) error {
+	q, args, err := s.stmpBuilder().
+		Update(clientTokensTable).
+		Set("partner_whatsapp", partnerWhatsApp).
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build sql query: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("db.ExecContext: %w", err)
+	}
+
+	return nil
 }

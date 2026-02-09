@@ -18,7 +18,7 @@ import (
 
 // NotificationClientTokenStorage интерфейс для получения client tokens
 type NotificationClientTokenStorage interface {
-	GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64) (*webtokens.ClientToken, error)
+	GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64, partnerWhatsApp *string) (*webtokens.ClientToken, error)
 }
 
 // ExpirationNotificationService отвечает за отправку уведомлений о подписках
@@ -85,7 +85,7 @@ func (s *ExpirationNotificationService) SendOverdueSubscriptionMessage(ctx conte
 		if sub.CreatedByTelegramID != nil {
 			createdByTgID = *sub.CreatedByTelegramID
 		}
-		clientToken, err := s.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID)
+		clientToken, err := s.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID, nil)
 		if err != nil {
 			s.logger.Error("Failed to get client token", "error", err, "whatsapp", *sub.ClientWhatsApp)
 		} else {
@@ -182,7 +182,7 @@ func (s *ExpirationNotificationService) SendExpiringSubscriptionMessage(ctx cont
 		if sub.CreatedByTelegramID != nil {
 			createdByTgID = *sub.CreatedByTelegramID
 		}
-		clientToken, err := s.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID)
+		clientToken, err := s.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID, nil)
 		if err != nil {
 			s.logger.Error("Failed to get client token", "error", err, "whatsapp", *sub.ClientWhatsApp)
 		} else {

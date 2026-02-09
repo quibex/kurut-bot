@@ -342,11 +342,21 @@ func (h *Handlers) handleClientSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if subscriptionID == "new" {
-		// New subscription - create pending order (without referrer)
+		// New subscription - create pending order
+		// If clientToken has partner_whatsapp, use it for partnership tracking
+		var referrerWhatsApp *string
+		var referralType *string
+		if clientToken.PartnerWhatsApp != nil {
+			referrerWhatsApp = clientToken.PartnerWhatsApp
+			partnershipType := "partnership"
+			referralType = &partnershipType
+		}
+
 		order := PendingOrder{
 			ClientWhatsApp:      clientToken.WhatsApp,
 			TariffID:            tariffID,
-			ReferrerWhatsApp:    nil,
+			ReferrerWhatsApp:    referrerWhatsApp,
+			ReferralType:        referralType,
 			PaymentID:           createdPayment.ID,
 			CreatedByTelegramID: clientToken.CreatedByTelegramID,
 		}
