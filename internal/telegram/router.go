@@ -258,8 +258,31 @@ func (r *Router) handleNewClientState(update *tgbotapi.Update, user *users.User,
 		}
 		r.stateManager.SetState(user.TelegramID, states.AdminNewClientWaitPartner, flowData)
 
-		// Show partner question
-		return r.newClientCommand.ShowPartnerQuestion(ctx, chatID, nil)
+		// Show partner question and save message ID
+		msg := tgbotapi.NewMessage(chatID, "🤝 Есть партнёр, который привёл этого клиента?\n\n"+
+			"(партнёрская статистика, без бонусов)")
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ Да, есть", "nc_partner_yes"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("❌ Нет", "nc_partner_no"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("◀️ Отменить", "cancel"),
+			),
+		)
+		msg.ReplyMarkup = keyboard
+		sentMsg, err := r.bot.Send(msg)
+		if err != nil {
+			return err
+		}
+
+		// Update flow data with message ID
+		flowData.MessageID = &sentMsg.MessageID
+		r.stateManager.SetState(user.TelegramID, states.AdminNewClientWaitPartner, flowData)
+
+		return nil
 	}
 
 	// Handle partner state
@@ -278,7 +301,7 @@ func (r *Router) handleNewClientState(update *tgbotapi.Update, user *users.User,
 			_, _ = r.bot.Request(callback)
 
 			switch callbackData {
-			case "partner_yes":
+			case "nc_partner_yes":
 				// Ask for partner WhatsApp
 				if flowData.MessageID != nil {
 					editMsg := tgbotapi.NewEditMessageText(chatID, *flowData.MessageID,
@@ -290,7 +313,7 @@ func (r *Router) handleNewClientState(update *tgbotapi.Update, user *users.User,
 				}
 				return nil
 
-			case "partner_no":
+			case "nc_partner_no":
 				// No partner - finalize without partner
 				r.stateManager.Clear(user.TelegramID)
 				return r.newClientCommand.HandlePartnerInput(ctx, chatID, user.TelegramID, flowData.ClientWhatsApp, "")

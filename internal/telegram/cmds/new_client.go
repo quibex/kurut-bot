@@ -63,10 +63,10 @@ func (c *NewClientCommand) ShowPartnerQuestion(ctx context.Context, chatID int64
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("✅ Да, есть", "partner_yes"),
+			tgbotapi.NewInlineKeyboardButtonData("✅ Да, есть", "nc_partner_yes"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("❌ Нет", "partner_no"),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Нет", "nc_partner_no"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("◀️ Отменить", "cancel"),
