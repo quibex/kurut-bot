@@ -349,13 +349,6 @@ func (h *Handler) showTariffs(chatID int64) error {
 	// Получаем данные флоу
 	flowData, _ := h.stateManager.GetCreateSubForClientData(chatID)
 
-	// Удаляем предыдущее сообщение (реферальный вопрос)
-	if flowData != nil && flowData.MessageID != nil {
-		deleteMsg := tgbotapi.NewDeleteMessage(chatID, *flowData.MessageID)
-		_, _ = h.bot.Request(deleteMsg)
-		flowData.MessageID = nil
-	}
-
 	// Получаем платные тарифы
 	tariffsList, err := h.tariffService.GetActiveTariffs(ctx)
 	if err != nil {
@@ -383,6 +376,19 @@ func (h *Handler) showTariffs(chatID int64) error {
 
 	// Создаем клавиатуру с тарифами
 	keyboard := h.createTariffsKeyboard(tariffsList)
+
+	// Редактируем предыдущее сообщение (реферальный вопрос) вместо отправки нового
+	if flowData != nil && flowData.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *flowData.MessageID, "📅 Выберите тариф:")
+		editMsg.ReplyMarkup = &keyboard
+		_, err = h.bot.Send(editMsg)
+		if err == nil {
+			h.stateManager.SetState(chatID, states.AdminCreateSubWaitTariff, flowData)
+			return nil
+		}
+		// Fallback: если не удалось отредактировать, отправляем новое
+		h.logger.Warn("Failed to edit message for tariffs, sending new", "error", err)
+	}
 
 	msg := tgbotapi.NewMessage(chatID, "📅 Выберите тариф:")
 	msg.ReplyMarkup = keyboard
@@ -580,6 +586,7 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 	if data.MessageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *data.MessageID, paymentMsg)
 		editMsg.ParseMode = "Markdown"
+		editMsg.DisableWebPagePreview = true
 		editMsg.ReplyMarkup = &keyboard
 		_, err = h.bot.Send(editMsg)
 		if err != nil {
@@ -590,6 +597,7 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 		// Отправляем новое сообщение
 		msg := tgbotapi.NewMessage(chatID, paymentMsg)
 		msg.ParseMode = "Markdown"
+		msg.DisableWebPagePreview = true
 		msg.ReplyMarkup = keyboard
 		sentMsg, err := h.bot.Send(msg)
 		if err != nil {
@@ -1168,6 +1176,7 @@ func (h *Handler) handlePaymentRefreshFromOrder(ctx context.Context, update *tgb
 	if order.MessageID != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, *order.MessageID, paymentMsg)
 		editMsg.ParseMode = "Markdown"
+		editMsg.DisableWebPagePreview = true
 		editMsg.ReplyMarkup = &keyboard
 		_, err = h.bot.Send(editMsg)
 		return err
@@ -1176,6 +1185,7 @@ func (h *Handler) handlePaymentRefreshFromOrder(ctx context.Context, update *tgb
 	// Fallback: отправляем новое сообщение
 	msg := tgbotapi.NewMessage(chatID, paymentMsg)
 	msg.ParseMode = "Markdown"
+	msg.DisableWebPagePreview = true
 	msg.ReplyMarkup = keyboard
 	sentMsg, err := h.bot.Send(msg)
 	if err != nil {

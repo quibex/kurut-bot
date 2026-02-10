@@ -21,16 +21,14 @@ type StatisticsData struct {
 	ActiveTariffStats        []TariffStats
 	ArchivedTariffStats      []TariffStats
 	ArchivedTariffUsersCount int
-	PreviousMonthRevenue     float64
-	CurrentMonthRevenue      float64
-	TodayRevenue             float64
-	YesterdayRevenue         float64
-	AverageRevenuePerDay     float64
-	// Referral statistics
-	ReferralCountThisWeek    int
-	ReferralCountLastWeek    int
-	PartnershipCountThisWeek int
-	PartnershipCountLastWeek int
+	PreviousMonthRevenue float64
+	CurrentMonthRevenue  float64
+	TodayRevenue         float64
+	YesterdayRevenue     float64
+	AverageRevenuePerDay float64
+	// New customers statistics
+	NewCustomersThisWeek int
+	NewCustomersLastWeek int
 }
 
 func (s *storageImpl) GetActiveSubscriptionsCount(ctx context.Context) (int, error) {
@@ -190,28 +188,6 @@ func (s *storageImpl) GetRevenueForDay(ctx context.Context, date time.Time) (flo
 	return revenue, nil
 }
 
-// countReferralsByType counts referrals of a specific type in a time period
-func (s *storageImpl) countReferralsByType(ctx context.Context, refType string, start, end time.Time) (int, error) {
-	query := s.stmpBuilder().
-		Select("COUNT(*)").
-		From(subscriptionsTable).
-		Where(sq.Eq{"referral_type": refType}).
-		Where(sq.GtOrEq{"created_at": start}).
-		Where(sq.Lt{"created_at": end})
-
-	q, args, err := query.ToSql()
-	if err != nil {
-		return 0, fmt.Errorf("build sql query: %w", err)
-	}
-
-	var count int
-	err = s.db.GetContext(ctx, &count, q, args...)
-	if err != nil {
-		return 0, fmt.Errorf("db.GetContext: %w", err)
-	}
-
-	return count, nil
-}
 
 func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error) {
 	now := s.now()
@@ -282,7 +258,7 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		averageRevenuePerDay = completedDaysRevenue / daysInMonth
 	}
 
-	// Calculate week boundaries for referral stats
+	// Calculate week boundaries for new customers stats
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	weekday := int(now.Weekday())
 	if weekday == 0 {
@@ -291,11 +267,9 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 	thisWeekStart := todayStart.AddDate(0, 0, -(weekday - 1))
 	lastWeekStart := thisWeekStart.AddDate(0, 0, -7)
 
-	// Get referral counts
-	referralThisWeek, _ := s.countReferralsByType(ctx, "referral", thisWeekStart, now)
-	referralLastWeek, _ := s.countReferralsByType(ctx, "referral", lastWeekStart, thisWeekStart)
-	partnershipThisWeek, _ := s.countReferralsByType(ctx, "partnership", thisWeekStart, now)
-	partnershipLastWeek, _ := s.countReferralsByType(ctx, "partnership", lastWeekStart, thisWeekStart)
+	// Get new customers counts
+	newCustomersThisWeek, _ := s.GetNewCustomersCount(ctx, thisWeekStart, now)
+	newCustomersLastWeek, _ := s.GetNewCustomersCount(ctx, lastWeekStart, thisWeekStart)
 
 	return &StatisticsData{
 		ActiveSubscriptionsCount: activeSubsCount,
@@ -309,10 +283,8 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		TodayRevenue:             todayRevenue,
 		YesterdayRevenue:         yesterdayRevenue,
 		AverageRevenuePerDay:     averageRevenuePerDay,
-		ReferralCountThisWeek:    referralThisWeek,
-		ReferralCountLastWeek:    referralLastWeek,
-		PartnershipCountThisWeek: partnershipThisWeek,
-		PartnershipCountLastWeek: partnershipLastWeek,
+		NewCustomersThisWeek:     newCustomersThisWeek,
+		NewCustomersLastWeek:     newCustomersLastWeek,
 	}, nil
 }
 
@@ -423,21 +395,16 @@ func (s *storageImpl) GetCustomerAnalytics(ctx context.Context) (*CustomerAnalyt
 	return analytics, nil
 }
 
-// GetNewCustomersCount returns count of new customers (first paid subscription) in the given period
+// GetNewCustomersCount returns count of new customers (first subscription) in the given period
 func (s *storageImpl) GetNewCustomersCount(ctx context.Context, start, end time.Time) (int, error) {
 	query := `
 		SELECT COUNT(DISTINCT s.client_whatsapp)
 		FROM subscriptions s
-		JOIN payment_subscriptions ps ON s.id = ps.subscription_id
-		JOIN payments p ON ps.payment_id = p.id
-		WHERE p.status = 'approved'
-		  AND s.created_at >= ? AND s.created_at < ?
+		WHERE s.created_at >= ? AND s.created_at < ?
 		  AND s.client_whatsapp NOT IN (
 			SELECT DISTINCT s2.client_whatsapp
 			FROM subscriptions s2
-			JOIN payment_subscriptions ps2 ON s2.id = ps2.subscription_id
-			JOIN payments p2 ON ps2.payment_id = p2.id
-			WHERE p2.status = 'approved' AND s2.created_at < ?
+			WHERE s2.created_at < ?
 		  )
 	`
 
