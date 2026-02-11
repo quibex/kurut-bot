@@ -329,6 +329,134 @@
             background: #BAE6FD;
         }
 
+        /* Privacy policy collapsible */
+        .legal-section {
+            margin-top: 24px;
+            text-align: left;
+        }
+
+        .legal-section details {
+            background: #F9FAFB;
+            border: 1px solid #E5E7EB;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .legal-section summary {
+            padding: 14px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+
+        .legal-section summary::-webkit-details-marker { display: none; }
+
+        .legal-section summary::after {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-right: 2px solid var(--text-secondary);
+            border-bottom: 2px solid var(--text-secondary);
+            transform: rotate(45deg);
+            transition: transform 0.2s ease;
+            flex-shrink: 0;
+            margin-left: 8px;
+        }
+
+        .legal-section details[open] summary::after {
+            transform: rotate(-135deg);
+        }
+
+        .legal-content {
+            padding: 0 16px 16px;
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+        }
+
+        .legal-content h4 {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-main);
+            margin: 14px 0 6px;
+        }
+
+        .legal-content h4:first-child {
+            margin-top: 0;
+        }
+
+        .legal-content p {
+            margin: 4px 0;
+        }
+
+        .legal-content ul {
+            margin: 4px 0 4px 16px;
+            padding: 0;
+        }
+
+        .legal-content ul li {
+            margin: 2px 0;
+        }
+
+        .agreement-checkbox {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-top: 12px;
+            text-align: left;
+        }
+
+        .agreement-checkbox input[type="checkbox"] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            min-width: 20px;
+            border: 2px solid #D1D5DB;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            position: relative;
+            margin-top: 1px;
+            transition: all 0.15s ease;
+        }
+
+        .agreement-checkbox input[type="checkbox"]:checked {
+            background: #0D9488;
+            border-color: #0D9488;
+        }
+
+        .agreement-checkbox input[type="checkbox"]:checked::after {
+            content: '';
+            position: absolute;
+            left: 5px;
+            top: 2px;
+            width: 6px;
+            height: 10px;
+            border: solid white;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .agreement-checkbox label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            line-height: 1.4;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
         @media (max-width: 600px) {
             .container { padding: 30px 20px; }
             h1 { font-size: 24px; }
@@ -427,7 +555,71 @@
             </label>
             {{end}}
 
-            <button type="submit" class="btn btn-primary" id="submitBtn">
+            <div class="legal-section">
+                <details>
+                    <summary>Политика конфиденциальности и условия использования</summary>
+                    <div class="legal-content">
+                        <h4>1. Общие положения</h4>
+                        <p>Настоящий документ определяет политику конфиденциальности и условия использования VPN-сервиса Kurut VPN (далее — «Сервис»). Оплачивая подписку, вы подтверждаете, что ознакомились с данными условиями и принимаете их в полном объёме.</p>
+
+                        <h4>2. Назначение сервиса</h4>
+                        <p>Сервис предоставляет защищённый VPN-доступ исключительно в законных целях:</p>
+                        <ul>
+                            <li>Защита персональных данных в публичных сетях Wi-Fi</li>
+                            <li>Обеспечение конфиденциальности интернет-соединения</li>
+                            <li>Безопасный удалённый доступ к ресурсам</li>
+                        </ul>
+                        <p>Сервис <b>не предназначен</b> для обхода блокировок, нарушения законодательства или любых противоправных действий.</p>
+
+                        <h4>3. Запрещённое использование</h4>
+                        <p>Пользователям запрещается:</p>
+                        <ul>
+                            <li>Использовать Сервис для нарушения законодательства любой юрисдикции</li>
+                            <li>Распространять вредоносное ПО, спам или нежелательный контент</li>
+                            <li>Осуществлять атаки на сети, серверы и иные информационные системы</li>
+                            <li>Нарушать права третьих лиц, включая авторские и интеллектуальные права</li>
+                            <li>Передавать учётные данные третьим лицам</li>
+                            <li>Использовать Сервис для обхода блокировок, установленных уполномоченными органами</li>
+                        </ul>
+                        <p>При выявлении нарушений доступ к Сервису будет заблокирован без возврата средств.</p>
+
+                        <h4>4. Сбор и обработка данных</h4>
+                        <p>Мы собираем минимально необходимые данные:</p>
+                        <ul>
+                            <li>Контактный номер телефона (WhatsApp) — для идентификации и поддержки</li>
+                            <li>Данные об оплате — для обработки платежей через ЮKassa</li>
+                            <li>Техническая информация о подключении — для обеспечения работоспособности</li>
+                        </ul>
+                        <p>Мы <b>не ведём логов</b> вашей интернет-активности и не отслеживаем посещаемые ресурсы.</p>
+
+                        <h4>5. Хранение и защита данных</h4>
+                        <p>Персональные данные хранятся в защищённой базе данных и используются исключительно для предоставления Сервиса. Мы не передаём данные третьим лицам, за исключением случаев, предусмотренных законодательством.</p>
+
+                        <h4>6. Оплата и возврат</h4>
+                        <ul>
+                            <li>Оплата производится через платёжную систему ЮKassa</li>
+                            <li>Подписка активируется после подтверждения оплаты</li>
+                            <li>Возврат средств возможен в течение 3 дней с момента оплаты при отсутствии использования Сервиса</li>
+                        </ul>
+
+                        <h4>7. Ограничение ответственности</h4>
+                        <p>Сервис предоставляется «как есть». Мы не гарантируем бесперебойную работу и не несём ответственности за убытки, связанные с использованием или невозможностью использования Сервиса.</p>
+
+                        <h4>8. Изменение условий</h4>
+                        <p>Мы оставляем за собой право изменять настоящие условия. Продолжение использования Сервиса после изменений означает принятие новых условий.</p>
+
+                        <h4>9. Контакты</h4>
+                        <p>По вопросам, связанным с политикой конфиденциальности, обращайтесь в поддержку через Telegram или WhatsApp.</p>
+                    </div>
+                </details>
+
+                <div class="agreement-checkbox">
+                    <input type="checkbox" id="agreeTerms" name="agree_terms">
+                    <label for="agreeTerms">Я ознакомился(-ась) и согласен(-на) с политикой конфиденциальности и условиями использования сервиса</label>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
                 <span id="btnText">Оплатить</span>
                 <span id="btnPrice"></span>
             </button>
@@ -448,6 +640,7 @@
         const btnPrice = document.getElementById('btnPrice');
         const btnText = document.getElementById('btnText');
         const submitBtn = document.getElementById('submitBtn');
+        const agreeCheckbox = document.getElementById('agreeTerms');
 
         function updateUI() {
             // Update selected state for all cards
@@ -475,6 +668,11 @@
                     }
                 }
             });
+
+            // Enable/disable submit based on agreement checkbox
+            if (agreeCheckbox && submitBtn) {
+                submitBtn.disabled = !agreeCheckbox.checked;
+            }
         }
 
         allCards.forEach(card => {
@@ -484,6 +682,10 @@
                 updateUI();
             });
         });
+
+        if (agreeCheckbox) {
+            agreeCheckbox.addEventListener('change', updateUI);
+        }
 
         updateUI();
 
@@ -496,7 +698,7 @@
         // Reset on back button
         window.addEventListener('pageshow', function(event) {
             if (event.persisted) {
-                submitBtn.disabled = false;
+                if (agreeCheckbox) agreeCheckbox.checked = false;
                 updateUI();
             }
         });
