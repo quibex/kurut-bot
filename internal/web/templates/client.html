@@ -404,57 +404,11 @@
             margin: 2px 0;
         }
 
-        .agreement-checkbox {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
+        .legal-notice {
             margin-top: 12px;
-            text-align: left;
-        }
-
-        .agreement-checkbox input[type="checkbox"] {
-            appearance: none;
-            -webkit-appearance: none;
-            width: 20px;
-            height: 20px;
-            min-width: 20px;
-            border: 2px solid #D1D5DB;
-            border-radius: 6px;
-            background: white;
-            cursor: pointer;
-            position: relative;
-            margin-top: 1px;
-            transition: all 0.15s ease;
-        }
-
-        .agreement-checkbox input[type="checkbox"]:checked {
-            background: #0D9488;
-            border-color: #0D9488;
-        }
-
-        .agreement-checkbox input[type="checkbox"]:checked::after {
-            content: '';
-            position: absolute;
-            left: 5px;
-            top: 2px;
-            width: 6px;
-            height: 10px;
-            border: solid white;
-            border-width: 0 2px 2px 0;
-            transform: rotate(45deg);
-        }
-
-        .agreement-checkbox label {
-            font-size: 13px;
+            font-size: 12px;
             color: var(--text-secondary);
-            cursor: pointer;
             line-height: 1.4;
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none !important;
         }
 
         @media (max-width: 600px) {
@@ -595,31 +549,24 @@
                         <h4>5. Хранение и защита данных</h4>
                         <p>Персональные данные хранятся в защищённой базе данных и используются исключительно для предоставления Сервиса. Мы не передаём данные третьим лицам, за исключением случаев, предусмотренных законодательством.</p>
 
-                        <h4>6. Оплата и возврат</h4>
+                        <h4>6. Оплата</h4>
                         <ul>
                             <li>Оплата производится через платёжную систему ЮKassa</li>
                             <li>Подписка активируется после подтверждения оплаты</li>
-                            <li>Возврат средств возможен в течение 3 дней с момента оплаты при отсутствии использования Сервиса</li>
                         </ul>
 
-                        <h4>7. Ограничение ответственности</h4>
-                        <p>Сервис предоставляется «как есть». Мы не гарантируем бесперебойную работу и не несём ответственности за убытки, связанные с использованием или невозможностью использования Сервиса.</p>
-
-                        <h4>8. Изменение условий</h4>
+                        <h4>7. Изменение условий</h4>
                         <p>Мы оставляем за собой право изменять настоящие условия. Продолжение использования Сервиса после изменений означает принятие новых условий.</p>
 
-                        <h4>9. Контакты</h4>
+                        <h4>8. Контакты</h4>
                         <p>По вопросам, связанным с политикой конфиденциальности, обращайтесь в поддержку через Telegram или WhatsApp.</p>
                     </div>
                 </details>
 
-                <div class="agreement-checkbox">
-                    <input type="checkbox" id="agreeTerms" name="agree_terms">
-                    <label for="agreeTerms">Я ознакомился(-ась) и согласен(-на) с политикой конфиденциальности и условиями использования сервиса</label>
-                </div>
+                <p class="legal-notice">Нажимая кнопку оплаты, вы соглашаетесь с политикой конфиденциальности и условиями использования сервиса.</p>
             </div>
 
-            <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
+            <button type="submit" class="btn btn-primary" id="submitBtn">
                 <span id="btnText">Оплатить</span>
                 <span id="btnPrice"></span>
             </button>
@@ -640,7 +587,6 @@
         const btnPrice = document.getElementById('btnPrice');
         const btnText = document.getElementById('btnText');
         const submitBtn = document.getElementById('submitBtn');
-        const agreeCheckbox = document.getElementById('agreeTerms');
 
         function updateUI() {
             // Update selected state for all cards
@@ -668,11 +614,6 @@
                     }
                 }
             });
-
-            // Enable/disable submit based on agreement checkbox
-            if (agreeCheckbox && submitBtn) {
-                submitBtn.disabled = !agreeCheckbox.checked;
-            }
         }
 
         allCards.forEach(card => {
@@ -682,10 +623,6 @@
                 updateUI();
             });
         });
-
-        if (agreeCheckbox) {
-            agreeCheckbox.addEventListener('change', updateUI);
-        }
 
         updateUI();
 
@@ -698,7 +635,7 @@
         // Reset on back button
         window.addEventListener('pageshow', function(event) {
             if (event.persisted) {
-                if (agreeCheckbox) agreeCheckbox.checked = false;
+                submitBtn.disabled = false;
                 updateUI();
             }
         });
