@@ -204,7 +204,8 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 					view.StatusText = "Истекла " + dateStr
 					view.StatusClass = "status-expired"
 				case subs.StatusDisabled:
-					view.StatusText = "Отключена"
+					dateStr := formatRussianDate(*sub.ExpiresAt)
+					view.StatusText = fmt.Sprintf("Отключена (истекла %s)", dateStr)
 					view.StatusClass = "status-disabled"
 				default:
 					view.StatusText = string(sub.Status)
