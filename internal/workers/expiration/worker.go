@@ -43,8 +43,8 @@ func (w *Worker) Name() string {
 
 // Start starts the expiration worker
 func (w *Worker) Start() error {
-	// Runs daily at 07:00
-	_, err := w.cron.AddFunc("0 7 * * *", func() {
+	// Runs daily at 03:00 Moscow time
+	_, err := w.cron.AddFunc("CRON_TZ=Europe/Moscow 0 3 * * *", func() {
 		defer func() {
 			if r := recover(); r != nil {
 				w.logger.Error("Panic in expiration worker", "panic", r)
