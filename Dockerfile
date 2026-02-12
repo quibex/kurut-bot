@@ -23,7 +23,7 @@ FROM alpine:3.19
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates sqlite procps
+RUN apk add --no-cache ca-certificates sqlite procps tzdata
 
 COPY --from=builder /app/kurut-bot .
 COPY --from=builder /go/bin/goose /usr/local/bin/goose
