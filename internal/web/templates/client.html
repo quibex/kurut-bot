@@ -329,29 +329,36 @@
             background: #BAE6FD;
         }
 
-        /* Privacy policy collapsible */
+        /* Public offer collapsible - footer */
         .legal-section {
-            margin-top: 24px;
+            margin-top: 32px;
+            padding-top: 16px;
+            border-top: 1px solid #F3F4F6;
             text-align: left;
+            opacity: 0.55;
+            transition: opacity 0.2s ease;
+        }
+
+        .legal-section:hover {
+            opacity: 0.85;
         }
 
         .legal-section details {
-            background: #F9FAFB;
-            border: 1px solid #E5E7EB;
-            border-radius: 12px;
+            background: transparent;
+            border: none;
             overflow: hidden;
         }
 
         .legal-section summary {
-            padding: 14px 16px;
-            font-size: 13px;
-            font-weight: 600;
+            padding: 4px 0;
+            font-size: 11px;
+            font-weight: 500;
             color: var(--text-secondary);
             cursor: pointer;
             list-style: none;
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: center;
             user-select: none;
         }
 
@@ -359,14 +366,14 @@
 
         .legal-section summary::after {
             content: '';
-            width: 8px;
-            height: 8px;
-            border-right: 2px solid var(--text-secondary);
-            border-bottom: 2px solid var(--text-secondary);
+            width: 6px;
+            height: 6px;
+            border-right: 1.5px solid var(--text-secondary);
+            border-bottom: 1.5px solid var(--text-secondary);
             transform: rotate(45deg);
             transition: transform 0.2s ease;
             flex-shrink: 0;
-            margin-left: 8px;
+            margin-left: 6px;
         }
 
         .legal-section details[open] summary::after {
@@ -374,17 +381,17 @@
         }
 
         .legal-content {
-            padding: 0 16px 16px;
-            font-size: 12px;
-            line-height: 1.6;
+            padding: 8px 0 8px;
+            font-size: 10px;
+            line-height: 1.5;
             color: var(--text-secondary);
         }
 
         .legal-content h4 {
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--text-main);
-            margin: 14px 0 6px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin: 10px 0 4px;
         }
 
         .legal-content h4:first-child {
@@ -392,23 +399,24 @@
         }
 
         .legal-content p {
-            margin: 4px 0;
+            margin: 3px 0;
         }
 
         .legal-content ul {
-            margin: 4px 0 4px 16px;
+            margin: 3px 0 3px 14px;
             padding: 0;
         }
 
         .legal-content ul li {
-            margin: 2px 0;
+            margin: 1px 0;
         }
 
         .legal-notice {
-            margin-top: 12px;
-            font-size: 12px;
+            margin-top: 8px;
+            font-size: 10px;
             color: var(--text-secondary);
-            line-height: 1.4;
+            line-height: 1.3;
+            text-align: center;
         }
 
         @media (max-width: 600px) {
@@ -509,9 +517,19 @@
             </label>
             {{end}}
 
+            <button type="submit" class="btn btn-primary" id="submitBtn">
+                <span id="btnText">Оплатить</span>
+                <span id="btnPrice"></span>
+            </button>
+
+            <div class="payment-instruction">
+                В способах оплаты выберите:<br>
+                <b>Прочее → СБП → Ваш Банк</b>
+            </div>
+
             <div class="legal-section">
                 <details>
-                    <summary>Политика конфиденциальности и условия использования</summary>
+                    <summary>Публичная оферта</summary>
                     <div class="legal-content">
                         <h4>1. Общие положения</h4>
                         <p>Настоящий документ определяет политику конфиденциальности и условия использования VPN-сервиса Kurut VPN (далее — «Сервис»). Оплачивая подписку, вы подтверждаете, что ознакомились с данными условиями и принимаете их в полном объёме.</p>
@@ -559,21 +577,11 @@
                         <p>Мы оставляем за собой право изменять настоящие условия. Продолжение использования Сервиса после изменений означает принятие новых условий.</p>
 
                         <h4>8. Контакты</h4>
-                        <p>По вопросам, связанным с политикой конфиденциальности, обращайтесь в поддержку через Telegram или WhatsApp.</p>
+                        <p>По вопросам, связанным с публичной офертой, обращайтесь в поддержку через Telegram или WhatsApp.</p>
                     </div>
                 </details>
 
-                <p class="legal-notice">Нажимая кнопку оплаты, вы соглашаетесь с политикой конфиденциальности и условиями использования сервиса.</p>
-            </div>
-
-            <button type="submit" class="btn btn-primary" id="submitBtn">
-                <span id="btnText">Оплатить</span>
-                <span id="btnPrice"></span>
-            </button>
-
-            <div class="payment-instruction">
-                В способах оплаты выберите:<br>
-                <b>Прочее → СБП → Ваш Банк</b>
+                <p class="legal-notice">Нажимая кнопку оплаты, вы соглашаетесь с условиями публичной оферты.</p>
             </div>
             {{end}}
         </form>
