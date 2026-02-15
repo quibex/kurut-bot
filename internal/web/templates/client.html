@@ -508,7 +508,7 @@
             {{else}}
             {{range $i, $t := .Tariffs}}
             <label class="option-card tariff-card" data-price="{{$t.Price}}">
-                <input type="radio" name="tariff_id" value="{{$t.ID}}" {{if eq $i 0}}checked{{end}}>
+                <input type="radio" name="tariff_id" value="{{$t.ID}}" {{if eq $i $.DefaultTariffIndex}}checked{{end}}>
                 <div class="option-content">
                     <div class="option-title">{{$t.Name}}</div>
                     <div class="option-subtitle">{{$t.DurationDays}} дней</div>
