@@ -477,28 +477,51 @@ func (s *storageImpl) GetARPU(ctx context.Context, start, end time.Time) (float6
 	return *arpu, nil
 }
 
-// GetTrialConversionRate returns percentage of trial users who converted to paid
+// GetTrialConversionRate returns percentage of trial users who converted to paid.
+//
+// A "trial client" is one whose first subscription had no payment link (was free).
+// A trial client is "converted" if they either:
+//   - created a separate subscription with an approved payment, OR
+//   - renewed their trial subscription with a paid tariff (tariff_id was updated).
 func (s *storageImpl) GetTrialConversionRate(ctx context.Context) (float64, error) {
 	query := `
-		WITH trial_clients AS (
-			SELECT DISTINCT s.client_whatsapp
+		WITH first_sub AS (
+			SELECT s.client_whatsapp, MIN(s.id) as first_sub_id
 			FROM subscriptions s
-			JOIN tariffs t ON s.tariff_id = t.id
-			WHERE t.price = 0
+			WHERE s.client_whatsapp IS NOT NULL
+			GROUP BY s.client_whatsapp
 		),
-		paid_clients AS (
-			SELECT DISTINCT s.client_whatsapp
-			FROM subscriptions s
-			JOIN payment_subscriptions ps ON s.id = ps.subscription_id
-			JOIN payments p ON ps.payment_id = p.id
-			WHERE p.status = 'approved'
-			  AND s.client_whatsapp IN (SELECT client_whatsapp FROM trial_clients)
+		trial_clients AS (
+			SELECT fs.client_whatsapp, fs.first_sub_id
+			FROM first_sub fs
+			LEFT JOIN payment_subscriptions ps ON fs.first_sub_id = ps.subscription_id
+			WHERE ps.subscription_id IS NULL
+		),
+		converted_clients AS (
+			SELECT DISTINCT tc.client_whatsapp
+			FROM trial_clients tc
+			WHERE
+				EXISTS (
+					SELECT 1
+					FROM subscriptions s
+					JOIN payment_subscriptions ps ON s.id = ps.subscription_id
+					JOIN payments p ON ps.payment_id = p.id
+					WHERE s.client_whatsapp = tc.client_whatsapp
+					  AND p.status = 'approved'
+				)
+				OR EXISTS (
+					SELECT 1
+					FROM subscriptions s
+					JOIN tariffs t ON s.tariff_id = t.id
+					WHERE s.id = tc.first_sub_id
+					  AND t.price > 0
+				)
 		)
 		SELECT COALESCE(
-			CAST(COUNT(*) AS REAL) * 100.0 / NULLIF((SELECT COUNT(*) FROM trial_clients), 0),
+			CAST((SELECT COUNT(*) FROM converted_clients) AS REAL) * 100.0 /
+			NULLIF((SELECT COUNT(*) FROM trial_clients), 0),
 			0
 		)
-		FROM paid_clients
 	`
 
 	var rate float64
