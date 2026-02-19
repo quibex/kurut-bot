@@ -655,6 +655,30 @@ func (s *storageImpl) UpdateSubscriptionTariff(ctx context.Context, subscription
 	return nil
 }
 
+// UpdateSubscriptionServer updates the server for a subscription
+func (s *storageImpl) UpdateSubscriptionServer(ctx context.Context, subscriptionID int64, serverID int64) error {
+	params := map[string]interface{}{
+		"server_id":  serverID,
+		"updated_at": s.now(),
+	}
+
+	q, args, err := s.stmpBuilder().
+		Update(subscriptionsTable).
+		SetMap(params).
+		Where(sq.Eq{"id": subscriptionID}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build sql query: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("db.ExecContext: %w", err)
+	}
+
+	return nil
+}
+
 // FindActiveSubscriptionByWhatsApp finds an active subscription by client WhatsApp number
 // Returns subscription with earliest expiration date so referral bonuses extend the one expiring soonest
 func (s *storageImpl) FindActiveSubscriptionByWhatsApp(ctx context.Context, whatsapp string) (*subs.Subscription, error) {
@@ -862,6 +886,7 @@ type SubscriptionLookupResult struct {
 	ExpiresAt      *time.Time `db:"expires_at"`
 	LastRenewedAt  *time.Time `db:"last_renewed_at"`
 	CreatedAt      time.Time  `db:"created_at"`
+	ServerID       *int64     `db:"server_id"`
 	ServerName     *string    `db:"server_name"`
 }
 
@@ -876,6 +901,7 @@ func (s *storageImpl) SearchSubscriptionsByPhoneSuffix(ctx context.Context, suff
 			s.expires_at,
 			s.last_renewed_at,
 			s.created_at,
+			s.server_id,
 			srv.name AS server_name
 		FROM subscriptions s
 		JOIN tariffs t ON s.tariff_id = t.id

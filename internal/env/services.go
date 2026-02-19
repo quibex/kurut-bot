@@ -19,6 +19,7 @@ import (
 	"kurut-bot/internal/telegram/flows/addserver"
 	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
+	lookupflow "kurut-bot/internal/telegram/flows/lookup"
 	"kurut-bot/internal/telegram/flows/migrateclient"
 	"kurut-bot/internal/telegram/states"
 	"kurut-bot/internal/web"
@@ -158,11 +159,14 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		storageImpl,
 	)
 
-	// Создаем lookupCommand
-	lookupCommand := cmds.NewLookupCommand(
-		clients.TelegramBot.GetBotAPI(),
-		storageImpl,
-		storageImpl,
+	// Создаем lookupHandler
+	lookupHandler := lookupflow.NewHandler(
+		clients.TelegramBot,
+		stateManager,
+		storageImpl, // lookupStorage
+		storageImpl, // clientTokenStorage
+		serverService,
+		storageImpl, // subscriptionStorage
 		cfg.Web.Domain,
 		logger,
 	)
@@ -235,7 +239,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		tariffsCommand,
 		serversCommand,
 		partnershipCommand,
-		lookupCommand,
+		lookupHandler,
 		newClientCommand,
 	)
 

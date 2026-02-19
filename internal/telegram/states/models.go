@@ -79,3 +79,9 @@ const (
 	AdminNewClientWaitWhatsApp State = "anc_wt_whatsapp"
 	AdminNewClientWaitPartner  State = "anc_wt_partner"
 )
+
+// lookup subscription states (lkp -> lookup)
+const (
+	LookupViewSub      State = "lkp_view"
+	LookupSelectServer State = "lkp_transfer"
+)
