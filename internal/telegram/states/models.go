@@ -9,7 +9,6 @@ const (
 )
 
 // ubs -> user buy sub
-// acs -> admin create sub
 // act -> admin create tariff
 // saa -> superadmin add admin
 
@@ -18,15 +17,6 @@ const (
 	UserBuySubWaitTariff   State = "ubs_wt_tariff"
 	UserBuySubWaitQuantity State = "ubs_wt_quantity"
 	UserBuySubWaitPayment  State = "ubs_wt_payment"
-)
-
-// admin create sub states
-const (
-	AdminCreateSubWaitClientName State = "acs_wt_client_name"
-	AdminCreateSubWaitReferrer   State = "acs_wt_referrer"
-	AdminCreateSubWaitTariff     State = "acs_wt_tariff"
-	AdminCreateSubWaitServer     State = "acs_wt_server"
-	AdminCreateSubWaitPayment    State = "acs_wt_payment"
 )
 
 // admin disable sub states

@@ -14,32 +14,6 @@ type BuySubFlowData struct {
 	MessageID   *int // ID сообщения для бесшовного редактирования
 }
 
-// CreateSubFlowData - data for create sub
-type CreateSubFlowData struct {
-	UserName   string
-	TariffName string
-}
-
-// CreateSubForClientFlowData - data for assistant creating sub for client
-type CreateSubForClientFlowData struct {
-	AdminUserID            int64
-	AssistantTelegramID    int64
-	ClientWhatsApp         string
-	ReferrerWhatsApp       *string // WhatsApp of the referrer (who invited)
-	ReferrerSubscriptionID *int64  // ID of referrer's active subscription to extend
-	IsPartnership          bool    // true if referrer is a partner (no bonus, no subscription check)
-	TariffID               int64
-	TariffName             string
-	Price                  float64
-	TotalAmount            float64
-	ServerID               *int64  // ID выбранного сервера (nil = авто-выбор)
-	ServerName             *string // Название выбранного сервера
-	PaymentID              *int64
-	PaymentURL             *string
-	MessageID              *int // ID сообщения для бесшовного редактирования
-	IsTrialEligible        bool // true if client can get trial
-}
-
 // DisableSubFlowData - data for disable sub
 type DisableSubFlowData struct {
 	UserName string
