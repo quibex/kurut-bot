@@ -20,6 +20,7 @@ type NewClientCommand struct {
 
 type clientTokenStorage interface {
 	GetOrCreateClientToken(ctx context.Context, whatsapp string, createdByTelegramID int64, partnerWhatsApp *string) (*webtokens.ClientToken, error)
+	UpdateClientTokenServer(ctx context.Context, id int64, serverID *int64, serverName *string) error
 }
 
 func NewNewClientCommand(
@@ -103,6 +104,47 @@ func (c *NewClientCommand) HandlePartnerInput(ctx context.Context, chatID int64,
 
 	// Get or create client token with or without partner
 	return c.finalizeClientLink(ctx, chatID, telegramID, whatsapp, partner)
+}
+
+// HandlePartnerInputWithServer обрабатывает финализацию с выбранным сервером
+func (c *NewClientCommand) HandlePartnerInputWithServer(ctx context.Context, chatID int64, telegramID int64, whatsapp string, partnerWhatsApp string, serverID int64, serverName string) error {
+	var partner *string
+	if partnerWhatsApp != "" {
+		partner = &partnerWhatsApp
+	}
+
+	// Get or create client token
+	clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, whatsapp, telegramID, partner)
+	if err != nil {
+		c.logger.Error("Failed to get or create client token", "error", err)
+		return c.sendError(chatID, "Ошибка создания ссылки")
+	}
+
+	// Update client token with selected server
+	if err := c.clientTokenStorage.UpdateClientTokenServer(ctx, clientToken.ID, &serverID, &serverName); err != nil {
+		c.logger.Error("Failed to update client token server", "error", err)
+		return c.sendError(chatID, "Ошибка сохранения сервера")
+	}
+
+	// Build client link
+	clientLink := fmt.Sprintf("%s/c/%s", c.webDomain, clientToken.Token)
+
+	text := fmt.Sprintf(
+		"✅ Ссылка для клиента создана\n\n"+
+			"📱 WhatsApp: %s\n"+
+			"🖥 Сервер: %s\n\n"+
+			"🔗 Ссылка:\n%s\n\n"+
+			"Эта ссылка постоянная для данного клиента.\n"+
+			"Клиент сможет купить новую подписку или продлить существующую.",
+		whatsapp, serverName, clientLink)
+
+	if partner != nil {
+		text += fmt.Sprintf("\n\n🤝 Партнёр: %s", *partner)
+	}
+
+	msg := tgbotapi.NewMessage(chatID, text)
+	_, err = c.bot.Send(msg)
+	return err
 }
 
 // FinalizeClientLink генерирует финальную ссылку для клиента

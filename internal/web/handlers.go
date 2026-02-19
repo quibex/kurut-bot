@@ -356,6 +356,8 @@ func (h *Handlers) handleClientSubmit(w http.ResponseWriter, r *http.Request) {
 		order := PendingOrder{
 			ClientWhatsApp:      clientToken.WhatsApp,
 			TariffID:            tariffID,
+			ServerID:            clientToken.ServerID,
+			ServerName:          clientToken.ServerName,
 			ReferrerWhatsApp:    referrerWhatsApp,
 			ReferralType:        referralType,
 			PaymentID:           createdPayment.ID,

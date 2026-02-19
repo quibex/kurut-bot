@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"kurut-bot/internal/stories/servers"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 
@@ -33,13 +34,24 @@ func (s *Service) CreateSubscription(ctx context.Context, req *subs.CreateSubscr
 		return nil, errors.Errorf("tariff not found")
 	}
 
-	// Получаем доступный сервер
-	server, err := s.storage.GetAvailableServer(ctx)
-	if err != nil {
-		return nil, errors.Errorf("failed to get available server: %v", err)
-	}
-	if server == nil {
-		return nil, errors.Errorf("no available servers")
+	// Получаем сервер: используем указанный или автоматически выбираем
+	var server *servers.Server
+	if req.ServerID != nil {
+		server, err = s.storage.GetServerByID(ctx, *req.ServerID)
+		if err != nil {
+			return nil, errors.Errorf("failed to get server by id: %v", err)
+		}
+		if server == nil {
+			return nil, errors.Errorf("server not found: %d", *req.ServerID)
+		}
+	} else {
+		server, err = s.storage.GetAvailableServer(ctx)
+		if err != nil {
+			return nil, errors.Errorf("failed to get available server: %v", err)
+		}
+		if server == nil {
+			return nil, errors.Errorf("no available servers")
+		}
 	}
 
 	now := s.now()

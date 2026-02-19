@@ -68,6 +68,7 @@ type UpdateParams struct {
 type CreateSubscriptionRequest struct {
 	UserID                 int64
 	TariffID               int64
+	ServerID               *int64  // Если задан — используется конкретный сервер, иначе авто-выбор
 	PaymentID              *int64
 	ClientWhatsApp         string
 	CreatedByTelegramID    int64

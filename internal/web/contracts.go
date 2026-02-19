@@ -75,6 +75,8 @@ type PendingOrder struct {
 	ID                  int64
 	ClientWhatsApp      string
 	TariffID            int64
+	ServerID            *int64  // Выбранный сервер (из client token)
+	ServerName          *string // Название сервера
 	ReferrerWhatsApp    *string
 	ReferralType        *string // 'referral' or 'partnership'
 	PaymentID           int64

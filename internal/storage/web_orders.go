@@ -29,8 +29,8 @@ func (s *storageImpl) CreatePendingOrderFromWeb(ctx context.Context, order web.P
 		ChatID:                 0, // Not applicable for web orders
 		MessageID:              nil,
 		ClientWhatsApp:         order.ClientWhatsApp,
-		ServerID:               nil,
-		ServerName:             nil,
+		ServerID:               order.ServerID,
+		ServerName:             order.ServerName,
 		TariffID:               order.TariffID,
 		TariffName:             tariff.Name,
 		TotalAmount:            tariff.Price,

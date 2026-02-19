@@ -2,9 +2,12 @@ package telegram
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
+	"kurut-bot/internal/stories/servers"
 	"kurut-bot/internal/stories/users"
 	"kurut-bot/internal/telegram/cmds"
 	"kurut-bot/internal/telegram/flows"
@@ -18,11 +21,23 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+type serverService interface {
+	ListServers(ctx context.Context, criteria servers.ListCriteria) ([]*servers.Server, error)
+	GetActiveUsersCount(ctx context.Context, serverID int64) (int, error)
+}
+
+type clientTokenStorage interface {
+	UpdateClientTokenServer(ctx context.Context, id int64, serverID *int64, serverName *string) error
+}
+
 type Router struct {
-	bot          *tgbotapi.BotAPI
-	stateManager stateManager
-	userService  userService
-	adminChecker adminChecker
+	bot                *tgbotapi.BotAPI
+	stateManager       stateManager
+	userService        userService
+	adminChecker       adminChecker
+	serverService      serverService
+	clientTokenStorage clientTokenStorage
+	logger             *slog.Logger
 
 	// Handlers
 	createSubForClientHandler *createsubforclient.Handler
@@ -314,9 +329,9 @@ func (r *Router) handleNewClientState(update *tgbotapi.Update, user *users.User,
 				return nil
 
 			case "nc_partner_no":
-				// No partner - finalize without partner
-				r.stateManager.Clear(user.TelegramID)
-				return r.newClientCommand.HandlePartnerInput(ctx, chatID, user.TelegramID, flowData.ClientWhatsApp, "")
+				// No partner - go to server selection
+				r.stateManager.SetState(user.TelegramID, states.AdminNewClientWaitServer, flowData)
+				return r.showNewClientServers(ctx, chatID, flowData)
 
 			case "cancel":
 				r.stateManager.Clear(user.TelegramID)
@@ -329,16 +344,157 @@ func (r *Router) handleNewClientState(update *tgbotapi.Update, user *users.User,
 		// Handle text input (partner WhatsApp)
 		if update.Message != nil && update.Message.Text != "" {
 			partnerWhatsApp := strings.TrimSpace(update.Message.Text)
+			partnerNormalized := normalizePhone(partnerWhatsApp)
+			if isValidPhone(partnerNormalized) {
+				flowData.PartnerWhatsApp = &partnerNormalized
+			}
 
-			// Clear state before processing
-			r.stateManager.Clear(user.TelegramID)
-
-			// Handle partner input
-			return r.newClientCommand.HandlePartnerInput(ctx, chatID, user.TelegramID, flowData.ClientWhatsApp, partnerWhatsApp)
+			// Go to server selection
+			r.stateManager.SetState(user.TelegramID, states.AdminNewClientWaitServer, flowData)
+			return r.showNewClientServers(ctx, chatID, flowData)
 		}
 	}
 
+	// Handle server selection state
+	if state == states.AdminNewClientWaitServer {
+		return r.handleNewClientServerSelection(ctx, update, user)
+	}
+
 	return nil
+}
+
+// showNewClientServers показывает список серверов для выбора в /new_client
+func (r *Router) showNewClientServers(ctx context.Context, chatID int64, flowData *flows.NewClientFlowData) error {
+	archivedFalse := false
+	serversList, err := r.serverService.ListServers(ctx, servers.ListCriteria{
+		Archived: &archivedFalse,
+	})
+	if err != nil {
+		r.logger.Error("Failed to list servers", "error", err)
+		r.stateManager.Clear(chatID)
+		msg := tgbotapi.NewMessage(chatID, "❌ Ошибка загрузки серверов")
+		_, _ = r.bot.Send(msg)
+		return nil
+	}
+
+	if len(serversList) == 0 {
+		r.stateManager.Clear(chatID)
+		msg := tgbotapi.NewMessage(chatID, "❌ Нет активных серверов")
+		_, _ = r.bot.Send(msg)
+		return nil
+	}
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, s := range serversList {
+		activeCount, err := r.serverService.GetActiveUsersCount(ctx, s.ID)
+		if err != nil {
+			activeCount = 0
+		}
+
+		percent := 0.0
+		if s.MaxUsers > 0 {
+			percent = float64(activeCount) / float64(s.MaxUsers) * 100
+		}
+		icon := "🟢"
+		if percent >= 80 {
+			icon = "🟡"
+		}
+		if percent >= 95 {
+			icon = "🔴"
+		}
+
+		text := fmt.Sprintf("%s %s (%d/%d)", icon, s.Name, activeCount, s.MaxUsers)
+		callbackData := fmt.Sprintf("nc_srv:%d:%s", s.ID, s.Name)
+		button := tgbotapi.NewInlineKeyboardButtonData(text, callbackData)
+		rows = append(rows, []tgbotapi.InlineKeyboardButton{button})
+	}
+
+	rows = append(rows, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", "cancel"),
+	})
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	// Edit existing message if MessageID set
+	if flowData != nil && flowData.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *flowData.MessageID, "🖥 Выберите сервер:")
+		editMsg.ReplyMarkup = &keyboard
+		_, err = r.bot.Send(editMsg)
+		if err == nil {
+			return nil
+		}
+	}
+
+	// Fallback: send new message
+	msg := tgbotapi.NewMessage(chatID, "🖥 Выберите сервер:")
+	msg.ReplyMarkup = keyboard
+	sentMsg, err := r.bot.Send(msg)
+	if err != nil {
+		return err
+	}
+
+	if flowData != nil {
+		flowData.MessageID = &sentMsg.MessageID
+		r.stateManager.SetState(chatID, states.AdminNewClientWaitServer, flowData)
+	}
+	return nil
+}
+
+// handleNewClientServerSelection обрабатывает выбор сервера в /new_client
+func (r *Router) handleNewClientServerSelection(ctx context.Context, update *tgbotapi.Update, user *users.User) error {
+	chatID := extractChatID(update)
+
+	if update.CallbackQuery == nil {
+		msg := tgbotapi.NewMessage(chatID, "Пожалуйста, выберите сервер из меню")
+		_, _ = r.bot.Send(msg)
+		return nil
+	}
+
+	callbackData := update.CallbackQuery.Data
+
+	if callbackData == "cancel" {
+		r.stateManager.Clear(user.TelegramID)
+		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Отменено")
+		_, _ = r.bot.Request(callback)
+		return r.sendWelcome(chatID, user)
+	}
+
+	if !strings.HasPrefix(callbackData, "nc_srv:") {
+		return nil
+	}
+
+	parts := strings.SplitN(callbackData, ":", 3)
+	if len(parts) != 3 {
+		return nil
+	}
+
+	serverID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return nil
+	}
+	serverName := parts[2]
+
+	flowData, err := r.stateManager.GetNewClientData(user.TelegramID)
+	if err != nil {
+		r.stateManager.Clear(user.TelegramID)
+		return r.sendError(chatID)
+	}
+
+	flowData.ServerID = serverID
+	flowData.ServerName = serverName
+
+	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Сервер выбран")
+	_, _ = r.bot.Request(callback)
+
+	// Clear state before finalizing
+	r.stateManager.Clear(user.TelegramID)
+
+	// Finalize: create client link with server info
+	partnerWhatsApp := ""
+	if flowData.PartnerWhatsApp != nil {
+		partnerWhatsApp = *flowData.PartnerWhatsApp
+	}
+	return r.newClientCommand.HandlePartnerInputWithServer(ctx, chatID, user.TelegramID, flowData.ClientWhatsApp, partnerWhatsApp, serverID, serverName)
 }
 
 // normalizePhone removes all non-digit characters from phone
@@ -369,9 +525,6 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 	switch update.Message.Command() {
 	case "start":
 		return r.sendWelcome(chatID, user)
-	case "create_sub":
-		// Любой пользователь может создавать подписки для клиентов (ассистенты)
-		return r.createSubForClientHandler.Start(user.ID, user.TelegramID, chatID)
 	case "tariffs":
 		if !r.adminChecker.IsAdmin(user.TelegramID) {
 			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав для управления тарифами"))
@@ -599,6 +752,9 @@ func NewRouter(
 	stateManager stateManager,
 	userService userService,
 	adminChecker adminChecker,
+	srvService serverService,
+	ctStorage clientTokenStorage,
+	logger *slog.Logger,
 	createSubForClientHandler *createsubforclient.Handler,
 	createTariffHandler *createtariff.Handler,
 	addServerHandler *addserver.Handler,
@@ -617,6 +773,9 @@ func NewRouter(
 		stateManager:              stateManager,
 		userService:               userService,
 		adminChecker:              adminChecker,
+		serverService:             srvService,
+		clientTokenStorage:        ctStorage,
+		logger:                    logger,
 		createSubForClientHandler: createSubForClientHandler,
 		createTariffHandler:       createTariffHandler,
 		addServerHandler:          addServerHandler,

@@ -20,6 +20,8 @@ type clientTokenRow struct {
 	Token               string    `db:"token"`
 	WhatsApp            string    `db:"whatsapp"`
 	PartnerWhatsApp     *string   `db:"partner_whatsapp"`
+	ServerID            *int64    `db:"server_id"`
+	ServerName          *string   `db:"server_name"`
 	CreatedByTelegramID int64     `db:"created_by_telegram_id"`
 	CreatedAt           time.Time `db:"created_at"`
 }
@@ -30,6 +32,8 @@ func (r clientTokenRow) ToModel() *webtokens.ClientToken {
 		Token:               r.Token,
 		WhatsApp:            r.WhatsApp,
 		PartnerWhatsApp:     r.PartnerWhatsApp,
+		ServerID:            r.ServerID,
+		ServerName:          r.ServerName,
 		CreatedByTelegramID: r.CreatedByTelegramID,
 		CreatedAt:           r.CreatedAt,
 	}
@@ -91,6 +95,8 @@ func (s *storageImpl) CreateClientToken(ctx context.Context, token webtokens.Cli
 		"token":                  token.Token,
 		"whatsapp":               token.WhatsApp,
 		"partner_whatsapp":       token.PartnerWhatsApp,
+		"server_id":              token.ServerID,
+		"server_name":            token.ServerName,
 		"created_by_telegram_id": token.CreatedByTelegramID,
 		"created_at":             now,
 	}
@@ -175,6 +181,26 @@ func (s *storageImpl) GetOrCreateClientToken(ctx context.Context, whatsapp strin
 	}
 
 	return s.CreateClientToken(ctx, newToken)
+}
+
+// UpdateClientTokenServer updates server_id and server_name for a client token
+func (s *storageImpl) UpdateClientTokenServer(ctx context.Context, id int64, serverID *int64, serverName *string) error {
+	q, args, err := s.stmpBuilder().
+		Update(clientTokensTable).
+		Set("server_id", serverID).
+		Set("server_name", serverName).
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build sql query: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("db.ExecContext: %w", err)
+	}
+
+	return nil
 }
 
 // updateClientTokenPartner updates partner_whatsapp for a client token
