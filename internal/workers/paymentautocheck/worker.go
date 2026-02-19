@@ -213,6 +213,7 @@ func (w *Worker) handleApprovedOrderPayment(ctx context.Context, order *orders.P
 		req := &subs.CreateSubscriptionRequest{
 			UserID:                 order.AdminUserID,
 			TariffID:               order.TariffID,
+			ServerID:               order.ServerID,
 			PaymentID:              &order.PaymentID,
 			ClientWhatsApp:         order.ClientWhatsApp,
 			CreatedByTelegramID:    order.AssistantTelegramID,

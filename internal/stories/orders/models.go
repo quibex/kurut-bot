@@ -18,8 +18,9 @@ type PendingOrder struct {
 	ChatID                 int64
 	MessageID              *int
 	ClientWhatsApp         string
-	ServerID               *int64  // Если заполнен - это миграция (сервер выбран вручную)
-	ServerName             *string // Название сервера для миграции
+	ServerID               *int64  // ID выбранного сервера
+	ServerName             *string // Название сервера
+	IsMigrationFlag        bool    // true только для миграционных заказов
 	TariffID               int64
 	TariffName             string
 	TotalAmount            float64
@@ -31,7 +32,7 @@ type PendingOrder struct {
 	UpdatedAt              time.Time
 }
 
-// IsMigration returns true if this is a migration order (server was manually selected)
+// IsMigration returns true if this is a migration order
 func (p *PendingOrder) IsMigration() bool {
-	return p.ServerID != nil
+	return p.IsMigrationFlag
 }

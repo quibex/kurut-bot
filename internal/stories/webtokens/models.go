@@ -41,6 +41,8 @@ type ClientToken struct {
 	Token               string
 	WhatsApp            string
 	PartnerWhatsApp     *string // WhatsApp партнера, если клиент пришел от партнера
+	ServerID            *int64  // ID выбранного сервера (если задан — используется вместо авто-выбора)
+	ServerName          *string // Название выбранного сервера
 	CreatedByTelegramID int64
 	CreatedAt           time.Time
 }

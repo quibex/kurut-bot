@@ -225,6 +225,9 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		stateManager,
 		userService,
 		adminChecker,
+		serverService,
+		storageImpl, // clientTokenStorage
+		logger,
 		createSubForClientHandler,
 		createTariffHandler,
 		addServerHandler,

@@ -78,4 +78,5 @@ const (
 const (
 	AdminNewClientWaitWhatsApp State = "anc_wt_whatsapp"
 	AdminNewClientWaitPartner  State = "anc_wt_partner"
+	AdminNewClientWaitServer   State = "anc_wt_server"
 )

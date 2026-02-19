@@ -98,5 +98,7 @@ type NewClientFlowData struct {
 	AssistantTelegramID int64
 	ClientWhatsApp      string
 	PartnerWhatsApp     *string
+	ServerID            int64
+	ServerName          string
 	MessageID           *int
 }
