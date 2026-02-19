@@ -80,3 +80,9 @@ const (
 	AdminNewClientWaitPartner  State = "anc_wt_partner"
 	AdminNewClientWaitServer   State = "anc_wt_server"
 )
+
+// lookup subscription states (lkp -> lookup)
+const (
+	LookupViewSub      State = "lkp_view"
+	LookupSelectServer State = "lkp_transfer"
+)

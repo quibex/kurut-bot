@@ -1,5 +1,7 @@
 package flows
 
+import "time"
+
 // BuySubFlowData - data for buy sub
 type BuySubFlowData struct {
 	UserID      int64 // Внутренний ID пользователя
@@ -101,4 +103,26 @@ type NewClientFlowData struct {
 	ServerID            int64
 	ServerName          string
 	MessageID           *int
+}
+
+// LookupSubResult holds subscription data for the lookup flow
+type LookupSubResult struct {
+	ID             int64
+	ClientWhatsApp *string
+	TariffName     string
+	Status         string
+	ExpiresAt      *time.Time
+	LastRenewedAt  *time.Time
+	CreatedAt      time.Time
+	ServerID       *int64
+	ServerName     *string
+}
+
+// LookupFlowData - data for subscription lookup flow with navigation
+type LookupFlowData struct {
+	Results     []LookupSubResult
+	CurrentIdx  int
+	MessageID   *int
+	Suffix      string
+	ClientLinks map[string]string
 }

@@ -205,3 +205,21 @@ func (m *Manager) GetNewClientData(chatID int64) (*flows.NewClientFlowData, erro
 
 	return flowData, nil
 }
+
+// GetLookupData получает данные флоу поиска подписок
+func (m *Manager) GetLookupData(chatID int64) (*flows.LookupFlowData, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	data, exists := m.userData[chatID]
+	if !exists {
+		return nil, fmt.Errorf("no data for chat %d", chatID)
+	}
+
+	flowData, ok := data.(*flows.LookupFlowData)
+	if !ok {
+		return nil, fmt.Errorf("invalid data type for chat %d", chatID)
+	}
+
+	return flowData, nil
+}

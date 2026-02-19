@@ -14,6 +14,7 @@ import (
 	"kurut-bot/internal/telegram/flows/addserver"
 	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
+	"kurut-bot/internal/telegram/flows/lookup"
 	"kurut-bot/internal/telegram/flows/migrateclient"
 	"kurut-bot/internal/telegram/messages"
 	"kurut-bot/internal/telegram/states"
@@ -50,7 +51,7 @@ type Router struct {
 	tariffsCommand            *cmds.TariffsCommand
 	serversCommand            *cmds.ServersCommand
 	partnershipCommand        *cmds.PartnershipCommand
-	lookupCommand             *cmds.LookupCommand
+	lookupHandler             *lookup.Handler
 	newClientCommand          *cmds.NewClientCommand
 }
 
@@ -213,6 +214,9 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 		case strings.HasPrefix(callbackData, "sub_enabled:"):
 			// Subscription enabled callback (from renewal message)
 			return r.handleSubEnabledCallback(ctx, update.CallbackQuery)
+		case strings.HasPrefix(callbackData, "lkp_"):
+			// Lookup subscription callbacks (navigation, transfer, close)
+			return r.lookupHandler.HandleCallback(ctx, update.CallbackQuery)
 		}
 	}
 
@@ -234,6 +238,11 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 	// Проверяем состояние флоу миграции клиента
 	if strings.HasPrefix(string(state), "amc_") {
 		return r.migrateClientHandler.Handle(update, state)
+	}
+
+	// Проверяем состояние флоу поиска подписок (игнорируем текстовые сообщения)
+	if strings.HasPrefix(string(state), "lkp_") {
+		return nil
 	}
 
 	// Проверяем состояние new_client (ожидание WhatsApp)
@@ -573,7 +582,7 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 			_, _ = r.bot.Send(msg)
 			return nil
 		}
-		return r.lookupCommand.Execute(ctx, chatID, args)
+		return r.lookupHandler.Start(ctx, chatID, args)
 	case "new_client":
 		// Команда доступна всем (ассистентам и админам)
 		r.stateManager.SetState(user.TelegramID, states.AdminNewClientWaitWhatsApp, nil)
@@ -765,7 +774,7 @@ func NewRouter(
 	tariffsCommand *cmds.TariffsCommand,
 	serversCommand *cmds.ServersCommand,
 	partnershipCommand *cmds.PartnershipCommand,
-	lookupCommand *cmds.LookupCommand,
+	lookupHandler *lookup.Handler,
 	newClientCommand *cmds.NewClientCommand,
 ) *Router {
 	return &Router{
@@ -787,7 +796,7 @@ func NewRouter(
 		tariffsCommand:            tariffsCommand,
 		serversCommand:            serversCommand,
 		partnershipCommand:        partnershipCommand,
-		lookupCommand:             lookupCommand,
+		lookupHandler:             lookupHandler,
 	}
 }
 
