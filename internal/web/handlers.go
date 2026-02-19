@@ -174,6 +174,18 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 			return activeTariffs[i].DurationDays < activeTariffs[j].DurationDays
 		})
 
+		// Выбираем дефолтный тариф: 2 месяца (60 дней), иначе первый платный
+		defaultTariffIndex := 0
+		for i, t := range activeTariffs {
+			if t.DurationDays >= 60 {
+				defaultTariffIndex = i
+				break
+			}
+			if t.Price > 0 && defaultTariffIndex == 0 {
+				defaultTariffIndex = i
+			}
+		}
+
 		// Check if servers are available
 		hasServers := false
 		if server, err := h.serverStorage.GetAvailableServer(ctx); err == nil && server != nil {
@@ -219,11 +231,12 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 		}
 
 		data := map[string]any{
-			"Token":         token,
-			"WhatsApp":      clientToken.WhatsApp,
-			"Subscriptions": subViews,
-			"Tariffs":       activeTariffs,
-			"HasServers":    hasServers,
+			"Token":              token,
+			"WhatsApp":           clientToken.WhatsApp,
+			"Subscriptions":      subViews,
+			"Tariffs":            activeTariffs,
+			"DefaultTariffIndex": defaultTariffIndex,
+			"HasServers":         hasServers,
 			"Error":         r.URL.Query().Get("error"),
 			"PaymentResult": r.URL.Query().Get("payment_result"),
 			"PaymentType":   r.URL.Query().Get("type"),

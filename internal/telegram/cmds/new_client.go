@@ -87,7 +87,7 @@ func (c *NewClientCommand) ShowPartnerQuestion(ctx context.Context, chatID int64
 }
 
 // HandlePartnerInput обрабатывает ввод номера партнера
-func (c *NewClientCommand) HandlePartnerInput(ctx context.Context, chatID int64, telegramID int64, whatsapp string, partnerWhatsApp string) error {
+func (c *NewClientCommand) HandlePartnerInput(ctx context.Context, chatID int64, telegramID int64, whatsapp string, partnerWhatsApp string, messageID *int) error {
 	var partner *string
 
 	// If partnerWhatsApp is not empty, validate it
@@ -103,7 +103,7 @@ func (c *NewClientCommand) HandlePartnerInput(ctx context.Context, chatID int64,
 	}
 
 	// Get or create client token with or without partner
-	return c.finalizeClientLink(ctx, chatID, telegramID, whatsapp, partner)
+	return c.finalizeClientLink(ctx, chatID, telegramID, whatsapp, partner, messageID)
 }
 
 // HandlePartnerInputWithServer обрабатывает финализацию с выбранным сервером
@@ -147,8 +147,8 @@ func (c *NewClientCommand) HandlePartnerInputWithServer(ctx context.Context, cha
 	return err
 }
 
-// FinalizeClientLink генерирует финальную ссылку для клиента
-func (c *NewClientCommand) finalizeClientLink(ctx context.Context, chatID int64, telegramID int64, whatsapp string, partnerWhatsApp *string) error {
+// finalizeClientLink генерирует финальную ссылку для клиента
+func (c *NewClientCommand) finalizeClientLink(ctx context.Context, chatID int64, telegramID int64, whatsapp string, partnerWhatsApp *string, messageID *int) error {
 	// Get or create client token (one permanent token per client)
 	clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, whatsapp, telegramID, partnerWhatsApp)
 	if err != nil {
@@ -171,8 +171,17 @@ func (c *NewClientCommand) finalizeClientLink(ctx context.Context, chatID int64,
 		text += fmt.Sprintf("\n\n🤝 Партнёр: %s", *partnerWhatsApp)
 	}
 
-	msg := tgbotapi.NewMessage(chatID, text)
+	// Редактируем предыдущее сообщение если есть messageID
+	if messageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *messageID, text)
+		_, err = c.bot.Send(editMsg)
+		if err == nil {
+			return nil
+		}
+		c.logger.Warn("Failed to edit message, sending new", "error", err)
+	}
 
+	msg := tgbotapi.NewMessage(chatID, text)
 	_, err = c.bot.Send(msg)
 	return err
 }
