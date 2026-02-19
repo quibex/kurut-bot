@@ -25,6 +25,7 @@ const (
 	AdminCreateSubWaitClientName State = "acs_wt_client_name"
 	AdminCreateSubWaitReferrer   State = "acs_wt_referrer"
 	AdminCreateSubWaitTariff     State = "acs_wt_tariff"
+	AdminCreateSubWaitServer     State = "acs_wt_server"
 	AdminCreateSubWaitPayment    State = "acs_wt_payment"
 )
 

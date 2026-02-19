@@ -7,6 +7,7 @@ import (
 
 	"kurut-bot/internal/stories/orders"
 	"kurut-bot/internal/stories/payment"
+	"kurut-bot/internal/stories/servers"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/telegram/flows"
@@ -52,5 +53,10 @@ type (
 		UpdatePaymentID(ctx context.Context, id int64, paymentID int64) error
 		UpdateStatus(ctx context.Context, id int64, status orders.Status) error
 		DeletePendingOrder(ctx context.Context, id int64) error
+	}
+
+	serverService interface {
+		ListServers(ctx context.Context, criteria servers.ListCriteria) ([]*servers.Server, error)
+		GetActiveUsersCount(ctx context.Context, serverID int64) (int, error)
 	}
 )

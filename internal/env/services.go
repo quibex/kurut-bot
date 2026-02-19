@@ -82,6 +82,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		storageImpl, // subscriptionStorage для проверки trial
 		paymentService,
 		orderService,
+		serverService,
 		logger,
 	)
 

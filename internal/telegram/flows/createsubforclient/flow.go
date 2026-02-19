@@ -11,6 +11,7 @@ import (
 
 	"kurut-bot/internal/stories/orders"
 	"kurut-bot/internal/stories/payment"
+	"kurut-bot/internal/stories/servers"
 	"kurut-bot/internal/stories/subs"
 	"kurut-bot/internal/stories/tariffs"
 	"kurut-bot/internal/telegram/flows"
@@ -27,6 +28,7 @@ type Handler struct {
 	subscriptionStorage subscriptionStorage
 	paymentService      paymentService
 	orderService        orderService
+	serverService       serverService
 	logger              *slog.Logger
 }
 
@@ -38,6 +40,7 @@ func NewHandler(
 	storage subscriptionStorage,
 	ps paymentService,
 	os orderService,
+	srvs serverService,
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
@@ -48,6 +51,7 @@ func NewHandler(
 		subscriptionStorage: storage,
 		paymentService:      ps,
 		orderService:        os,
+		serverService:       srvs,
 		logger:              logger,
 	}
 }
@@ -77,6 +81,8 @@ func (h *Handler) Handle(update *tgbotapi.Update, state states.State) error {
 		return h.handleReferrerInput(ctx, update)
 	case states.AdminCreateSubWaitTariff:
 		return h.handleTariffSelection(ctx, update)
+	case states.AdminCreateSubWaitServer:
+		return h.handleServerSelection(ctx, update)
 	case states.AdminCreateSubWaitPayment:
 		return h.handlePaymentConfirmation(ctx, update)
 	default:
@@ -439,21 +445,141 @@ func (h *Handler) handleTariffSelection(ctx context.Context, update *tgbotapi.Up
 	flowData.TotalAmount = tariffData.Price
 
 	// Отвечаем на callback query
-	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Создаём заказ...")
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
 	_, err = h.bot.Request(callbackConfig)
 	if err != nil {
 		return err
 	}
 
+	// Переходим к выбору сервера
+	h.stateManager.SetState(chatID, states.AdminCreateSubWaitServer, flowData)
+	return h.showServers(ctx, chatID)
+}
+
+// showServers показывает список серверов для выбора
+func (h *Handler) showServers(ctx context.Context, chatID int64) error {
+	flowData, _ := h.stateManager.GetCreateSubForClientData(chatID)
+
+	archivedFalse := false
+	serversList, err := h.serverService.ListServers(ctx, servers.ListCriteria{
+		Archived: &archivedFalse,
+	})
+	if err != nil {
+		h.logger.Error("Failed to list servers", "error", err)
+		return h.sendError(chatID, "❌ Ошибка загрузки серверов")
+	}
+
+	if len(serversList) == 0 {
+		h.stateManager.Clear(chatID)
+		return h.sendError(chatID, "❌ Нет активных серверов")
+	}
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, s := range serversList {
+		activeCount, err := h.serverService.GetActiveUsersCount(ctx, s.ID)
+		if err != nil {
+			activeCount = 0
+		}
+
+		percent := 0.0
+		if s.MaxUsers > 0 {
+			percent = float64(activeCount) / float64(s.MaxUsers) * 100
+		}
+		icon := "🟢"
+		if percent >= 80 {
+			icon = "🟡"
+		}
+		if percent >= 95 {
+			icon = "🔴"
+		}
+
+		text := fmt.Sprintf("%s %s (%d/%d)", icon, s.Name, activeCount, s.MaxUsers)
+		callbackData := fmt.Sprintf("acs_srv:%d:%s", s.ID, s.Name)
+		button := tgbotapi.NewInlineKeyboardButtonData(text, callbackData)
+		rows = append(rows, []tgbotapi.InlineKeyboardButton{button})
+	}
+
+	rows = append(rows, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", "cancel"),
+	})
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	if flowData != nil && flowData.MessageID != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, *flowData.MessageID, "🖥 Выберите сервер:")
+		editMsg.ReplyMarkup = &keyboard
+		_, err = h.bot.Send(editMsg)
+		if err == nil {
+			return nil
+		}
+		h.logger.Warn("Failed to edit message for servers, sending new", "error", err)
+	}
+
+	msg := tgbotapi.NewMessage(chatID, "🖥 Выберите сервер:")
+	msg.ReplyMarkup = keyboard
+
+	sentMsg, err := h.bot.Send(msg)
+	if err != nil {
+		return err
+	}
+
+	if flowData != nil {
+		flowData.MessageID = &sentMsg.MessageID
+		h.stateManager.SetState(chatID, states.AdminCreateSubWaitServer, flowData)
+	}
+
+	return nil
+}
+
+// handleServerSelection обработка выбора сервера
+func (h *Handler) handleServerSelection(ctx context.Context, update *tgbotapi.Update) error {
+	if update.CallbackQuery == nil {
+		chatID := extractChatID(update)
+		return h.sendError(chatID, "Пожалуйста, выберите сервер из списка")
+	}
+
+	chatID := update.CallbackQuery.Message.Chat.ID
+	callbackData := update.CallbackQuery.Data
+
+	if callbackData == "cancel" {
+		return h.handleCancel(ctx, update)
+	}
+
+	if !strings.HasPrefix(callbackData, "acs_srv:") {
+		return h.sendError(chatID, "Неверные данные сервера")
+	}
+
+	parts := strings.SplitN(callbackData, ":", 3)
+	if len(parts) != 3 {
+		return h.sendError(chatID, "Неверный формат данных сервера")
+	}
+
+	serverID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return h.sendError(chatID, "Неверный ID сервера")
+	}
+	serverName := parts[2]
+
+	flowData, err := h.stateManager.GetCreateSubForClientData(chatID)
+	if err != nil {
+		return h.sendError(chatID, "Ошибка получения данных флоу")
+	}
+
+	flowData.ServerID = &serverID
+	flowData.ServerName = &serverName
+
+	callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "Создаём заказ...")
+	_, _ = h.bot.Request(callbackConfig)
+
 	// Если тариф бесплатный - сразу создаем подписку без оплаты
-	if tariffData.Price == 0 {
+	if flowData.Price == 0 {
 		return h.createFreeSubscription(ctx, chatID, flowData)
 	}
 
 	// Переводим в состояние ожидания оплаты
 	h.stateManager.SetState(chatID, states.AdminCreateSubWaitPayment, flowData)
 
-	// Сразу создаём платёж и показываем ссылку на оплату
+	// Создаём платёж и показываем ссылку на оплату
 	return h.createPaymentAndShow(ctx, chatID, flowData)
 }
 
@@ -547,6 +673,8 @@ func (h *Handler) createPaymentAndShow(ctx context.Context, chatID int64, data *
 		AssistantTelegramID:    data.AssistantTelegramID,
 		ChatID:                 chatID,
 		ClientWhatsApp:         data.ClientWhatsApp,
+		ServerID:               data.ServerID,
+		ServerName:             data.ServerName,
 		TariffID:               data.TariffID,
 		TariffName:             data.TariffName,
 		TotalAmount:            data.TotalAmount,
@@ -773,6 +901,7 @@ func (h *Handler) handleSuccessfulPayment(ctx context.Context, chatID int64, dat
 	subReq := &subs.CreateSubscriptionRequest{
 		UserID:                 data.AdminUserID,
 		TariffID:               data.TariffID,
+		ServerID:               data.ServerID,
 		PaymentID:              &paymentID,
 		ClientWhatsApp:         data.ClientWhatsApp,
 		CreatedByTelegramID:    data.AssistantTelegramID,
@@ -917,6 +1046,7 @@ func (h *Handler) createSubscriptionWithPayment(ctx context.Context, chatID int6
 	subReq := &subs.CreateSubscriptionRequest{
 		UserID:                 data.AdminUserID,
 		TariffID:               data.TariffID,
+		ServerID:               data.ServerID,
 		PaymentID:              paymentIDPtr,
 		ClientWhatsApp:         data.ClientWhatsApp,
 		CreatedByTelegramID:    data.AssistantTelegramID,
@@ -1090,6 +1220,7 @@ func (h *Handler) handleSuccessfulPaymentFromOrder(ctx context.Context, chatID i
 	subReq := &subs.CreateSubscriptionRequest{
 		UserID:                 order.AdminUserID,
 		TariffID:               order.TariffID,
+		ServerID:               order.ServerID,
 		PaymentID:              &order.PaymentID,
 		ClientWhatsApp:         order.ClientWhatsApp,
 		CreatedByTelegramID:    order.AssistantTelegramID,

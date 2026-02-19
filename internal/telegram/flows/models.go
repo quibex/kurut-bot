@@ -32,6 +32,8 @@ type CreateSubForClientFlowData struct {
 	TariffName             string
 	Price                  float64
 	TotalAmount            float64
+	ServerID               *int64  // ID выбранного сервера (nil = авто-выбор)
+	ServerName             *string // Название выбранного сервера
 	PaymentID              *int64
 	PaymentURL             *string
 	MessageID              *int // ID сообщения для бесшовного редактирования
