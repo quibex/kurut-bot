@@ -8,7 +8,6 @@ import (
 	"kurut-bot/internal/config"
 	"kurut-bot/internal/infra/yookassa"
 	"kurut-bot/internal/storage"
-	"kurut-bot/internal/stories/orders"
 	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/servers"
 	"kurut-bot/internal/stories/subs/createsubs"
@@ -17,7 +16,6 @@ import (
 	"kurut-bot/internal/telegram"
 	"kurut-bot/internal/telegram/cmds"
 	"kurut-bot/internal/telegram/flows/addserver"
-	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
 	lookupflow "kurut-bot/internal/telegram/flows/lookup"
 	"kurut-bot/internal/telegram/flows/migrateclient"
@@ -69,21 +67,6 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 
 	// Создаем Payment service
 	paymentService := payment.NewService(storageImpl, yookassaClient, cfg.YooKassa.ReturnURL, cfg.YooKassa.ManualPayment, logger)
-
-	// Создаем Orders service
-	orderService := orders.NewService(storageImpl)
-
-	// Создаем createSubForClientHandler
-	createSubForClientHandler := createsubforclient.NewHandler(
-		clients.TelegramBot,
-		stateManager,
-		tariffService,
-		createSubService,
-		storageImpl, // subscriptionStorage для проверки trial
-		paymentService,
-		orderService,
-		logger,
-	)
 
 	// Создаем createTariffHandler
 	createTariffHandler := createtariff.NewHandler(
@@ -232,7 +215,6 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		serverService,
 		storageImpl, // clientTokenStorage
 		logger,
-		createSubForClientHandler,
 		createTariffHandler,
 		addServerHandler,
 		migrateClientHandler,

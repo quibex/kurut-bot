@@ -12,7 +12,6 @@ import (
 	"kurut-bot/internal/telegram/cmds"
 	"kurut-bot/internal/telegram/flows"
 	"kurut-bot/internal/telegram/flows/addserver"
-	"kurut-bot/internal/telegram/flows/createsubforclient"
 	"kurut-bot/internal/telegram/flows/createtariff"
 	"kurut-bot/internal/telegram/flows/lookup"
 	"kurut-bot/internal/telegram/flows/migrateclient"
@@ -41,8 +40,7 @@ type Router struct {
 	logger             *slog.Logger
 
 	// Handlers
-	createSubForClientHandler *createsubforclient.Handler
-	createTariffHandler       *createtariff.Handler
+	createTariffHandler  *createtariff.Handler
 	addServerHandler          *addserver.Handler
 	migrateClientHandler      *migrateclient.Handler
 	mySubsCommand             *cmds.MySubsCommand
@@ -180,9 +178,6 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 			// Expiration callbacks (exp_dis, exp_link, exp_paid, exp_tariff, etc.)
 			// Доступны для всех пользователей с доступом к боту (ассистентов и админов)
 			return r.expirationCommand.HandleCallback(ctx, update.CallbackQuery)
-		case strings.HasPrefix(callbackData, "pay_"):
-			// Payment callbacks (pay_check, pay_refresh, pay_cancel) - работают независимо от состояния
-			return r.createSubForClientHandler.HandlePaymentCallback(update)
 		case strings.HasPrefix(callbackData, "trf_"):
 			// Tariff callbacks
 			if !r.adminChecker.IsAdmin(user.TelegramID) {
@@ -218,11 +213,6 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 			// Lookup subscription callbacks (navigation, transfer, close)
 			return r.lookupHandler.HandleCallback(ctx, update.CallbackQuery)
 		}
-	}
-
-	// Проверяем состояние флоу создания подписки для клиента
-	if strings.HasPrefix(string(state), "acs_") {
-		return r.createSubForClientHandler.Handle(update, state)
 	}
 
 	// Проверяем состояние флоу создания тарифа
@@ -764,7 +754,6 @@ func NewRouter(
 	srvService serverService,
 	ctStorage clientTokenStorage,
 	logger *slog.Logger,
-	createSubForClientHandler *createsubforclient.Handler,
 	createTariffHandler *createtariff.Handler,
 	addServerHandler *addserver.Handler,
 	migrateClientHandler *migrateclient.Handler,
@@ -778,25 +767,24 @@ func NewRouter(
 	newClientCommand *cmds.NewClientCommand,
 ) *Router {
 	return &Router{
-		bot:                       bot,
-		stateManager:              stateManager,
-		userService:               userService,
-		adminChecker:              adminChecker,
-		serverService:             srvService,
-		clientTokenStorage:        ctStorage,
-		logger:                    logger,
-		createSubForClientHandler: createSubForClientHandler,
-		createTariffHandler:       createTariffHandler,
-		addServerHandler:          addServerHandler,
-		migrateClientHandler:      migrateClientHandler,
-		mySubsCommand:             mySubsCommand,
-		statsCommand:              statsCommand,
-		newClientCommand:          newClientCommand,
-		expirationCommand:         expirationCommand,
-		tariffsCommand:            tariffsCommand,
-		serversCommand:            serversCommand,
-		partnershipCommand:        partnershipCommand,
-		lookupHandler:             lookupHandler,
+		bot:                bot,
+		stateManager:       stateManager,
+		userService:        userService,
+		adminChecker:       adminChecker,
+		serverService:      srvService,
+		clientTokenStorage: ctStorage,
+		logger:             logger,
+		createTariffHandler:  createTariffHandler,
+		addServerHandler:     addServerHandler,
+		migrateClientHandler: migrateClientHandler,
+		mySubsCommand:       mySubsCommand,
+		statsCommand:        statsCommand,
+		newClientCommand:    newClientCommand,
+		expirationCommand:   expirationCommand,
+		tariffsCommand:      tariffsCommand,
+		serversCommand:      serversCommand,
+		partnershipCommand:  partnershipCommand,
+		lookupHandler:       lookupHandler,
 	}
 }
 
