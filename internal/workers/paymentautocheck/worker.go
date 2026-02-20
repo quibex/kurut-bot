@@ -302,10 +302,11 @@ func (w *Worker) sendOrderSuccessMessage(order *orders.PendingOrder, result *sub
 				"✅ *Новый клиент оплатил через сайт!*\n\n"+
 					"📱 *WhatsApp:* %s\n"+
 					"💰 *Тариф:* %s\n"+
+					"🖥 *Сервер:* %s\n"+
 					"🆔 *User ID:* `%s`\n"+
 					"🔑 *Пароль сервера:* `%s`\n\n"+
 					"⚡ *Требуется создать ключ на сервере*",
-				whatsappDisplay, order.TariffName,
+				whatsappDisplay, order.TariffName, serverName,
 				result.GeneratedUserID, serverPassword)
 		} else {
 			text = fmt.Sprintf(

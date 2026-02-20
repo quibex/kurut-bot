@@ -457,6 +457,7 @@ func (h *Handlers) handleTrialSubscription(w http.ResponseWriter, r *http.Reques
 	req := &subs.CreateSubscriptionRequest{
 		UserID:              clientToken.CreatedByTelegramID,
 		TariffID:            tariff.ID,
+		ServerID:            clientToken.ServerID,
 		ClientWhatsApp:      clientToken.WhatsApp,
 		CreatedByTelegramID: clientToken.CreatedByTelegramID,
 	}
