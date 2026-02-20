@@ -82,7 +82,9 @@ func (c *StatsCommand) formatStatistics(stats *storage.StatisticsData) string {
 
 	text.WriteString("📊 *Статистика*\n\n")
 
-	text.WriteString(fmt.Sprintf("*Активных подписок:* %d\n\n", stats.ActiveSubscriptionsCount))
+	text.WriteString(fmt.Sprintf("*Активных подписок:* %d\n", stats.ActiveSubscriptionsCount))
+	text.WriteString(fmt.Sprintf("*Просроченных (не отключены):* %d\n", stats.ExpiredNotDisabledCount))
+	text.WriteString(fmt.Sprintf("*Истекают сегодня:* %d\n\n", stats.ExpiringTodayCount))
 
 	if len(stats.ActiveTariffStats) > 0 {
 		text.WriteString("*Активные тарифы:*\n")
