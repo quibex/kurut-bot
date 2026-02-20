@@ -16,6 +16,8 @@ type TariffStats struct {
 
 type StatisticsData struct {
 	ActiveSubscriptionsCount int
+	ExpiredNotDisabledCount  int
+	ExpiringTodayCount       int
 	ActiveUsersCount         int
 	InactiveUsersCount       int
 	ActiveTariffStats        []TariffStats
@@ -36,6 +38,52 @@ func (s *storageImpl) GetActiveSubscriptionsCount(ctx context.Context) (int, err
 		Select("COUNT(*)").
 		From(subscriptionsTable).
 		Where(sq.Eq{"status": "active"})
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return 0, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var count int
+	err = s.db.GetContext(ctx, &count, q, args...)
+	if err != nil {
+		return 0, fmt.Errorf("db.GetContext: %w", err)
+	}
+
+	return count, nil
+}
+
+func (s *storageImpl) GetExpiredNotDisabledCount(ctx context.Context) (int, error) {
+	query := s.stmpBuilder().
+		Select("COUNT(*)").
+		From(subscriptionsTable).
+		Where(sq.Eq{"status": "expired"})
+
+	q, args, err := query.ToSql()
+	if err != nil {
+		return 0, fmt.Errorf("build sql query: %w", err)
+	}
+
+	var count int
+	err = s.db.GetContext(ctx, &count, q, args...)
+	if err != nil {
+		return 0, fmt.Errorf("db.GetContext: %w", err)
+	}
+
+	return count, nil
+}
+
+func (s *storageImpl) GetExpiringTodayCount(ctx context.Context) (int, error) {
+	now := s.now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	tomorrowStart := todayStart.AddDate(0, 0, 1)
+
+	query := s.stmpBuilder().
+		Select("COUNT(*)").
+		From(subscriptionsTable).
+		Where(sq.Eq{"status": "active"}).
+		Where(sq.GtOrEq{"expires_at": todayStart}).
+		Where(sq.Lt{"expires_at": tomorrowStart})
 
 	q, args, err := query.ToSql()
 	if err != nil {
@@ -204,6 +252,16 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		return nil, fmt.Errorf("get active subscriptions count: %w", err)
 	}
 
+	expiredNotDisabledCount, err := s.GetExpiredNotDisabledCount(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get expired not disabled count: %w", err)
+	}
+
+	expiringTodayCount, err := s.GetExpiringTodayCount(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get expiring today count: %w", err)
+	}
+
 	activeUsersCount, err := s.GetActiveUsersCount(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get active users count: %w", err)
@@ -273,6 +331,8 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 
 	return &StatisticsData{
 		ActiveSubscriptionsCount: activeSubsCount,
+		ExpiredNotDisabledCount:  expiredNotDisabledCount,
+		ExpiringTodayCount:       expiringTodayCount,
 		ActiveUsersCount:         activeUsersCount,
 		InactiveUsersCount:       inactiveUsersCount,
 		ActiveTariffStats:        activeTariffStats,
@@ -421,6 +481,8 @@ func (s *storageImpl) GetNewCustomersCount(ctx context.Context, start, end time.
 // - renewed: subscriptions with renewal_count > 0 (client renewed at least once)
 // - churned: subscriptions with status 'disabled' and renewal_count = 0 (client left and was disabled)
 // - pendingDisable: subscriptions with status 'expired' and renewal_count = 0 (awaiting disable action)
+// Only includes subscriptions that have reached a decision point: renewed, expired, or disabled.
+// Active subscriptions on their first term are excluded from the denominator.
 func (s *storageImpl) GetRenewalAndChurnStats(ctx context.Context) (renewed, churned, pendingDisable, total int, err error) {
 	now := s.now()
 	matureDate := now.AddDate(0, 0, -30)
@@ -436,6 +498,7 @@ func (s *storageImpl) GetRenewalAndChurnStats(ctx context.Context) (renewed, chu
 		JOIN payments p ON ps.payment_id = p.id
 		WHERE p.status = 'approved'
 		  AND s.created_at < ?
+		  AND (s.status IN ('expired', 'disabled') OR s.renewal_count > 0)
 	`
 
 	var result struct {
