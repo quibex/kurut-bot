@@ -38,12 +38,7 @@ func (c *StatsCommand) Execute(ctx context.Context, chatID int64) error {
 
 	text := c.formatStatistics(stats)
 
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "stats_refresh"),
-			tgbotapi.NewInlineKeyboardButtonData("📊 Аналитика", "stats_analytics"),
-		),
-	)
+	keyboard := statsOverviewKeyboard()
 
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
@@ -60,12 +55,7 @@ func (c *StatsCommand) Refresh(ctx context.Context, chatID int64, messageID int)
 
 	text := c.formatStatistics(stats)
 
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "stats_refresh"),
-			tgbotapi.NewInlineKeyboardButtonData("📊 Аналитика", "stats_analytics"),
-		),
-	)
+	keyboard := statsOverviewKeyboard()
 
 	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
 	edit.ParseMode = "Markdown"
@@ -189,6 +179,77 @@ func (c *StatsCommand) formatAnalytics(analytics *storage.CustomerAnalytics) str
 	text.WriteString(fmt.Sprintf("• Конверсия trial: *%.1f%%*\n", analytics.TrialConversionRate))
 
 	return text.String()
+}
+
+func statsOverviewKeyboard() tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "stats_refresh"),
+			tgbotapi.NewInlineKeyboardButtonData("📊 Аналитика", "stats_analytics"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("мои 💸", "stats_my_revenue"),
+		),
+	)
+}
+
+const (
+	elTelegramID   int64 = 1292867881
+	baxaTelegramID int64 = 923585457
+
+	elSharePercent   = 40.0
+	baxaSharePercent = 60.0
+)
+
+func (c *StatsCommand) ShowMyRevenue(ctx context.Context, chatID int64, messageID int, telegramID int64) error {
+	stats, err := c.storage.GetStatistics(ctx)
+	if err != nil {
+		return fmt.Errorf("get statistics: %w", err)
+	}
+
+	var name string
+	var percent float64
+
+	switch telegramID {
+	case elTelegramID:
+		name = "eL"
+		percent = elSharePercent
+	case baxaTelegramID:
+		name = "baxa"
+		percent = baxaSharePercent
+	default:
+		name = "unknown"
+		percent = 0
+	}
+
+	multiplier := percent / 100.0
+
+	now := time.Now()
+	currentMonth := getMonthName(now.Month())
+	previousMonth := getMonthName(now.AddDate(0, -1, 0).Month())
+
+	var text strings.Builder
+	text.WriteString(fmt.Sprintf("💸 *Выручка %s (%.0f%%)*\n\n", name, percent))
+	text.WriteString(fmt.Sprintf("• Сегодня: *%.2f ₽*\n", stats.TodayRevenue*multiplier))
+	text.WriteString(fmt.Sprintf("• Вчера: *%.2f ₽*\n", stats.YesterdayRevenue*multiplier))
+	text.WriteString(fmt.Sprintf("• Средняя за день (%s): *%.2f ₽*\n", currentMonth, stats.AverageRevenuePerDay*multiplier))
+	text.WriteString(fmt.Sprintf("• За %s: *%.2f ₽*\n", previousMonth, stats.PreviousMonthRevenue*multiplier))
+	text.WriteString(fmt.Sprintf("• За %s: *%.2f ₽*\n", currentMonth, stats.CurrentMonthRevenue*multiplier))
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📋 Обзор", "stats_overview"),
+		),
+	)
+
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, text.String())
+	edit.ParseMode = "Markdown"
+	edit.ReplyMarkup = &keyboard
+	_, err = c.bot.Send(edit)
+	if err != nil && strings.Contains(err.Error(), "message is not modified") {
+		return nil
+	}
+	return err
 }
 
 func formatGrowth(growth float64) string {
