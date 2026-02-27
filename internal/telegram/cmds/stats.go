@@ -188,7 +188,7 @@ func statsOverviewKeyboard() tgbotapi.InlineKeyboardMarkup {
 			tgbotapi.NewInlineKeyboardButtonData("📊 Аналитика", "stats_analytics"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("мои 💸", "stats_my_revenue"),
+			tgbotapi.NewInlineKeyboardButtonData("Мои 💸", "stats_my_revenue"),
 		),
 	)
 }
