@@ -466,12 +466,12 @@ type AssistantStats struct {
 
 // GetAssistantStats returns subscription statistics for an assistant
 func (s *storageImpl) GetAssistantStats(ctx context.Context, assistantTelegramID int64) (*AssistantStats, error) {
-	now := s.now()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	nowMoscow := s.now().In(moscowLocation)
+	todayStart := time.Date(nowMoscow.Year(), nowMoscow.Month(), nowMoscow.Day(), 0, 0, 0, 0, moscowLocation).UTC()
 	yesterdayStart := todayStart.AddDate(0, 0, -1)
 
 	// Calculate this week start (Monday)
-	weekday := int(now.Weekday())
+	weekday := int(nowMoscow.Weekday())
 	if weekday == 0 {
 		weekday = 7 // Sunday is 7
 	}
@@ -757,12 +757,12 @@ func (s *storageImpl) HasPaidSubscriptionByPhone(ctx context.Context, phoneNumbe
 
 // CountWeeklyReferrals counts how many people were invited by referrerWhatsApp this week
 func (s *storageImpl) CountWeeklyReferrals(ctx context.Context, referrerWhatsApp string) (int, error) {
-	now := s.now()
-	weekday := int(now.Weekday())
+	nowMoscow := s.now().In(moscowLocation)
+	weekday := int(nowMoscow.Weekday())
 	if weekday == 0 {
 		weekday = 7 // Sunday is 7
 	}
-	weekStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(weekday - 1))
+	weekStart := time.Date(nowMoscow.Year(), nowMoscow.Month(), nowMoscow.Day(), 0, 0, 0, 0, moscowLocation).AddDate(0, 0, -(weekday - 1)).UTC()
 
 	query := s.stmpBuilder().
 		Select("COUNT(*)").
@@ -792,12 +792,12 @@ type ReferrerStats struct {
 
 // GetTopReferrersThisWeek returns top N referrers by invitation count this week
 func (s *storageImpl) GetTopReferrersThisWeek(ctx context.Context, limit int) ([]ReferrerStats, error) {
-	now := s.now()
-	weekday := int(now.Weekday())
+	nowMoscow := s.now().In(moscowLocation)
+	weekday := int(nowMoscow.Weekday())
 	if weekday == 0 {
 		weekday = 7 // Sunday is 7
 	}
-	weekStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(weekday - 1))
+	weekStart := time.Date(nowMoscow.Year(), nowMoscow.Month(), nowMoscow.Day(), 0, 0, 0, 0, moscowLocation).AddDate(0, 0, -(weekday - 1)).UTC()
 
 	query := s.stmpBuilder().
 		Select("referrer_whatsapp", "COUNT(*) as count").

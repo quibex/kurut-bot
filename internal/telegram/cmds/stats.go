@@ -67,6 +67,9 @@ func (c *StatsCommand) Refresh(ctx context.Context, chatID int64, messageID int)
 	return err
 }
 
+// moscowLocation is Moscow timezone (UTC+3)
+var moscowLocation = time.FixedZone("MSK", 3*60*60)
+
 func (c *StatsCommand) formatStatistics(stats *storage.StatisticsData) string {
 	var text strings.Builder
 
@@ -88,7 +91,7 @@ func (c *StatsCommand) formatStatistics(stats *storage.StatisticsData) string {
 		text.WriteString(fmt.Sprintf("*Архивные тарифы:* %d чел.\n\n", stats.ArchivedTariffUsersCount))
 	}
 
-	now := time.Now()
+	now := time.Now().In(moscowLocation)
 	currentMonth := getMonthName(now.Month())
 	previousMonth := getMonthName(now.AddDate(0, -1, 0).Month())
 
@@ -224,7 +227,7 @@ func (c *StatsCommand) ShowMyRevenue(ctx context.Context, chatID int64, messageI
 
 	multiplier := percent / 100.0
 
-	now := time.Now()
+	now := time.Now().In(moscowLocation)
 	currentMonth := getMonthName(now.Month())
 	previousMonth := getMonthName(now.AddDate(0, -1, 0).Month())
 
