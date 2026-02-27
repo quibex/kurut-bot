@@ -9,6 +9,9 @@ import (
 	yoopayment "github.com/rvinnie/yookassa-sdk-go/yookassa/payment"
 )
 
+// moscowLocation is Moscow timezone (UTC+3)
+var moscowLocation = time.FixedZone("MSK", 3*60*60)
+
 // Service provides business logic for payment operations
 type Service struct {
 	storage        Storage
@@ -172,7 +175,7 @@ func (s *Service) CancelPayment(ctx context.Context, paymentID int64) error {
 					"payment_id", paymentID,
 					"yookassa_id", *p.YooKassaID,
 				)
-				now := time.Now()
+				now := time.Now().In(moscowLocation)
 				approvedStatus := StatusApproved
 				_, _ = s.storage.UpdatePayment(ctx, criteria, UpdateParams{
 					Status:      &approvedStatus,
@@ -214,7 +217,7 @@ func (s *Service) CancelPayment(ctx context.Context, paymentID int64) error {
 
 // createManualPayment creates a payment with approved status without calling YooKassa
 func (s *Service) createManualPayment(ctx context.Context, paymentEntity Payment) (*Payment, error) {
-	now := time.Now()
+	now := time.Now().In(moscowLocation)
 	paymentEntity.Status = StatusApproved
 	paymentEntity.ProcessedAt = &now
 
@@ -252,7 +255,7 @@ func (s *Service) CheckPaymentStatus(ctx context.Context, paymentID int64) (*Pay
 		s.logger.Info("Manual payment mode enabled, returning approved status", "payment_id", paymentID)
 		if payment.Status != StatusApproved {
 			newStatus := StatusApproved
-			now := time.Now()
+			now := time.Now().In(moscowLocation)
 			updateParams := UpdateParams{
 				Status:      &newStatus,
 				ProcessedAt: &now,
@@ -314,7 +317,7 @@ func (s *Service) CheckPaymentStatus(ctx context.Context, paymentID int64) (*Pay
 
 		// Если платеж стал успешным, добавляем дату обработки
 		if newStatus == StatusApproved {
-			now := time.Now()
+			now := time.Now().In(moscowLocation)
 			updateParams.ProcessedAt = &now
 			s.logger.Info("Payment approved", "payment_id", paymentID)
 		}

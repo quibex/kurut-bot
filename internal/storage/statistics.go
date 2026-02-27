@@ -74,8 +74,8 @@ func (s *storageImpl) GetExpiredNotDisabledCount(ctx context.Context) (int, erro
 }
 
 func (s *storageImpl) GetExpiringTodayCount(ctx context.Context) (int, error) {
-	nowMoscow := s.now().In(moscowLocation)
-	todayStart := time.Date(nowMoscow.Year(), nowMoscow.Month(), nowMoscow.Day(), 0, 0, 0, 0, moscowLocation).UTC()
+	now := s.now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation)
 	tomorrowStart := todayStart.AddDate(0, 0, 1)
 
 	query := s.stmpBuilder().
@@ -187,8 +187,8 @@ func (s *storageImpl) GetArchivedTariffStatistics(ctx context.Context) ([]Tariff
 }
 
 func (s *storageImpl) GetRevenueForMonth(ctx context.Context, year int, month time.Month) (float64, error) {
-	startDate := time.Date(year, month, 1, 0, 0, 0, 0, moscowLocation).UTC()
-	endDate := time.Date(year, month, 1, 0, 0, 0, 0, moscowLocation).AddDate(0, 1, 0).UTC()
+	startDate := time.Date(year, month, 1, 0, 0, 0, 0, moscowLocation)
+	endDate := startDate.AddDate(0, 1, 0)
 
 	query := s.stmpBuilder().
 		Select("COALESCE(SUM(amount), 0)").
@@ -212,9 +212,8 @@ func (s *storageImpl) GetRevenueForMonth(ctx context.Context, year int, month ti
 }
 
 func (s *storageImpl) GetRevenueForDay(ctx context.Context, date time.Time) (float64, error) {
-	dateMoscow := date.In(moscowLocation)
-	startDate := time.Date(dateMoscow.Year(), dateMoscow.Month(), dateMoscow.Day(), 0, 0, 0, 0, moscowLocation).UTC()
-	endDate := startDate.Add(24 * time.Hour)
+	startDate := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, moscowLocation)
+	endDate := startDate.AddDate(0, 0, 1)
 
 	query := s.stmpBuilder().
 		Select("COALESCE(SUM(amount), 0)").
@@ -240,8 +239,7 @@ func (s *storageImpl) GetRevenueForDay(ctx context.Context, date time.Time) (flo
 
 func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error) {
 	now := s.now()
-	nowMoscow := now.In(moscowLocation)
-	currentYear, currentMonth, _ := nowMoscow.Date()
+	currentYear, currentMonth, _ := now.Date()
 	previousMonth := currentMonth - 1
 	previousYear := currentYear
 	if previousMonth == 0 {
@@ -311,20 +309,20 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 	}
 
 	averageRevenuePerDay := 0.0
-	daysInMonth := float64(nowMoscow.Day() - 1) // Exclude today from average calculation
+	daysInMonth := float64(now.Day() - 1) // Exclude today from average calculation
 	if daysInMonth > 0 {
 		// Calculate average only for completed days (exclude today's revenue)
 		completedDaysRevenue := currentMonthRevenue - todayRevenue
 		averageRevenuePerDay = completedDaysRevenue / daysInMonth
 	}
 
-	// Calculate week boundaries for new customers stats (in Moscow time, converted to UTC)
-	todayStartMoscow := time.Date(nowMoscow.Year(), nowMoscow.Month(), nowMoscow.Day(), 0, 0, 0, 0, moscowLocation)
-	weekday := int(nowMoscow.Weekday())
+	// Calculate week boundaries for new customers stats
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation)
+	weekday := int(now.Weekday())
 	if weekday == 0 {
 		weekday = 7
 	}
-	thisWeekStart := todayStartMoscow.AddDate(0, 0, -(weekday - 1)).UTC()
+	thisWeekStart := todayStart.AddDate(0, 0, -(weekday - 1))
 	lastWeekStart := thisWeekStart.AddDate(0, 0, -7)
 
 	// Get new customers counts
@@ -382,22 +380,21 @@ type TariffRevenue struct {
 // GetCustomerAnalytics returns aggregated customer analytics
 func (s *storageImpl) GetCustomerAnalytics(ctx context.Context) (*CustomerAnalytics, error) {
 	now := s.now()
-	nowMoscow := now.In(moscowLocation)
 
-	// Calculate time boundaries (in Moscow time, converted to UTC for DB queries)
-	todayStartMoscow := time.Date(nowMoscow.Year(), nowMoscow.Month(), nowMoscow.Day(), 0, 0, 0, 0, moscowLocation)
+	// Calculate time boundaries
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation)
 
 	// Week calculations (Monday-based)
-	weekday := int(nowMoscow.Weekday())
+	weekday := int(now.Weekday())
 	if weekday == 0 {
 		weekday = 7
 	}
-	thisWeekStart := todayStartMoscow.AddDate(0, 0, -(weekday - 1)).UTC()
+	thisWeekStart := todayStart.AddDate(0, 0, -(weekday - 1))
 	lastWeekStart := thisWeekStart.AddDate(0, 0, -7)
 
 	// Month calculations
-	thisMonthStart := time.Date(nowMoscow.Year(), nowMoscow.Month(), 1, 0, 0, 0, 0, moscowLocation).UTC()
-	lastMonthStart := time.Date(nowMoscow.Year(), nowMoscow.Month(), 1, 0, 0, 0, 0, moscowLocation).AddDate(0, -1, 0).UTC()
+	thisMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, moscowLocation)
+	lastMonthStart := thisMonthStart.AddDate(0, -1, 0)
 
 	analytics := &CustomerAnalytics{}
 
