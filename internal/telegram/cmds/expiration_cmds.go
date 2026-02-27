@@ -808,24 +808,9 @@ func (c *ExpirationCommand) handleSetTariff(ctx context.Context, callbackQuery *
 		msgType = subMsg.Type
 	}
 
-	// Получаем личную ссылку клиента
-	clientLink := ""
-	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		createdByTgID := int64(0)
-		if sub.CreatedByTelegramID != nil {
-			createdByTgID = *sub.CreatedByTelegramID
-		}
-		clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID, nil)
-		if err != nil {
-			c.logger.Error("Failed to get client token", "error", err)
-		} else {
-			clientLink = fmt.Sprintf("%s/c/%s", c.webDomain, clientToken.Token)
-		}
-	}
-
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, fmt.Sprintf(messages.WhatsAppMsgToday, clientLink))
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgToday)
 		if msgType == submessages.TypeOverdue {
 			text = fmt.Sprintf(
 				"⏸ *Подписка отключена*\n\n"+
@@ -950,25 +935,10 @@ func (c *ExpirationCommand) updateToExpiringMessage(ctx context.Context, chatID 
 		price = tariff.Price
 	}
 
-	// Получаем личную ссылку клиента
-	clientLink := ""
-	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		createdByTgID := int64(0)
-		if sub.CreatedByTelegramID != nil {
-			createdByTgID = *sub.CreatedByTelegramID
-		}
-		clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID, nil)
-		if err != nil {
-			c.logger.Error("Failed to get client token", "error", err)
-		} else {
-			clientLink = fmt.Sprintf("%s/c/%s", c.webDomain, clientToken.Token)
-		}
-	}
-
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, fmt.Sprintf(messages.WhatsAppMsgToday, clientLink))
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgToday)
 		text = fmt.Sprintf(
 			"🔔 *Подписка истекает сегодня*\n\n"+
 				"📱 Клиент: [%s](%s)\n"+
