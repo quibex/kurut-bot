@@ -96,7 +96,7 @@ func (s *ExpirationNotificationService) SendOverdueSubscriptionMessage(ctx conte
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := GenerateWhatsAppLink(*sub.ClientWhatsApp, fmt.Sprintf(messages.WhatsAppMsgExpired, clientLink))
+		whatsappLink := GenerateWhatsAppLink(*sub.ClientWhatsApp, "")
 		if clientLink != "" {
 			text = fmt.Sprintf(
 				"⚠️ *Просроченная подписка*\n\n"+
@@ -235,5 +235,8 @@ func GenerateWhatsAppLink(phone string, message string) string {
 	cleanPhone := strings.TrimPrefix(phone, "+")
 	cleanPhone = strings.ReplaceAll(cleanPhone, " ", "")
 	cleanPhone = strings.ReplaceAll(cleanPhone, "-", "")
+	if message == "" {
+		return fmt.Sprintf("https://wa.me/%s", cleanPhone)
+	}
 	return fmt.Sprintf("https://wa.me/%s?text=%s", cleanPhone, url.QueryEscape(message))
 }
