@@ -394,7 +394,8 @@ func (c *ExpirationCommand) updateToDisabledMessage(ctx context.Context, chatID 
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, "Здравствуйте! Ваша подписка VPN истекла. Для продолжения работы необходимо оплатить подписку.")
+		disabledMsg := fmt.Sprintf("Здравствуйте! Ваша подписка VPN истекла. Для продолжения работы необходимо оплатить подписку. %s", clientLink)
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, disabledMsg)
 		if clientLink != "" {
 			text = fmt.Sprintf(
 				"⏸ *Подписка отключена*\n\n"+
@@ -498,7 +499,7 @@ func (c *ExpirationCommand) handleCreatePayment(ctx context.Context, callbackQue
 	// Формируем текст со ссылкой как кликабельный alias "link"
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgExpired)
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, fmt.Sprintf(messages.WhatsAppMsgExpired, renewalURL))
 		text = fmt.Sprintf(
 			"🔗 *Ссылка на продление*\n\n"+
 				"📱 Клиент: [%s](%s)\n"+
@@ -807,9 +808,24 @@ func (c *ExpirationCommand) handleSetTariff(ctx context.Context, callbackQuery *
 		msgType = subMsg.Type
 	}
 
+	// Получаем личную ссылку клиента
+	clientLink := ""
+	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
+		createdByTgID := int64(0)
+		if sub.CreatedByTelegramID != nil {
+			createdByTgID = *sub.CreatedByTelegramID
+		}
+		clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID, nil)
+		if err != nil {
+			c.logger.Error("Failed to get client token", "error", err)
+		} else {
+			clientLink = fmt.Sprintf("%s/c/%s", c.webDomain, clientToken.Token)
+		}
+	}
+
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgToday)
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, fmt.Sprintf(messages.WhatsAppMsgToday, clientLink))
 		if msgType == submessages.TypeOverdue {
 			text = fmt.Sprintf(
 				"⏸ *Подписка отключена*\n\n"+
@@ -934,10 +950,25 @@ func (c *ExpirationCommand) updateToExpiringMessage(ctx context.Context, chatID 
 		price = tariff.Price
 	}
 
+	// Получаем личную ссылку клиента
+	clientLink := ""
+	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
+		createdByTgID := int64(0)
+		if sub.CreatedByTelegramID != nil {
+			createdByTgID = *sub.CreatedByTelegramID
+		}
+		clientToken, err := c.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID, nil)
+		if err != nil {
+			c.logger.Error("Failed to get client token", "error", err)
+		} else {
+			clientLink = fmt.Sprintf("%s/c/%s", c.webDomain, clientToken.Token)
+		}
+	}
+
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, messages.WhatsAppMsgToday)
+		whatsappLink := generateWhatsAppLink(*sub.ClientWhatsApp, fmt.Sprintf(messages.WhatsAppMsgToday, clientLink))
 		text = fmt.Sprintf(
 			"🔔 *Подписка истекает сегодня*\n\n"+
 				"📱 Клиент: [%s](%s)\n"+
