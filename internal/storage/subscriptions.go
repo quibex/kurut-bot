@@ -467,7 +467,7 @@ type AssistantStats struct {
 // GetAssistantStats returns subscription statistics for an assistant
 func (s *storageImpl) GetAssistantStats(ctx context.Context, assistantTelegramID int64) (*AssistantStats, error) {
 	now := s.now()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation)
 	yesterdayStart := todayStart.AddDate(0, 0, -1)
 
 	// Calculate this week start (Monday)
@@ -762,7 +762,7 @@ func (s *storageImpl) CountWeeklyReferrals(ctx context.Context, referrerWhatsApp
 	if weekday == 0 {
 		weekday = 7 // Sunday is 7
 	}
-	weekStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(weekday - 1))
+	weekStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation).AddDate(0, 0, -(weekday - 1))
 
 	query := s.stmpBuilder().
 		Select("COUNT(*)").
@@ -797,7 +797,7 @@ func (s *storageImpl) GetTopReferrersThisWeek(ctx context.Context, limit int) ([
 	if weekday == 0 {
 		weekday = 7 // Sunday is 7
 	}
-	weekStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(weekday - 1))
+	weekStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation).AddDate(0, 0, -(weekday - 1))
 
 	query := s.stmpBuilder().
 		Select("referrer_whatsapp", "COUNT(*) as count").

@@ -52,13 +52,16 @@ func (c *PartnershipCommand) HandleCallback(ctx context.Context, callback *tgbot
 	return nil
 }
 
+// moscowLocationPartnership is Moscow timezone (UTC+3)
+var moscowLocationPartnership = time.FixedZone("MSK", 3*60*60)
+
 func (c *PartnershipCommand) showStats(ctx context.Context, chatID int64, messageID int, thisWeek bool) error {
-	now := time.Now()
+	now := time.Now().In(moscowLocationPartnership)
 	weekday := int(now.Weekday())
 	if weekday == 0 {
 		weekday = 7
 	}
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocationPartnership).UTC()
 	thisWeekStart := todayStart.AddDate(0, 0, -(weekday - 1))
 	lastWeekStart := thisWeekStart.AddDate(0, 0, -7)
 
@@ -66,7 +69,7 @@ func (c *PartnershipCommand) showStats(ctx context.Context, chatID int64, messag
 	var title string
 	if thisWeek {
 		weekStart = thisWeekStart
-		weekEnd = now
+		weekEnd = now.UTC()
 		title = "🤝 *Партнёры — эта неделя*"
 	} else {
 		weekStart = lastWeekStart

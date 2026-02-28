@@ -14,7 +14,7 @@ type storageImpl struct {
 }
 
 func New(db *sqlx.DB) *storageImpl {
-	return &storageImpl{db: db, now: func() time.Time { return time.Now().UTC() }}
+	return &storageImpl{db: db, now: func() time.Time { return time.Now().In(moscowLocation) }}
 }
 
 func (s *storageImpl) stmpBuilder() sq.StatementBuilderType {
@@ -24,13 +24,11 @@ func (s *storageImpl) stmpBuilder() sq.StatementBuilderType {
 // moscowLocation is Moscow timezone (UTC+3)
 var moscowLocation = time.FixedZone("MSK", 3*60*60)
 
-// todayStart returns the start of today (00:00:00) in Moscow time, converted to UTC
+// todayStart returns the start of today (00:00:00) in Moscow time
 // Used for stable daily queries - lists don't change throughout the day
-// Returns UTC to ensure consistent database comparisons (database stores times in UTC)
 func (s *storageImpl) todayStart() time.Time {
-	nowMoscow := s.now().In(moscowLocation)
-	startOfDayMoscow := time.Date(nowMoscow.Year(), nowMoscow.Month(), nowMoscow.Day(), 0, 0, 0, 0, moscowLocation)
-	return startOfDayMoscow.UTC()
+	now := s.now()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation)
 }
 
 // Fields возвращает список всех полей структуры, которые есть в БД.

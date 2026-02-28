@@ -75,7 +75,7 @@ func (s *storageImpl) GetExpiredNotDisabledCount(ctx context.Context) (int, erro
 
 func (s *storageImpl) GetExpiringTodayCount(ctx context.Context) (int, error) {
 	now := s.now()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation)
 	tomorrowStart := todayStart.AddDate(0, 0, 1)
 
 	query := s.stmpBuilder().
@@ -187,7 +187,7 @@ func (s *storageImpl) GetArchivedTariffStatistics(ctx context.Context) ([]Tariff
 }
 
 func (s *storageImpl) GetRevenueForMonth(ctx context.Context, year int, month time.Month) (float64, error) {
-	startDate := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
+	startDate := time.Date(year, month, 1, 0, 0, 0, 0, moscowLocation)
 	endDate := startDate.AddDate(0, 1, 0)
 
 	query := s.stmpBuilder().
@@ -212,7 +212,7 @@ func (s *storageImpl) GetRevenueForMonth(ctx context.Context, year int, month ti
 }
 
 func (s *storageImpl) GetRevenueForDay(ctx context.Context, date time.Time) (float64, error) {
-	startDate := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+	startDate := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, moscowLocation)
 	endDate := startDate.AddDate(0, 0, 1)
 
 	query := s.stmpBuilder().
@@ -317,7 +317,7 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 	}
 
 	// Calculate week boundaries for new customers stats
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation)
 	weekday := int(now.Weekday())
 	if weekday == 0 {
 		weekday = 7
@@ -382,7 +382,7 @@ func (s *storageImpl) GetCustomerAnalytics(ctx context.Context) (*CustomerAnalyt
 	now := s.now()
 
 	// Calculate time boundaries
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation)
 
 	// Week calculations (Monday-based)
 	weekday := int(now.Weekday())
@@ -393,7 +393,7 @@ func (s *storageImpl) GetCustomerAnalytics(ctx context.Context) (*CustomerAnalyt
 	lastWeekStart := thisWeekStart.AddDate(0, 0, -7)
 
 	// Month calculations
-	thisMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	thisMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, moscowLocation)
 	lastMonthStart := thisMonthStart.AddDate(0, -1, 0)
 
 	analytics := &CustomerAnalytics{}
