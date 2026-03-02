@@ -28,6 +28,8 @@ type StatisticsData struct {
 	TodayRevenue         float64
 	YesterdayRevenue     float64
 	AverageRevenuePerDay float64
+	// WeekendRevenue is the sum of Fri+Sat+Sun revenue, set only on Mondays (YooKassa settles weekend payments on Monday)
+	WeekendRevenue *float64
 	// New customers statistics
 	NewCustomersThisWeek int
 	NewCustomersLastWeek int
@@ -316,6 +318,30 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		averageRevenuePerDay = completedDaysRevenue / daysInMonth
 	}
 
+	// On Mondays, calculate weekend revenue forecast (Fri+Sat+Sun — YooKassa settles these on Monday)
+	var weekendRevenue *float64
+	if now.Weekday() == time.Monday {
+		friday := now.AddDate(0, 0, -3)
+		saturday := now.AddDate(0, 0, -2)
+		sunday := now.AddDate(0, 0, -1)
+
+		friRevenue, err := s.GetRevenueForDay(ctx, friday)
+		if err != nil {
+			return nil, fmt.Errorf("get friday revenue: %w", err)
+		}
+		satRevenue, err := s.GetRevenueForDay(ctx, saturday)
+		if err != nil {
+			return nil, fmt.Errorf("get saturday revenue: %w", err)
+		}
+		sunRevenue, err := s.GetRevenueForDay(ctx, sunday)
+		if err != nil {
+			return nil, fmt.Errorf("get sunday revenue: %w", err)
+		}
+
+		total := friRevenue + satRevenue + sunRevenue
+		weekendRevenue = &total
+	}
+
 	// Calculate week boundaries for new customers stats
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, moscowLocation)
 	weekday := int(now.Weekday())
@@ -343,6 +369,7 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		TodayRevenue:             todayRevenue,
 		YesterdayRevenue:         yesterdayRevenue,
 		AverageRevenuePerDay:     averageRevenuePerDay,
+		WeekendRevenue:           weekendRevenue,
 		NewCustomersThisWeek:     newCustomersThisWeek,
 		NewCustomersLastWeek:     newCustomersLastWeek,
 	}, nil
