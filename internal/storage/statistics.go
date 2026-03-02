@@ -318,12 +318,21 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		averageRevenuePerDay = completedDaysRevenue / daysInMonth
 	}
 
-	// On Mondays, calculate weekend revenue forecast (Fri+Sat+Sun — YooKassa settles these on Monday)
+	// On Sat/Sun/Mon, calculate weekend revenue forecast (Fri+Sat+Sun — YooKassa settles these on Monday)
 	var weekendRevenue *float64
-	if now.Weekday() == time.Monday {
-		friday := now.AddDate(0, 0, -3)
-		saturday := now.AddDate(0, 0, -2)
-		sunday := now.AddDate(0, 0, -1)
+	var daysFromFriday int
+	switch now.Weekday() {
+	case time.Saturday:
+		daysFromFriday = 1
+	case time.Sunday:
+		daysFromFriday = 2
+	case time.Monday:
+		daysFromFriday = 3
+	}
+	if daysFromFriday > 0 {
+		friday := now.AddDate(0, 0, -daysFromFriday)
+		saturday := now.AddDate(0, 0, -daysFromFriday+1)
+		sunday := now.AddDate(0, 0, -daysFromFriday+2)
 
 		friRevenue, err := s.GetRevenueForDay(ctx, friday)
 		if err != nil {

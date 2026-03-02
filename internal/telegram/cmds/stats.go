@@ -98,7 +98,7 @@ func (c *StatsCommand) formatStatistics(stats *storage.StatisticsData) string {
 	text.WriteString("💰 *Выручка:*\n")
 	text.WriteString(fmt.Sprintf("• Сегодня: *%.2f ₽*\n", stats.TodayRevenue))
 	if stats.WeekendRevenue != nil {
-		text.WriteString(fmt.Sprintf("• Придёт сегодня (пт+сб+вс): *%.2f ₽*\n", *stats.WeekendRevenue))
+		text.WriteString(fmt.Sprintf("• Придёт в пн (пт+сб+вс): *%.2f ₽*\n", *stats.WeekendRevenue))
 	}
 	text.WriteString(fmt.Sprintf("• Вчера: *%.2f ₽*\n", stats.YesterdayRevenue))
 	text.WriteString(fmt.Sprintf("• Средняя за день (%s): *%.2f ₽*\n", currentMonth, stats.AverageRevenuePerDay))
@@ -238,7 +238,7 @@ func (c *StatsCommand) ShowMyRevenue(ctx context.Context, chatID int64, messageI
 	text.WriteString(fmt.Sprintf("💸 *Выручка %s (%.0f%%)*\n\n", name, percent))
 	text.WriteString(fmt.Sprintf("• Сегодня: *%.2f ₽*\n", stats.TodayRevenue*multiplier))
 	if stats.WeekendRevenue != nil {
-		text.WriteString(fmt.Sprintf("• Придёт сегодня (пт+сб+вс): *%.2f ₽*\n", *stats.WeekendRevenue*multiplier))
+		text.WriteString(fmt.Sprintf("• Придёт в пн (пт+сб+вс): *%.2f ₽*\n", *stats.WeekendRevenue*multiplier))
 	}
 	text.WriteString(fmt.Sprintf("• Вчера: *%.2f ₽*\n", stats.YesterdayRevenue*multiplier))
 	text.WriteString(fmt.Sprintf("• Средняя за день (%s): *%.2f ₽*\n", currentMonth, stats.AverageRevenuePerDay*multiplier))
