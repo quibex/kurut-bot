@@ -62,7 +62,7 @@ func provideTelegramBot(cfg config.Config, logger *slog.Logger) (*telegram.Clien
 	}
 
 	// Create telegram client
-	client, err := telegram.NewClient(cfg.Telegram.BotToken, logger)
+	client, err := telegram.NewClient(cfg.Telegram.BotToken, cfg.Telegram.ProxyURL, logger)
 	if err != nil {
 		return nil, err
 	}

@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"golang.org/x/net/proxy"
 	"golang.org/x/time/rate"
 )
 
@@ -18,8 +22,34 @@ type Client struct {
 	cancel  context.CancelFunc
 }
 
-func NewClient(token string, logger *slog.Logger) (*Client, error) {
-	bot, err := tgbotapi.NewBotAPI(token)
+func NewClient(token string, proxyURL string, logger *slog.Logger) (*Client, error) {
+	var bot *tgbotapi.BotAPI
+	var err error
+
+	if proxyURL != "" {
+		parsedURL, parseErr := url.Parse(proxyURL)
+		if parseErr != nil {
+			return nil, fmt.Errorf("парсинг proxy URL: %w", parseErr)
+		}
+
+		dialer, dialErr := proxy.FromURL(parsedURL, proxy.Direct)
+		if dialErr != nil {
+			return nil, fmt.Errorf("создание SOCKS5 dialer: %w", dialErr)
+		}
+
+		httpClient := &http.Client{
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					return dialer.Dial(network, addr)
+				},
+			},
+		}
+
+		bot, err = tgbotapi.NewBotAPIWithClient(token, tgbotapi.APIEndpoint, httpClient)
+	} else {
+		bot, err = tgbotapi.NewBotAPI(token)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("создание telegram бота: %w", err)
 	}

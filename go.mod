@@ -1,6 +1,6 @@
 module kurut-bot
 
-go 1.24
+go 1.25.0
 
 require (
 	github.com/Masterminds/squirrel v1.5.4
@@ -15,6 +15,7 @@ require (
 	github.com/rvinnie/yookassa-sdk-go v0.0.0-20250908195835-809ca4f1c149
 	github.com/samber/lo v1.51.0
 	github.com/sethvargo/go-envconfig v1.3.0
+	golang.org/x/net v0.52.0
 	golang.org/x/time v0.12.0
 )
 
@@ -29,7 +30,7 @@ require (
 	github.com/prometheus/common v0.32.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/text v0.25.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/text v0.35.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 )
