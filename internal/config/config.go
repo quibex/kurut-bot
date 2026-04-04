@@ -31,7 +31,7 @@ type WebConfig struct {
 type TelegramConfig struct {
 	BotToken     string        `env:"BOT_TOKEN,required"`
 	Timeout      time.Duration `env:"TIMEOUT,default=30s"`
-	ProxyURL     string        `env:"PROXY_URL,default=socks5://64.188.106.40:1080"`
+	ProxyURL     string        `env:"PROXY_URL,default=socks5://178.236.243.255:1080"`
 	AdminIDs     []int64       `env:"ADMIN_IDS"`
 	AssistantIDs []int64       `env:"ASSISTANT_IDS"`
 }
