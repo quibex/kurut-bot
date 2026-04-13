@@ -31,6 +31,7 @@ type StatisticsData struct {
 	// WeekendRevenue is the sum of Fri+Sat+Sun revenue, set only on Mondays (YooKassa settles weekend payments on Monday)
 	WeekendRevenue *float64
 	// New customers statistics
+	NewCustomersToday    int
 	NewCustomersThisWeek int
 	NewCustomersLastWeek int
 }
@@ -361,6 +362,7 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 	lastWeekStart := thisWeekStart.AddDate(0, 0, -7)
 
 	// Get new customers counts
+	newCustomersToday, _ := s.GetNewCustomersCount(ctx, todayStart, now)
 	newCustomersThisWeek, _ := s.GetNewCustomersCount(ctx, thisWeekStart, now)
 	newCustomersLastWeek, _ := s.GetNewCustomersCount(ctx, lastWeekStart, thisWeekStart)
 
@@ -379,6 +381,7 @@ func (s *storageImpl) GetStatistics(ctx context.Context) (*StatisticsData, error
 		YesterdayRevenue:         yesterdayRevenue,
 		AverageRevenuePerDay:     averageRevenuePerDay,
 		WeekendRevenue:           weekendRevenue,
+		NewCustomersToday:        newCustomersToday,
 		NewCustomersThisWeek:     newCustomersThisWeek,
 		NewCustomersLastWeek:     newCustomersLastWeek,
 	}, nil

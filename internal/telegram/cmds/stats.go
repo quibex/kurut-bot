@@ -75,39 +75,37 @@ func (c *StatsCommand) formatStatistics(stats *storage.StatisticsData) string {
 
 	text.WriteString("📊 *Статистика*\n\n")
 
-	text.WriteString(fmt.Sprintf("*Активных подписок:* %d\n", stats.ActiveSubscriptionsCount))
-	text.WriteString(fmt.Sprintf("*Просроченных (не отключены):* %d\n", stats.ExpiredNotDisabledCount))
-	text.WriteString(fmt.Sprintf("*Истекают сегодня:* %d\n\n", stats.ExpiringTodayCount))
+	text.WriteString(fmt.Sprintf("*Активных подписок: %d*\n", stats.ActiveSubscriptionsCount))
+	text.WriteString(fmt.Sprintf("Просроченных (не отключены): %d\n", stats.ExpiredNotDisabledCount))
+	text.WriteString(fmt.Sprintf("Истекают сегодня: %d\n\n", stats.ExpiringTodayCount))
 
 	if len(stats.ActiveTariffStats) > 0 {
-		text.WriteString("*Активные тарифы:*\n")
+		text.WriteString("*Подписки по тарифам:*\n")
+		counts := make([]string, 0, len(stats.ActiveTariffStats))
 		for _, tariffStat := range stats.ActiveTariffStats {
-			text.WriteString(fmt.Sprintf("• %s: *%d* чел.\n", tariffStat.TariffName, tariffStat.UserCount))
+			counts = append(counts, fmt.Sprintf("%d", tariffStat.UserCount))
 		}
-		text.WriteString("\n")
+		text.WriteString(fmt.Sprintf("- %s -\n\n", strings.Join(counts, " • ")))
 	}
 
-	if stats.ArchivedTariffUsersCount > 0 {
-		text.WriteString(fmt.Sprintf("*Архивные тарифы:* %d чел.\n\n", stats.ArchivedTariffUsersCount))
-	}
+	text.WriteString("👥 *Новые клиенты:*\n")
+	text.WriteString(fmt.Sprintf("• Сегодня: %d\n", stats.NewCustomersToday))
+	text.WriteString(fmt.Sprintf("• Эта неделя: %d\n", stats.NewCustomersThisWeek))
+	text.WriteString(fmt.Sprintf("• Прошлая неделя: %d\n\n", stats.NewCustomersLastWeek))
 
 	now := time.Now().In(moscowLocation)
 	currentMonth := getMonthName(now.Month())
 	previousMonth := getMonthName(now.AddDate(0, -1, 0).Month())
 
 	text.WriteString("💰 *Выручка:*\n")
-	text.WriteString(fmt.Sprintf("• Сегодня: *%.2f ₽*\n", stats.TodayRevenue))
+	text.WriteString(fmt.Sprintf("• Сегодня: %.2f ₽\n", stats.TodayRevenue))
+	text.WriteString(fmt.Sprintf("• Вчера: %.2f ₽\n", stats.YesterdayRevenue))
 	if stats.WeekendRevenue != nil {
-		text.WriteString(fmt.Sprintf("• Придёт в пн (пт+сб+вс): *%.2f ₽*\n", *stats.WeekendRevenue))
+		text.WriteString(fmt.Sprintf("• Придёт в пн: %.2f ₽\n", *stats.WeekendRevenue))
 	}
-	text.WriteString(fmt.Sprintf("• Вчера: *%.2f ₽*\n", stats.YesterdayRevenue))
-	text.WriteString(fmt.Sprintf("• Средняя за день (%s): *%.2f ₽*\n", currentMonth, stats.AverageRevenuePerDay))
-	text.WriteString(fmt.Sprintf("• За %s: *%.2f ₽*\n", previousMonth, stats.PreviousMonthRevenue))
-	text.WriteString(fmt.Sprintf("• За %s: *%.2f ₽*\n", currentMonth, stats.CurrentMonthRevenue))
-
-	text.WriteString("\n👥 *Новые клиенты:*\n")
-	text.WriteString(fmt.Sprintf("• Эта неделя: *%d*\n", stats.NewCustomersThisWeek))
-	text.WriteString(fmt.Sprintf("• Прошлая неделя: *%d*\n", stats.NewCustomersLastWeek))
+	text.WriteString(fmt.Sprintf("• Средняя за день (%s): %.2f ₽\n", currentMonth, stats.AverageRevenuePerDay))
+	text.WriteString(fmt.Sprintf("• За %s: %.2f ₽\n", previousMonth, stats.PreviousMonthRevenue))
+	text.WriteString(fmt.Sprintf("• За %s: %.2f ₽\n", currentMonth, stats.CurrentMonthRevenue))
 
 	return text.String()
 }
@@ -236,14 +234,14 @@ func (c *StatsCommand) ShowMyRevenue(ctx context.Context, chatID int64, messageI
 
 	var text strings.Builder
 	text.WriteString(fmt.Sprintf("💸 *Выручка %s (%.0f%%)*\n\n", name, percent))
-	text.WriteString(fmt.Sprintf("• Сегодня: *%.2f ₽*\n", stats.TodayRevenue*multiplier))
+	text.WriteString(fmt.Sprintf("• Сегодня: %.2f ₽\n", stats.TodayRevenue*multiplier))
+	text.WriteString(fmt.Sprintf("• Вчера: %.2f ₽\n", stats.YesterdayRevenue*multiplier))
 	if stats.WeekendRevenue != nil {
-		text.WriteString(fmt.Sprintf("• Придёт в пн (пт+сб+вс): *%.2f ₽*\n", *stats.WeekendRevenue*multiplier))
+		text.WriteString(fmt.Sprintf("• Придёт в пн (пт+сб+вс): %.2f ₽\n", *stats.WeekendRevenue*multiplier))
 	}
-	text.WriteString(fmt.Sprintf("• Вчера: *%.2f ₽*\n", stats.YesterdayRevenue*multiplier))
-	text.WriteString(fmt.Sprintf("• Средняя за день (%s): *%.2f ₽*\n", currentMonth, stats.AverageRevenuePerDay*multiplier))
-	text.WriteString(fmt.Sprintf("• За %s: *%.2f ₽*\n", previousMonth, stats.PreviousMonthRevenue*multiplier))
-	text.WriteString(fmt.Sprintf("• За %s: *%.2f ₽*\n", currentMonth, stats.CurrentMonthRevenue*multiplier))
+	text.WriteString(fmt.Sprintf("• Средняя за день (%s): %.2f ₽\n", currentMonth, stats.AverageRevenuePerDay*multiplier))
+	text.WriteString(fmt.Sprintf("• За %s: %.2f ₽\n", previousMonth, stats.PreviousMonthRevenue*multiplier))
+	text.WriteString(fmt.Sprintf("• За %s: %.2f ₽\n", currentMonth, stats.CurrentMonthRevenue*multiplier))
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
