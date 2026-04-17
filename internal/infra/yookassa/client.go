@@ -2,8 +2,10 @@ package yookassa
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,6 +13,21 @@ import (
 	yoocommon "github.com/rvinnie/yookassa-sdk-go/yookassa/common"
 	yoopayment "github.com/rvinnie/yookassa-sdk-go/yookassa/payment"
 )
+
+// ErrRateLimited is returned when YooKassa throttles requests (HTTP 429
+// surfaces as "so many requests" in the SDK's error message).
+var ErrRateLimited = errors.New("yookassa: rate limited")
+
+// classifyErr wraps known error categories so callers can react via errors.Is.
+func classifyErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "so many requests") {
+		return fmt.Errorf("%w: %v", ErrRateLimited, err)
+	}
+	return err
+}
 
 // Client wraps the YooKassa SDK client
 type Client struct {
@@ -76,8 +93,7 @@ func (c *Client) CreatePaymentWithReturnURL(ctx context.Context, amount float64,
 	paymentHandler := yookassa.NewPaymentHandler(c.client).WithIdempotencyKey(idempotenceKey)
 	result, err := paymentHandler.CreatePayment(payment)
 	if err != nil {
-		c.logger.Error("Failed to create payment in YooKassa", "error", err)
-		return nil, fmt.Errorf("failed to create payment: %w", err)
+		return nil, fmt.Errorf("failed to create payment: %w", classifyErr(err))
 	}
 
 	c.logger.Info("Payment created successfully in YooKassa", "payment_id", result.ID, "status", result.Status)
@@ -91,8 +107,7 @@ func (c *Client) GetPaymentStatus(ctx context.Context, paymentID string) (*yoopa
 	paymentHandler := yookassa.NewPaymentHandler(c.client)
 	result, err := paymentHandler.FindPayment(paymentID)
 	if err != nil {
-		c.logger.Error("Failed to get payment status", "error", err, "payment_id", paymentID)
-		return nil, fmt.Errorf("failed to get payment status: %w", err)
+		return nil, fmt.Errorf("failed to get payment status: %w", classifyErr(err))
 	}
 
 	c.logger.Info("Payment status retrieved", "payment_id", paymentID, "status", result.Status)
@@ -108,8 +123,7 @@ func (c *Client) CancelPayment(ctx context.Context, paymentID string) error {
 	paymentHandler := yookassa.NewPaymentHandler(c.client).WithIdempotencyKey(idempotenceKey)
 	_, err := paymentHandler.CancelPayment(paymentID)
 	if err != nil {
-		c.logger.Error("Failed to cancel payment in YooKassa", "error", err, "payment_id", paymentID)
-		return fmt.Errorf("failed to cancel payment: %w", err)
+		return fmt.Errorf("failed to cancel payment: %w", classifyErr(err))
 	}
 
 	c.logger.Info("Payment cancelled in YooKassa", "payment_id", paymentID)

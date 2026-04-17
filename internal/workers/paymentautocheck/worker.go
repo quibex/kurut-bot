@@ -2,11 +2,13 @@ package paymentautocheck
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 
+	"kurut-bot/internal/infra/yookassa"
 	"kurut-bot/internal/stories/orders"
 	"kurut-bot/internal/stories/payment"
 	"kurut-bot/internal/stories/servers"
@@ -78,6 +80,17 @@ func (w *Worker) Name() string {
 	return "payment-autocheck"
 }
 
+// logProcessingErr logs a processing error, downgrading YooKassa rate-limit
+// responses to WARN so transient throttling doesn't flood the error stream.
+func (w *Worker) logProcessingErr(msg string, err error, attrs ...any) {
+	attrs = append(attrs, "error", err)
+	if errors.Is(err, yookassa.ErrRateLimited) {
+		w.logger.Warn(msg+" (yookassa rate-limited, will retry)", attrs...)
+		return
+	}
+	w.logger.Error(msg, attrs...)
+}
+
 // Start starts the payment autocheck worker
 func (w *Worker) Start() error {
 	// Skip auto-check if manual payment mode is enabled
@@ -86,8 +99,11 @@ func (w *Worker) Start() error {
 		return nil
 	}
 
-	// Run every 5 seconds
-	_, err := w.cron.AddFunc("@every 5s", func() {
+	// Run every 30 seconds. Previously 5s — YooKassa rate-limited us
+	// under load and floated errors up the stack. Webhooks remain the
+	// primary signal; this is a safety net.
+	const interval = "@every 30s"
+	_, err := w.cron.AddFunc(interval, func() {
 		defer func() {
 			if r := recover(); r != nil {
 				w.logger.Error("Panic in payment autocheck worker", "panic", r)
@@ -103,7 +119,7 @@ func (w *Worker) Start() error {
 	}
 
 	w.cron.Start()
-	w.logger.Info("Payment autocheck worker started", "interval", "5s")
+	w.logger.Info("Payment autocheck worker started", "interval", interval)
 	return nil
 }
 
@@ -151,10 +167,9 @@ func (w *Worker) processPendingOrders(ctx context.Context) error {
 			defer w.processingOrders.Delete(order.ID)
 
 			if err := w.processOrder(ctx, order); err != nil {
-				w.logger.Error("Failed to process order",
+				w.logProcessingErr("Failed to process order", err,
 					"order_id", order.ID,
-					"payment_id", order.PaymentID,
-					"error", err)
+					"payment_id", order.PaymentID)
 			}
 		}(order)
 	}
@@ -181,7 +196,7 @@ func (w *Worker) processOrder(ctx context.Context, order *orders.PendingOrder) e
 		// Don't delete - user can refresh the payment link
 		return nil
 	case payment.StatusPending:
-		// Still pending, will check again in 5 seconds
+		// Still pending, will check again on the next tick
 		return nil
 	default:
 		return nil
@@ -384,10 +399,9 @@ func (w *Worker) processSubscriptionMessages(ctx context.Context) error {
 			defer w.processingMessages.Delete(msg.ID)
 
 			if err := w.processSubscriptionMessage(ctx, msg); err != nil {
-				w.logger.Error("Failed to process subscription message",
+				w.logProcessingErr("Failed to process subscription message", err,
 					"msg_id", msg.ID,
-					"subscription_id", msg.SubscriptionID,
-					"error", err)
+					"subscription_id", msg.SubscriptionID)
 			}
 		}(msg)
 	}
@@ -589,10 +603,9 @@ func (w *Worker) processPurchaseTokens(ctx context.Context) error {
 			defer w.processingTokens.Delete(token.ID)
 
 			if err := w.processPurchaseToken(ctx, token); err != nil {
-				w.logger.Error("Failed to process purchase token",
+				w.logProcessingErr("Failed to process purchase token", err,
 					"token_id", token.ID,
-					"payment_id", token.PaymentID,
-					"error", err)
+					"payment_id", token.PaymentID)
 			}
 		}(token)
 	}

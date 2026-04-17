@@ -286,11 +286,6 @@ func (s *Service) CheckPaymentStatus(ctx context.Context, paymentID int64) (*Pay
 	)
 	yookassaPayment, err := s.yookassaClient.GetPaymentStatus(ctx, *payment.YooKassaID)
 	if err != nil {
-		s.logger.Error("Failed to get payment status from YooKassa",
-			"error", err,
-			"payment_id", paymentID,
-			"yookassa_id", *payment.YooKassaID,
-		)
 		return nil, fmt.Errorf("failed to get payment status from YooKassa: %w", err)
 	}
 
