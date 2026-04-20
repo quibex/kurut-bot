@@ -281,7 +281,7 @@ func (w *Worker) handleApprovedOrderPayment(ctx context.Context, order *orders.P
 	// Generate renewal token for the subscription
 	_, err = w.renewalStorage.GetOrCreateRenewalToken(ctx, result.Subscription.ID)
 	if err != nil {
-		w.logger.Error("Failed to create renewal token",
+		w.logger.Warn("Failed to create renewal token",
 			"subscription_id", result.Subscription.ID,
 			"error", err)
 		// Don't fail - just log
@@ -289,7 +289,7 @@ func (w *Worker) handleApprovedOrderPayment(ctx context.Context, order *orders.P
 
 	// Update Telegram message to show success
 	if err := w.sendOrderSuccessMessage(order, result); err != nil {
-		w.logger.Error("Failed to send order success message",
+		w.logger.Warn("Failed to send order success message",
 			"order_id", order.ID,
 			"error", err)
 	}
@@ -547,7 +547,7 @@ func (w *Worker) handleApprovedRenewalPayment(ctx context.Context, msg *submessa
 	// For active subscriptions, no notification needed - it's already renewed
 	if wasDisabled {
 		if err := w.sendRenewalSuccessMessage(msg, sub, tariff, server, wasDisabled); err != nil {
-			w.logger.Error("Failed to send renewal success message",
+			w.logger.Warn("Failed to send renewal success message",
 				"msg_id", msg.ID,
 				"error", err)
 		}
@@ -747,7 +747,7 @@ func (w *Worker) handleApprovedPurchasePayment(ctx context.Context, token *webto
 	// Generate renewal token for the subscription
 	_, err = w.renewalStorage.GetOrCreateRenewalToken(ctx, result.Subscription.ID)
 	if err != nil {
-		w.logger.Error("Failed to create renewal token",
+		w.logger.Warn("Failed to create renewal token",
 			"subscription_id", result.Subscription.ID,
 			"error", err)
 		// Don't fail - just log
@@ -755,7 +755,7 @@ func (w *Worker) handleApprovedPurchasePayment(ctx context.Context, token *webto
 
 	// Send notification to admin
 	if err := w.sendPurchaseSuccessMessage(token, result); err != nil {
-		w.logger.Error("Failed to send purchase success message",
+		w.logger.Warn("Failed to send purchase success message",
 			"token_id", token.ID,
 			"error", err)
 	}

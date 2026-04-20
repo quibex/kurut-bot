@@ -87,7 +87,7 @@ func (s *ExpirationNotificationService) SendOverdueSubscriptionMessage(ctx conte
 		}
 		clientToken, err := s.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID, nil)
 		if err != nil {
-			s.logger.Error("Failed to get client token", "error", err, "whatsapp", *sub.ClientWhatsApp)
+			s.logger.Warn("Failed to get client token", "error", err, "whatsapp", *sub.ClientWhatsApp)
 		} else {
 			clientLink = fmt.Sprintf("%s/c/%s", s.webDomain, clientToken.Token)
 		}
@@ -184,7 +184,7 @@ func (s *ExpirationNotificationService) SendExpiringSubscriptionMessage(ctx cont
 		}
 		clientToken, err := s.clientTokenStorage.GetOrCreateClientToken(ctx, *sub.ClientWhatsApp, createdByTgID, nil)
 		if err != nil {
-			s.logger.Error("Failed to get client token", "error", err, "whatsapp", *sub.ClientWhatsApp)
+			s.logger.Warn("Failed to get client token", "error", err, "whatsapp", *sub.ClientWhatsApp)
 		} else {
 			clientLink = fmt.Sprintf("%s/c/%s", s.webDomain, clientToken.Token)
 		}

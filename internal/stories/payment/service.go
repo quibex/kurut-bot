@@ -48,11 +48,11 @@ func (s *Service) CreatePaymentWithReturnURL(ctx context.Context, paymentEntity 
 
 	// 1. Валидация входных данных
 	if paymentEntity.Amount <= 0 {
-		s.logger.Error("Invalid amount", "amount", paymentEntity.Amount)
+		s.logger.Warn("Invalid amount", "amount", paymentEntity.Amount)
 		return nil, fmt.Errorf("amount must be positive")
 	}
 	if paymentEntity.UserID <= 0 {
-		s.logger.Error("Invalid userID", "user_id", paymentEntity.UserID)
+		s.logger.Warn("Invalid userID", "user_id", paymentEntity.UserID)
 		return nil, fmt.Errorf("userID must be positive")
 	}
 
@@ -85,7 +85,10 @@ func (s *Service) CreatePaymentWithReturnURL(ctx context.Context, paymentEntity 
 		yookassaPayment, err = s.yookassaClient.CreatePayment(ctx, createdPayment.Amount, description, metadata)
 	}
 	if err != nil {
-		s.logger.Error("Failed to create payment in YooKassa",
+		// Upstream YooKassa failures surface via the payment-creation-failure
+		// alert regex; logging as Warn keeps the generic error-rate alert
+		// from firing on transient network flaps.
+		s.logger.Warn("Failed to create payment in YooKassa",
 			"error", err,
 			"payment_id", createdPayment.ID,
 			"amount", createdPayment.Amount,
@@ -165,7 +168,7 @@ func (s *Service) CancelPayment(ctx context.Context, paymentID int64) error {
 	if p.Status == StatusPending && p.YooKassaID != nil && *p.YooKassaID != "" {
 		yookassaPayment, err := s.yookassaClient.GetPaymentStatus(ctx, *p.YooKassaID)
 		if err != nil {
-			s.logger.Error("Failed to check YooKassa status before cancel", "error", err, "payment_id", paymentID)
+			s.logger.Warn("Failed to check YooKassa status before cancel", "error", err, "payment_id", paymentID)
 			// Fall through to cancellation attempt
 		} else {
 			actualStatus := mapYooKassaStatusToInternal(yookassaPayment.Status)
@@ -188,7 +191,7 @@ func (s *Service) CancelPayment(ctx context.Context, paymentID int64) error {
 		// Payment is still pending in YooKassa — proceed with cancellation
 		s.logger.Info("Calling YooKassa to cancel payment", "yookassa_id", *p.YooKassaID)
 		if err := s.yookassaClient.CancelPayment(ctx, *p.YooKassaID); err != nil {
-			s.logger.Error("Failed to cancel payment in YooKassa", "error", err, "payment_id", paymentID, "yookassa_id", *p.YooKassaID)
+			s.logger.Warn("Failed to cancel payment in YooKassa", "error", err, "payment_id", paymentID, "yookassa_id", *p.YooKassaID)
 			// Continue to update DB status even if YooKassa cancellation fails
 		} else {
 			s.logger.Info("Payment cancelled in YooKassa", "payment_id", paymentID, "yookassa_id", *p.YooKassaID)
