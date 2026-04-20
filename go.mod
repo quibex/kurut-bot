@@ -29,6 +29,7 @@ require (
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.32.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
+	github.com/sony/gobreaker/v2 v2.4.0 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"kurut-bot/internal/infra/yookassa"
 	"kurut-bot/internal/stories/orders"
@@ -80,15 +81,31 @@ func (w *Worker) Name() string {
 	return "payment-autocheck"
 }
 
-// logProcessingErr logs a processing error, downgrading YooKassa rate-limit
-// responses to WARN so transient throttling doesn't flood the error stream.
+// isTransientYookassaErr reports whether err is a known transient YooKassa
+// failure (rate limiting or upstream unavailability / breaker open). Callers
+// use this to downgrade per-item logging from ERROR to WARN and aggregate.
+func isTransientYookassaErr(err error) bool {
+	return errors.Is(err, yookassa.ErrRateLimited) || errors.Is(err, yookassa.ErrUnavailable)
+}
+
+// logProcessingErr logs a non-transient processing error. Callers must check
+// isTransientYookassaErr first and aggregate those — we only emit ERROR here
+// so the alerting rule on level="ERROR" stays signal.
 func (w *Worker) logProcessingErr(msg string, err error, attrs ...any) {
 	attrs = append(attrs, "error", err)
-	if errors.Is(err, yookassa.ErrRateLimited) {
-		w.logger.Warn(msg+" (yookassa rate-limited, will retry)", attrs...)
+	w.logger.Error(msg, attrs...)
+}
+
+// logBatchTransient emits a single aggregated WARN line for transient
+// YooKassa failures in a batch, instead of N per-item errors.
+func (w *Worker) logBatchTransient(batch string, rateLimited, unavailable int32) {
+	if rateLimited == 0 && unavailable == 0 {
 		return
 	}
-	w.logger.Error(msg, attrs...)
+	w.logger.Warn("YooKassa transient failures in batch (will retry next tick)",
+		"batch", batch,
+		"rate_limited", rateLimited,
+		"unavailable", unavailable)
 }
 
 // Start starts the payment autocheck worker
@@ -156,23 +173,38 @@ func (w *Worker) processPendingOrders(ctx context.Context) error {
 		return fmt.Errorf("list pending orders: %w", err)
 	}
 
+	var wg sync.WaitGroup
+	var rateLimited, unavailable atomic.Int32
+
 	for _, order := range pendingOrders {
 		// Check if already being processed
 		if _, loaded := w.processingOrders.LoadOrStore(order.ID, true); loaded {
 			continue
 		}
 
-		// Process in goroutine to not block other orders
+		wg.Add(1)
 		go func(order *orders.PendingOrder) {
+			defer wg.Done()
 			defer w.processingOrders.Delete(order.ID)
 
 			if err := w.processOrder(ctx, order); err != nil {
+				if errors.Is(err, yookassa.ErrRateLimited) {
+					rateLimited.Add(1)
+					return
+				}
+				if errors.Is(err, yookassa.ErrUnavailable) {
+					unavailable.Add(1)
+					return
+				}
 				w.logProcessingErr("Failed to process order", err,
 					"order_id", order.ID,
 					"payment_id", order.PaymentID)
 			}
 		}(order)
 	}
+
+	wg.Wait()
+	w.logBatchTransient("orders", rateLimited.Load(), unavailable.Load())
 
 	return nil
 }
@@ -388,23 +420,38 @@ func (w *Worker) processSubscriptionMessages(ctx context.Context) error {
 		return fmt.Errorf("list active messages: %w", err)
 	}
 
+	var wg sync.WaitGroup
+	var rateLimited, unavailable atomic.Int32
+
 	for _, msg := range messages {
 		// Check if already being processed
 		if _, loaded := w.processingMessages.LoadOrStore(msg.ID, true); loaded {
 			continue
 		}
 
-		// Process in goroutine
+		wg.Add(1)
 		go func(msg *submessages.SubscriptionMessage) {
+			defer wg.Done()
 			defer w.processingMessages.Delete(msg.ID)
 
 			if err := w.processSubscriptionMessage(ctx, msg); err != nil {
+				if errors.Is(err, yookassa.ErrRateLimited) {
+					rateLimited.Add(1)
+					return
+				}
+				if errors.Is(err, yookassa.ErrUnavailable) {
+					unavailable.Add(1)
+					return
+				}
 				w.logProcessingErr("Failed to process subscription message", err,
 					"msg_id", msg.ID,
 					"subscription_id", msg.SubscriptionID)
 			}
 		}(msg)
 	}
+
+	wg.Wait()
+	w.logBatchTransient("subscription_messages", rateLimited.Load(), unavailable.Load())
 
 	return nil
 }
@@ -592,23 +639,38 @@ func (w *Worker) processPurchaseTokens(ctx context.Context) error {
 		return fmt.Errorf("list paid purchase tokens: %w", err)
 	}
 
+	var wg sync.WaitGroup
+	var rateLimited, unavailable atomic.Int32
+
 	for _, token := range tokens {
 		// Check if already being processed
 		if _, loaded := w.processingTokens.LoadOrStore(token.ID, true); loaded {
 			continue
 		}
 
-		// Process in goroutine
+		wg.Add(1)
 		go func(token *webtokens.PurchaseToken) {
+			defer wg.Done()
 			defer w.processingTokens.Delete(token.ID)
 
 			if err := w.processPurchaseToken(ctx, token); err != nil {
+				if errors.Is(err, yookassa.ErrRateLimited) {
+					rateLimited.Add(1)
+					return
+				}
+				if errors.Is(err, yookassa.ErrUnavailable) {
+					unavailable.Add(1)
+					return
+				}
 				w.logProcessingErr("Failed to process purchase token", err,
 					"token_id", token.ID,
 					"payment_id", token.PaymentID)
 			}
 		}(token)
 	}
+
+	wg.Wait()
+	w.logBatchTransient("purchase_tokens", rateLimited.Load(), unavailable.Load())
 
 	return nil
 }
