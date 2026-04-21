@@ -193,7 +193,13 @@ func (s *ExpirationNotificationService) SendExpiringSubscriptionMessage(ctx cont
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		whatsappLink := GenerateWhatsAppLink(*sub.ClientWhatsApp, whatsappMsg)
+		var whatsappText string
+		if whatsappMsg == messages.WhatsAppMsgToday {
+			whatsappText = whatsappMsg
+		} else {
+			whatsappText = fmt.Sprintf(whatsappMsg, clientLink)
+		}
+		whatsappLink := GenerateWhatsAppLink(*sub.ClientWhatsApp, whatsappText)
 		if clientLink != "" {
 			text = fmt.Sprintf(
 				"%s\n\n"+
