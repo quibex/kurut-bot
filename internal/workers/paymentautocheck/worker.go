@@ -81,16 +81,10 @@ func (w *Worker) Name() string {
 	return "payment-autocheck"
 }
 
-// isTransientYookassaErr reports whether err is a known transient YooKassa
-// failure (rate limiting or upstream unavailability / breaker open). Callers
-// use this to downgrade per-item logging from ERROR to WARN and aggregate.
-func isTransientYookassaErr(err error) bool {
-	return errors.Is(err, yookassa.ErrRateLimited) || errors.Is(err, yookassa.ErrUnavailable)
-}
-
-// logProcessingErr logs a non-transient processing error. Callers must check
-// isTransientYookassaErr first and aggregate those — we only emit ERROR here
-// so the alerting rule on level="ERROR" stays signal.
+// logProcessingErr logs a non-transient processing error. Callers must filter
+// transient YooKassa errors (rate-limit / unavailable) upstream and aggregate
+// those — we only emit ERROR here so the alerting rule on level="ERROR" stays
+// signal.
 func (w *Worker) logProcessingErr(msg string, err error, attrs ...any) {
 	attrs = append(attrs, "error", err)
 	w.logger.Error(msg, attrs...)
