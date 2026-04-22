@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	yoopayment "github.com/rvinnie/yookassa-sdk-go/yookassa/payment"
@@ -191,7 +192,12 @@ func (s *Service) CancelPayment(ctx context.Context, paymentID int64) error {
 		// Payment is still pending in YooKassa — proceed with cancellation
 		s.logger.Info("Calling YooKassa to cancel payment", "yookassa_id", *p.YooKassaID)
 		if err := s.yookassaClient.CancelPayment(ctx, *p.YooKassaID); err != nil {
-			s.logger.Warn("Failed to cancel payment in YooKassa", "error", err, "payment_id", paymentID, "yookassa_id", *p.YooKassaID)
+			// capture=true payments can't be cancelled via API — YK auto-handles expiry. Expected, not actionable.
+			if strings.Contains(err.Error(), "capture = true") {
+				s.logger.Info("YooKassa refused cancel for capture=true payment; continuing with DB update", "payment_id", paymentID, "yookassa_id", *p.YooKassaID)
+			} else {
+				s.logger.Warn("Failed to cancel payment in YooKassa", "error", err, "payment_id", paymentID, "yookassa_id", *p.YooKassaID)
+			}
 			// Continue to update DB status even if YooKassa cancellation fails
 		} else {
 			s.logger.Info("Payment cancelled in YooKassa", "payment_id", paymentID, "yookassa_id", *p.YooKassaID)
