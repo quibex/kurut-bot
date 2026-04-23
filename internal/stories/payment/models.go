@@ -40,10 +40,11 @@ type DeleteCriteria struct {
 
 // Критерии для списка платежей
 type ListCriteria struct {
-	UserID *int64
-	Status *Status
-	Limit  int
-	Offset int
+	UserID        *int64
+	Status        *Status
+	CreatedBefore *time.Time // filter: created_at < CreatedBefore
+	Limit         int
+	Offset        int
 }
 
 type UpdateParams struct {

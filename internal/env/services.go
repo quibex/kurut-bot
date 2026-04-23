@@ -26,6 +26,7 @@ import (
 	// "kurut-bot/internal/workers/disablereminder" // TODO: включить позже
 	"kurut-bot/internal/workers/expiration"
 	"kurut-bot/internal/workers/paymentautocheck"
+	"kurut-bot/internal/workers/paymentreconcile"
 
 	"github.com/pkg/errors"
 )
@@ -195,6 +196,15 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
+	// Создаем payment reconcile worker: раз в сутки закрывает pending-платежи
+	// старше 14 дней через сверку с YooKassa (race-safe, использует
+	// paymentService.CancelPayment) и алертит на orphaned approved.
+	paymentReconcileWorker := paymentreconcile.NewWorker(
+		storageImpl,    // paymentStorage
+		paymentService, // paymentService
+		logger,
+	)
+
 	// TODO: включить позже
 	// Создаем disable reminder worker
 	// disableReminderWorker := disablereminder.NewWorker(
@@ -231,6 +241,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 		expirationWorker,
 		paymentAutocheckWorker,
+		paymentReconcileWorker,
 		// disableReminderWorker, // TODO: включить позже
 	)
 

@@ -159,6 +159,9 @@ func (s *storageImpl) ListPayments(ctx context.Context, criteria payment.ListCri
 	if criteria.Status != nil {
 		query = query.Where(sq.Eq{"status": string(*criteria.Status)})
 	}
+	if criteria.CreatedBefore != nil {
+		query = query.Where(sq.Lt{"created_at": *criteria.CreatedBefore})
+	}
 
 	if criteria.Limit > 0 {
 		query = query.Limit(uint64(criteria.Limit))

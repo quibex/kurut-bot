@@ -155,6 +155,26 @@ jobs:
           WEB_TG_SUPPORT_URL: ${{ vars.WEB_TG_SUPPORT_URL }}
           WEB_WA_SUPPORT_URL: ${{ vars.WEB_WA_SUPPORT_URL }}
 
+      - name: Emit deployment annotation to VictoriaMetrics
+        if: success()
+        continue-on-error: true
+        env:
+          VM_PUSH_URL: ${{ secrets.VM_PUSH_URL }}
+          VM_PUSH_USER: ${{ secrets.VM_PUSH_USER }}
+          VM_PUSH_PASSWORD: ${{ secrets.VM_PUSH_PASSWORD }}
+        run: |
+          if [ -z "$VM_PUSH_URL" ]; then
+            echo "VM_PUSH_URL secret not set — skipping deployment annotation"
+            exit 0
+          fi
+          VERSION="${GITHUB_SHA::7}"
+          TS_MS=$(($(date +%s) * 1000))
+          echo "deployment_event{service=\"bot\",env=\"staging\",version=\"$VERSION\"} 1 $TS_MS" | \
+            curl --fail --silent --show-error \
+              -u "$VM_PUSH_USER:$VM_PUSH_PASSWORD" \
+              -X POST "$VM_PUSH_URL" \
+              -H "Content-Type: text/plain" --data-binary @-
+
   deploy-production:
     runs-on: ubuntu-latest
     needs: docker
@@ -235,3 +255,23 @@ jobs:
           WEB_TG_CHANNEL_URL: ${{ vars.WEB_TG_CHANNEL_URL }}
           WEB_TG_SUPPORT_URL: ${{ vars.WEB_TG_SUPPORT_URL }}
           WEB_WA_SUPPORT_URL: ${{ vars.WEB_WA_SUPPORT_URL }}
+
+      - name: Emit deployment annotation to VictoriaMetrics
+        if: success()
+        continue-on-error: true
+        env:
+          VM_PUSH_URL: ${{ secrets.VM_PUSH_URL }}
+          VM_PUSH_USER: ${{ secrets.VM_PUSH_USER }}
+          VM_PUSH_PASSWORD: ${{ secrets.VM_PUSH_PASSWORD }}
+        run: |
+          if [ -z "$VM_PUSH_URL" ]; then
+            echo "VM_PUSH_URL secret not set — skipping deployment annotation"
+            exit 0
+          fi
+          VERSION="${GITHUB_SHA::7}"
+          TS_MS=$(($(date +%s) * 1000))
+          echo "deployment_event{service=\"bot\",env=\"prod\",version=\"$VERSION\"} 1 $TS_MS" | \
+            curl --fail --silent --show-error \
+              -u "$VM_PUSH_USER:$VM_PUSH_PASSWORD" \
+              -X POST "$VM_PUSH_URL" \
+              -H "Content-Type: text/plain" --data-binary @-
