@@ -167,17 +167,6 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 			chatID := update.CallbackQuery.Message.Chat.ID
 			messageID := update.CallbackQuery.Message.MessageID
 			return r.statsCommand.Refresh(ctx, chatID, messageID)
-		case callbackData == "stats_my_revenue":
-			if !r.adminChecker.IsAdmin(user.TelegramID) {
-				callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ Нет прав")
-				_, _ = r.bot.Request(callback)
-				return nil
-			}
-			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-			_, _ = r.bot.Request(callback)
-			chatID := update.CallbackQuery.Message.Chat.ID
-			messageID := update.CallbackQuery.Message.MessageID
-			return r.statsCommand.ShowMyRevenue(ctx, chatID, messageID, user.TelegramID)
 		case strings.HasPrefix(callbackData, "partner_"):
 			if !r.adminChecker.IsAdmin(user.TelegramID) {
 				callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ Нет прав")
