@@ -201,7 +201,7 @@ func (w *Worker) alertOrphanedApproved(ctx context.Context, stats *reconcileStat
 
 	stats.orphansFound = len(orphans)
 	for _, p := range orphans {
-		w.logger.Error("Orphaned approved payment — money taken, no subscription linked",
+		w.logger.Warn("Orphaned approved payment — money taken, no subscription linked",
 			"payment_id", p.ID,
 			"user_id", p.UserID,
 			"amount", p.Amount,
