@@ -13,6 +13,8 @@ import (
 	yoocommon "github.com/rvinnie/yookassa-sdk-go/yookassa/common"
 	yoopayment "github.com/rvinnie/yookassa-sdk-go/yookassa/payment"
 	"github.com/sony/gobreaker/v2"
+
+	"kurut-bot/internal/observability/metrics"
 )
 
 // ErrRateLimited is returned when YooKassa throttles requests (HTTP 429
@@ -156,6 +158,7 @@ func (c *Client) CreatePaymentWithReturnURL(ctx context.Context, amount float64,
 	result, err := c.breaker.Execute(func() (*yoopayment.Payment, error) {
 		return paymentHandler.CreatePayment(payment)
 	})
+	metrics.YooKassaCallTotal.WithLabelValues("create_payment", classifyForMetrics(err)).Inc()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create payment: %w", wrapBreakerErr(err))
 	}
@@ -172,6 +175,7 @@ func (c *Client) GetPaymentStatus(ctx context.Context, paymentID string) (*yoopa
 	result, err := c.breaker.Execute(func() (*yoopayment.Payment, error) {
 		return paymentHandler.FindPayment(paymentID)
 	})
+	metrics.YooKassaCallTotal.WithLabelValues("get_payment", classifyForMetrics(err)).Inc()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get payment status: %w", wrapBreakerErr(err))
 	}
@@ -190,10 +194,38 @@ func (c *Client) CancelPayment(ctx context.Context, paymentID string) error {
 	_, err := c.breaker.Execute(func() (*yoopayment.Payment, error) {
 		return paymentHandler.CancelPayment(paymentID)
 	})
+	metrics.YooKassaCallTotal.WithLabelValues("cancel_payment", classifyForMetrics(err)).Inc()
 	if err != nil {
 		return fmt.Errorf("failed to cancel payment: %w", wrapBreakerErr(err))
 	}
 
 	c.logger.Info("Payment cancelled in YooKassa", "payment_id", paymentID)
 	return nil
+}
+
+// classifyForMetrics maps a breaker.Execute error into a metrics status label.
+func classifyForMetrics(err error) string {
+	switch {
+	case err == nil:
+		return "ok"
+	case errors.Is(err, ErrRateLimited):
+		return "fail_rate_limited"
+	case errors.Is(err, ErrUnavailable):
+		return "fail_timeout"
+	default:
+		// classifyErr may not have wrapped yet (raw breaker.Execute result);
+		// re-classify on the fly so we capture rate-limit/transport errors
+		// even before wrapBreakerErr runs.
+		wrapped := classifyErr(err)
+		switch {
+		case errors.Is(wrapped, ErrRateLimited):
+			return "fail_rate_limited"
+		case errors.Is(wrapped, ErrUnavailable):
+			return "fail_timeout"
+		case errors.Is(err, gobreaker.ErrOpenState), errors.Is(err, gobreaker.ErrTooManyRequests):
+			return "fail_timeout"
+		default:
+			return "fail"
+		}
+	}
 }
