@@ -10,8 +10,10 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"syscall"
+	"time"
 
 	environment "kurut-bot/internal/env"
+	"kurut-bot/internal/observability/metrics"
 )
 
 func main() {
@@ -201,7 +203,16 @@ func startTelegramBot(ctx context.Context, env *environment.Env) error {
 					}
 
 					// Обрабатываем через роутер
-					if err := env.Services.TelegramRouter.Route(&update); err != nil {
+					op := metrics.OpFromUpdate(&update)
+					start := time.Now()
+					err := env.Services.TelegramRouter.Route(&update)
+					metrics.HandlerDuration.WithLabelValues(op).Observe(time.Since(start).Seconds())
+					status := "ok"
+					if err != nil {
+						status = "error"
+					}
+					metrics.HandlerTotal.WithLabelValues(op, status).Inc()
+					if err != nil {
 						logger.Error("Ошибка обработки обновления", slog.Any("error", err))
 					}
 				}()
