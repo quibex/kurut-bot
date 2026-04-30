@@ -21,8 +21,10 @@ services:
       - WEB_TG_SUPPORT_URL=${WEB_TG_SUPPORT_URL:-https://t.me/kurutsupport}
       - WEB_WA_SUPPORT_URL=${WEB_WA_SUPPORT_URL:-https://wa.me/79670042901}
       - DB_PATH=${DB_PATH:-/app/data/kurut.db}
+      - OBSERVABILITY_HOST=0.0.0.0
     ports:
       - "8080:8080"
+      - "9091:8383"
     volumes:
       - ./data:/app/data
     networks:

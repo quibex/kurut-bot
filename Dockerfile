@@ -31,6 +31,6 @@ COPY migrations/ ./migrations/
 
 RUN mkdir -p /app/data
 
-EXPOSE 8080
+EXPOSE 8080 8383
 
 CMD ["./kurut-bot"]

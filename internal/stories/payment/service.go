@@ -2,12 +2,16 @@ package payment
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	yoopayment "github.com/rvinnie/yookassa-sdk-go/yookassa/payment"
+
+	"kurut-bot/internal/infra/yookassa"
+	"kurut-bot/internal/observability/metrics"
 )
 
 // moscowLocation is Moscow timezone (UTC+3)
@@ -50,10 +54,12 @@ func (s *Service) CreatePaymentWithReturnURL(ctx context.Context, paymentEntity 
 	// 1. Валидация входных данных
 	if paymentEntity.Amount <= 0 {
 		s.logger.Warn("Invalid amount", "amount", paymentEntity.Amount)
+		metrics.PaymentCreateTotal.WithLabelValues("fail_validation").Inc()
 		return nil, fmt.Errorf("amount must be positive")
 	}
 	if paymentEntity.UserID <= 0 {
 		s.logger.Warn("Invalid userID", "user_id", paymentEntity.UserID)
+		metrics.PaymentCreateTotal.WithLabelValues("fail_validation").Inc()
 		return nil, fmt.Errorf("userID must be positive")
 	}
 
@@ -67,6 +73,7 @@ func (s *Service) CreatePaymentWithReturnURL(ctx context.Context, paymentEntity 
 	createdPayment, err := s.storage.CreatePayment(ctx, paymentEntity)
 	if err != nil {
 		s.logger.Error("Failed to create payment in storage", "error", err, "user_id", paymentEntity.UserID)
+		metrics.PaymentCreateTotal.WithLabelValues("fail_other").Inc()
 		return nil, fmt.Errorf("failed to create payment in storage: %w", err)
 	}
 
@@ -94,6 +101,7 @@ func (s *Service) CreatePaymentWithReturnURL(ctx context.Context, paymentEntity 
 			"payment_id", createdPayment.ID,
 			"amount", createdPayment.Amount,
 		)
+		metrics.PaymentCreateTotal.WithLabelValues(classifyPaymentErr(err)).Inc()
 		return nil, fmt.Errorf("failed to create payment in YooKassa: %w", err)
 	}
 
@@ -124,6 +132,7 @@ func (s *Service) CreatePaymentWithReturnURL(ctx context.Context, paymentEntity 
 			"payment_id", createdPayment.ID,
 			"yookassa_id", yookassaPayment.ID,
 		)
+		metrics.PaymentCreateTotal.WithLabelValues("fail_other").Inc()
 		return nil, fmt.Errorf("failed to update payment with YooKassa data: %w", err)
 	}
 
@@ -132,7 +141,21 @@ func (s *Service) CreatePaymentWithReturnURL(ctx context.Context, paymentEntity 
 		"yookassa_id", *updatedPayment.YooKassaID,
 	)
 
+	metrics.PaymentCreateTotal.WithLabelValues("ok").Inc()
 	return updatedPayment, nil
+}
+
+// classifyPaymentErr maps a YooKassa client error into a metrics status label
+// for kurut_bot_payment_create_total.
+func classifyPaymentErr(err error) string {
+	switch {
+	case errors.Is(err, yookassa.ErrUnavailable):
+		return "fail_upstream"
+	case errors.Is(err, yookassa.ErrRateLimited):
+		return "fail_rate_limited"
+	default:
+		return "fail_other"
+	}
 }
 
 // CancelPayment cancels a pending payment (both in DB and YooKassa).
@@ -233,6 +256,7 @@ func (s *Service) createManualPayment(ctx context.Context, paymentEntity Payment
 	createdPayment, err := s.storage.CreatePayment(ctx, paymentEntity)
 	if err != nil {
 		s.logger.Error("Failed to create manual payment in storage", "error", err, "user_id", paymentEntity.UserID)
+		metrics.PaymentCreateTotal.WithLabelValues("fail_other").Inc()
 		return nil, fmt.Errorf("failed to create manual payment in storage: %w", err)
 	}
 
@@ -241,6 +265,7 @@ func (s *Service) createManualPayment(ctx context.Context, paymentEntity Payment
 		"amount", createdPayment.Amount,
 	)
 
+	metrics.PaymentCreateTotal.WithLabelValues("ok").Inc()
 	return createdPayment, nil
 }
 
