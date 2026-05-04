@@ -159,16 +159,17 @@ jobs:
         if: success()
         env:
           GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
-          GRAFANA_API_TOKEN: ${{ secrets.GRAFANA_API_TOKEN }}
+          GRAFANA_API_USER: ${{ secrets.GRAFANA_API_USER }}
+          GRAFANA_API_PASSWORD: ${{ secrets.GRAFANA_API_PASSWORD }}
         run: |
-          if [ -z "$GRAFANA_URL" ] || [ -z "$GRAFANA_API_TOKEN" ]; then
-            echo "GRAFANA_URL or GRAFANA_API_TOKEN secret not set — skipping annotation"
+          if [ -z "$GRAFANA_URL" ] || [ -z "$GRAFANA_API_USER" ] || [ -z "$GRAFANA_API_PASSWORD" ]; then
+            echo "Grafana annotation secrets not set — skipping annotation"
             exit 0
           fi
           VERSION="${GITHUB_SHA::7}"
           TS_MS=$(($(date +%s) * 1000))
           curl --fail --silent --show-error \
-            -H "Authorization: Bearer $GRAFANA_API_TOKEN" \
+            -u "$GRAFANA_API_USER:$GRAFANA_API_PASSWORD" \
             -H "Content-Type: application/json" \
             -X POST "$GRAFANA_URL/api/annotations" \
             -d "{\"time\": $TS_MS, \"tags\": [\"deploy\",\"kurut-bot\",\"staging\"], \"text\": \"deploy bot staging $VERSION\"}"
@@ -258,16 +259,17 @@ jobs:
         if: success()
         env:
           GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
-          GRAFANA_API_TOKEN: ${{ secrets.GRAFANA_API_TOKEN }}
+          GRAFANA_API_USER: ${{ secrets.GRAFANA_API_USER }}
+          GRAFANA_API_PASSWORD: ${{ secrets.GRAFANA_API_PASSWORD }}
         run: |
-          if [ -z "$GRAFANA_URL" ] || [ -z "$GRAFANA_API_TOKEN" ]; then
-            echo "GRAFANA_URL or GRAFANA_API_TOKEN secret not set — skipping annotation"
+          if [ -z "$GRAFANA_URL" ] || [ -z "$GRAFANA_API_USER" ] || [ -z "$GRAFANA_API_PASSWORD" ]; then
+            echo "Grafana annotation secrets not set — skipping annotation"
             exit 0
           fi
           VERSION="${GITHUB_SHA::7}"
           TS_MS=$(($(date +%s) * 1000))
           curl --fail --silent --show-error \
-            -H "Authorization: Bearer $GRAFANA_API_TOKEN" \
+            -u "$GRAFANA_API_USER:$GRAFANA_API_PASSWORD" \
             -H "Content-Type: application/json" \
             -X POST "$GRAFANA_URL/api/annotations" \
             -d "{\"time\": $TS_MS, \"tags\": [\"deploy\",\"kurut-bot\",\"prod\"], \"text\": \"deploy bot prod $VERSION\"}"
