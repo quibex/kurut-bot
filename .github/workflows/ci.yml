@@ -155,25 +155,23 @@ jobs:
           WEB_TG_SUPPORT_URL: ${{ vars.WEB_TG_SUPPORT_URL }}
           WEB_WA_SUPPORT_URL: ${{ vars.WEB_WA_SUPPORT_URL }}
 
-      - name: Emit deployment annotation to VictoriaMetrics
+      - name: Emit deployment annotation to Grafana
         if: success()
-        continue-on-error: true
         env:
-          VM_PUSH_URL: ${{ secrets.VM_PUSH_URL }}
-          VM_PUSH_USER: ${{ secrets.VM_PUSH_USER }}
-          VM_PUSH_PASSWORD: ${{ secrets.VM_PUSH_PASSWORD }}
+          GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+          GRAFANA_API_TOKEN: ${{ secrets.GRAFANA_API_TOKEN }}
         run: |
-          if [ -z "$VM_PUSH_URL" ]; then
-            echo "VM_PUSH_URL secret not set — skipping deployment annotation"
+          if [ -z "$GRAFANA_URL" ] || [ -z "$GRAFANA_API_TOKEN" ]; then
+            echo "GRAFANA_URL or GRAFANA_API_TOKEN secret not set — skipping annotation"
             exit 0
           fi
           VERSION="${GITHUB_SHA::7}"
           TS_MS=$(($(date +%s) * 1000))
-          echo "deployment_event{service=\"bot\",env=\"staging\",version=\"$VERSION\"} 1 $TS_MS" | \
-            curl --fail --silent --show-error \
-              -u "$VM_PUSH_USER:$VM_PUSH_PASSWORD" \
-              -X POST "$VM_PUSH_URL" \
-              -H "Content-Type: text/plain" --data-binary @-
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GRAFANA_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -X POST "$GRAFANA_URL/api/annotations" \
+            -d "{\"time\": $TS_MS, \"tags\": [\"deploy\",\"kurut-bot\",\"staging\"], \"text\": \"deploy bot staging $VERSION\"}"
 
   deploy-production:
     runs-on: ubuntu-latest
@@ -256,22 +254,20 @@ jobs:
           WEB_TG_SUPPORT_URL: ${{ vars.WEB_TG_SUPPORT_URL }}
           WEB_WA_SUPPORT_URL: ${{ vars.WEB_WA_SUPPORT_URL }}
 
-      - name: Emit deployment annotation to VictoriaMetrics
+      - name: Emit deployment annotation to Grafana
         if: success()
-        continue-on-error: true
         env:
-          VM_PUSH_URL: ${{ secrets.VM_PUSH_URL }}
-          VM_PUSH_USER: ${{ secrets.VM_PUSH_USER }}
-          VM_PUSH_PASSWORD: ${{ secrets.VM_PUSH_PASSWORD }}
+          GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+          GRAFANA_API_TOKEN: ${{ secrets.GRAFANA_API_TOKEN }}
         run: |
-          if [ -z "$VM_PUSH_URL" ]; then
-            echo "VM_PUSH_URL secret not set — skipping deployment annotation"
+          if [ -z "$GRAFANA_URL" ] || [ -z "$GRAFANA_API_TOKEN" ]; then
+            echo "GRAFANA_URL or GRAFANA_API_TOKEN secret not set — skipping annotation"
             exit 0
           fi
           VERSION="${GITHUB_SHA::7}"
           TS_MS=$(($(date +%s) * 1000))
-          echo "deployment_event{service=\"bot\",env=\"prod\",version=\"$VERSION\"} 1 $TS_MS" | \
-            curl --fail --silent --show-error \
-              -u "$VM_PUSH_USER:$VM_PUSH_PASSWORD" \
-              -X POST "$VM_PUSH_URL" \
-              -H "Content-Type: text/plain" --data-binary @-
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GRAFANA_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -X POST "$GRAFANA_URL/api/annotations" \
+            -d "{\"time\": $TS_MS, \"tags\": [\"deploy\",\"kurut-bot\",\"prod\"], \"text\": \"deploy bot prod $VERSION\"}"
