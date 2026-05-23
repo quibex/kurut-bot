@@ -25,6 +25,7 @@ import (
 
 	// "kurut-bot/internal/workers/disablereminder" // TODO: включить позже
 	"kurut-bot/internal/workers/expiration"
+	"kurut-bot/internal/workers/expiringnotify"
 	"kurut-bot/internal/workers/paymentautocheck"
 	"kurut-bot/internal/workers/paymentreconcile"
 
@@ -205,6 +206,13 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		logger,
 	)
 
+	// Создаем expiring-notify worker (daily 9 AM summary)
+	expiringNotifyWorker := expiringnotify.NewWorker(
+		storageImpl,
+		clients.TelegramBot,
+		logger,
+	)
+
 	// TODO: включить позже
 	// Создаем disable reminder worker
 	// disableReminderWorker := disablereminder.NewWorker(
@@ -240,6 +248,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	s.WorkerManager = workers.NewManager(
 		logger,
 		expirationWorker,
+		expiringNotifyWorker,
 		paymentAutocheckWorker,
 		paymentReconcileWorker,
 		// disableReminderWorker, // TODO: включить позже

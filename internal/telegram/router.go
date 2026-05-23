@@ -174,6 +174,17 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 				return nil
 			}
 			return r.partnershipCommand.HandleCallback(ctx, update.CallbackQuery)
+		case callbackData == "exp_today":
+			// "Today's expiring" summary button — shows expiring subs for the user
+			assistantID := user.TelegramID
+			var assistantPtr *int64
+			if !r.adminChecker.IsAdmin(assistantID) {
+				assistantPtr = &assistantID
+			}
+			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+			_, _ = r.bot.Request(callback)
+			chatID := update.CallbackQuery.Message.Chat.ID
+			return r.expirationCommand.ExecuteExpiring(ctx, chatID, assistantPtr)
 		case strings.HasPrefix(callbackData, "exp_"):
 			// Expiration callbacks (exp_dis, exp_link, exp_paid, exp_tariff, etc.)
 			// Доступны для всех пользователей с доступом к боту (ассистентов и админов)
