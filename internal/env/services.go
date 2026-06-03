@@ -262,6 +262,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		cfg.Web.TelegramChannelURL,
 		cfg.Web.TelegramSupportURL,
 		cfg.Web.WhatsAppSupportURL,
+		cfg.Web.NewVPNBotURL,
+		cfg.Web.NewVPNSiteURL,
 		logger,
 	)
 

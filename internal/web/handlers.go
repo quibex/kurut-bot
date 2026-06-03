@@ -24,6 +24,12 @@ import (
 //go:embed templates/*
 var templatesFS embed.FS
 
+// migrationMode отключает легаси точку входа продления/покупки на веб-портале:
+// клиентов курут-бота переносим на основной бот (kurut-pie). Серверный код
+// продления и платёжка оставлены нетронутыми — для отката достаточно вернуть false.
+// Объявлено var (не const), чтобы код ниже не попадал под unreachable-проверку vet.
+var migrationMode = true
+
 // Handlers provides HTTP handlers for web payments
 type Handlers struct {
 	tariffService       TariffService
@@ -39,6 +45,8 @@ type Handlers struct {
 	tgChannelURL        string
 	tgSupportURL        string
 	waSupportURL        string
+	newVPNBotURL        string
+	newVPNSiteURL       string
 	logger              *slog.Logger
 }
 
@@ -59,6 +67,8 @@ func NewHandlers(
 	tgChannelURL string,
 	tgSupportURL string,
 	waSupportURL string,
+	newVPNBotURL string,
+	newVPNSiteURL string,
 	logger *slog.Logger,
 ) *Handlers {
 	return &Handlers{
@@ -75,6 +85,8 @@ func NewHandlers(
 		tgChannelURL:        tgChannelURL,
 		tgSupportURL:        tgSupportURL,
 		waSupportURL:        waSupportURL,
+		newVPNBotURL:        newVPNBotURL,
+		newVPNSiteURL:       newVPNSiteURL,
 		logger:              logger,
 	}
 }
@@ -243,6 +255,8 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 			"TgChannelURL":  h.tgChannelURL,
 			"TgSupportURL":  h.tgSupportURL,
 			"WaSupportURL":  h.waSupportURL,
+			"NewVPNBotURL":  h.newVPNBotURL,
+			"NewVPNSiteURL": h.newVPNSiteURL,
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -258,6 +272,13 @@ func (h *Handlers) handleClientSubmit(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.URL.Path, "/c/")
 	if token == "" {
 		http.Error(w, "Недействительная ссылка", http.StatusBadRequest)
+		return
+	}
+
+	// Миграция на новый VPN: продление/покупка на легаси-портале отключены.
+	// Возвращаем клиента на страницу с предложением перейти на новый бот.
+	if migrationMode {
+		http.Redirect(w, r, "/c/"+token, http.StatusSeeOther)
 		return
 	}
 
