@@ -99,7 +99,7 @@ jobs:
           username: ${{ vars.USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ vars.PORT }}
-          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,TELEGRAM_ASSISTANT_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_MANUAL_PAYMENT,YOOKASSA_RETURN_URL,WEB_DOMAIN,WEB_TG_CHANNEL_URL,WEB_TG_SUPPORT_URL,WEB_WA_SUPPORT_URL
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,TELEGRAM_ASSISTANT_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_MANUAL_PAYMENT,YOOKASSA_RETURN_URL,WEB_DOMAIN,WEB_TG_CHANNEL_URL,WEB_TG_SUPPORT_URL,WEB_WA_SUPPORT_URL,WEB_NEW_VPN_GRANT_URL,WEB_NEW_VPN_GRANT_SECRET
           script: |
             set -e
             cd /opt/kurut-bot
@@ -124,6 +124,8 @@ jobs:
             export WEB_TG_CHANNEL_URL="$WEB_TG_CHANNEL_URL"
             export WEB_TG_SUPPORT_URL="$WEB_TG_SUPPORT_URL"
             export WEB_WA_SUPPORT_URL="$WEB_WA_SUPPORT_URL"
+            export WEB_NEW_VPN_GRANT_URL="$WEB_NEW_VPN_GRANT_URL"
+            export WEB_NEW_VPN_GRANT_SECRET="$WEB_NEW_VPN_GRANT_SECRET"
 
             docker compose up -d
 
@@ -154,6 +156,8 @@ jobs:
           WEB_TG_CHANNEL_URL: ${{ vars.WEB_TG_CHANNEL_URL }}
           WEB_TG_SUPPORT_URL: ${{ vars.WEB_TG_SUPPORT_URL }}
           WEB_WA_SUPPORT_URL: ${{ vars.WEB_WA_SUPPORT_URL }}
+          WEB_NEW_VPN_GRANT_URL: ${{ vars.WEB_NEW_VPN_GRANT_URL }}
+          WEB_NEW_VPN_GRANT_SECRET: ${{ secrets.WEB_NEW_VPN_GRANT_SECRET }}
 
       - name: Emit deployment annotation to VictoriaMetrics
         if: success()
@@ -200,7 +204,7 @@ jobs:
           username: ${{ vars.USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ vars.PORT }}
-          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,TELEGRAM_ASSISTANT_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_MANUAL_PAYMENT,YOOKASSA_RETURN_URL,WEB_DOMAIN,WEB_TG_CHANNEL_URL,WEB_TG_SUPPORT_URL,WEB_WA_SUPPORT_URL
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_IDS,TELEGRAM_ASSISTANT_IDS,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,YOOKASSA_MANUAL_PAYMENT,YOOKASSA_RETURN_URL,WEB_DOMAIN,WEB_TG_CHANNEL_URL,WEB_TG_SUPPORT_URL,WEB_WA_SUPPORT_URL,WEB_NEW_VPN_GRANT_URL,WEB_NEW_VPN_GRANT_SECRET
           script: |
             set -e
             cd /opt/kurut-bot
@@ -225,6 +229,8 @@ jobs:
             export WEB_TG_CHANNEL_URL="$WEB_TG_CHANNEL_URL"
             export WEB_TG_SUPPORT_URL="$WEB_TG_SUPPORT_URL"
             export WEB_WA_SUPPORT_URL="$WEB_WA_SUPPORT_URL"
+            export WEB_NEW_VPN_GRANT_URL="$WEB_NEW_VPN_GRANT_URL"
+            export WEB_NEW_VPN_GRANT_SECRET="$WEB_NEW_VPN_GRANT_SECRET"
 
             docker compose up -d
 
@@ -255,6 +261,8 @@ jobs:
           WEB_TG_CHANNEL_URL: ${{ vars.WEB_TG_CHANNEL_URL }}
           WEB_TG_SUPPORT_URL: ${{ vars.WEB_TG_SUPPORT_URL }}
           WEB_WA_SUPPORT_URL: ${{ vars.WEB_WA_SUPPORT_URL }}
+          WEB_NEW_VPN_GRANT_URL: ${{ vars.WEB_NEW_VPN_GRANT_URL }}
+          WEB_NEW_VPN_GRANT_SECRET: ${{ secrets.WEB_NEW_VPN_GRANT_SECRET }}
 
       - name: Emit deployment annotation to VictoriaMetrics
         if: success()

@@ -20,6 +20,8 @@ services:
       - WEB_TG_CHANNEL_URL=${WEB_TG_CHANNEL_URL:-https://t.me/kurutkyrgyz}
       - WEB_TG_SUPPORT_URL=${WEB_TG_SUPPORT_URL:-https://t.me/kurutsupport}
       - WEB_WA_SUPPORT_URL=${WEB_WA_SUPPORT_URL:-https://wa.me/79670042901}
+      - WEB_NEW_VPN_GRANT_URL=${WEB_NEW_VPN_GRANT_URL:-https://kurutpro.ru/api/migration/grant}
+      - WEB_NEW_VPN_GRANT_SECRET=${WEB_NEW_VPN_GRANT_SECRET}
       - DB_PATH=${DB_PATH:-/app/data/kurut.db}
       - OBSERVABILITY_HOST=0.0.0.0
     ports:
