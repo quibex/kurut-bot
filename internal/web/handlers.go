@@ -34,6 +34,11 @@ var templatesFS embed.FS
 // Объявлено var (не const), чтобы код ниже не попадал под unreachable-проверку vet.
 var migrationMode = true
 
+// migrationMinDays — минимальный остаток дней, при котором предлагаем БЕСПЛАТНЫЙ
+// перенос подписки (с переносом дней). Меньше — считаем «нет дней» и просто
+// предлагаем подключиться к новому VPN, без переноса остатка.
+const migrationMinDays = 5
+
 // Handlers provides HTTP handlers for web payments
 type Handlers struct {
 	tariffService       TariffService
@@ -256,13 +261,15 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 
 		// Максимальный остаток дней по подпискам клиента — переносим его на новый VPN.
 		remainingDays := maxRemainingDays(subscriptions)
+		// Перенос с остатком дней предлагаем только при достаточном остатке.
+		canMigrate := remainingDays >= migrationMinDays
 
-		// Кнопки переноса: если есть остаток дней — ведём через /migrate/ (там
-		// kurut-bot запросит грант у kurut-pie и редиректнет на персональную
-		// ссылку с переносом дней). Иначе — просто обычные ссылки на новый VPN.
+		// Кнопки: при переносе ведём через /migrate/ (там kurut-bot запросит грант
+		// у kurut-pie и редиректнет на персональную ссылку с переносом дней).
+		// Иначе — просто обычные ссылки на новый VPN (без переноса остатка).
 		migrateTgURL := h.newVPNBotURL
 		migrateSiteURL := h.newVPNSiteURL
-		if remainingDays > 0 {
+		if canMigrate {
 			migrateTgURL = "/migrate/" + token + "?via=tg"
 			migrateSiteURL = "/migrate/" + token + "?via=site"
 		}
@@ -284,6 +291,7 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 			"NewVPNSiteURL":      h.newVPNSiteURL,
 			"MigrateTgURL":       migrateTgURL,
 			"MigrateSiteURL":     migrateSiteURL,
+			"CanMigrate":         canMigrate,
 			"RemainingDays":      remainingDays,
 			"RemainingDaysWord":  pluralizeDays(remainingDays),
 		}
@@ -339,7 +347,7 @@ func (h *Handlers) MigrateRedirectHandler() http.HandlerFunc {
 		}
 
 		days := maxRemainingDays(subscriptions)
-		if days <= 0 {
+		if days < migrationMinDays {
 			http.Redirect(w, r, fallback, http.StatusSeeOther)
 			return
 		}
