@@ -28,6 +28,9 @@ func newServers(ctx context.Context, cfg config.Config, logger *slog.Logger, cli
 	// New unified client page
 	mux.HandleFunc("/c/", services.WebHandlers.ClientPageHandler())
 
+	// Перенос на новый VPN: запрашивает грант у kurut-pie и редиректит клиента.
+	mux.HandleFunc("/migrate/", services.WebHandlers.MigrateRedirectHandler())
+
 	// Static files
 	mux.HandleFunc("/static/kurut.jpg", services.WebHandlers.StaticHandler("kurut.jpg"))
 

@@ -3,6 +3,8 @@ package web
 import (
 	"fmt"
 	"time"
+
+	"kurut-bot/internal/stories/subs"
 )
 
 var moscowLocation = func() *time.Location {
@@ -72,6 +74,21 @@ func daysRemaining(t time.Time) int {
 		return 0
 	}
 	return int(expiryDate.Sub(todayDate).Hours() / 24)
+}
+
+// maxRemainingDays возвращает максимальный остаток дней по подпискам клиента
+// (0, если активных дней нет) — его и переносим на новый VPN.
+func maxRemainingDays(subscriptions []*subs.Subscription) int {
+	maxDays := 0
+	for _, sub := range subscriptions {
+		if sub.ExpiresAt == nil {
+			continue
+		}
+		if d := daysRemaining(*sub.ExpiresAt); d > maxDays {
+			maxDays = d
+		}
+	}
+	return maxDays
 }
 
 // pluralizeDays склоняет слово «день» под число (1 день, 2 дня, 5 дней).

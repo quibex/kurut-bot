@@ -264,6 +264,8 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		cfg.Web.WhatsAppSupportURL,
 		cfg.Web.NewVPNBotURL,
 		cfg.Web.NewVPNSiteURL,
+		cfg.Web.NewVPNGrantURL,
+		cfg.Web.NewVPNGrantSecret,
 		logger,
 	)
 
