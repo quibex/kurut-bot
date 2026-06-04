@@ -102,7 +102,7 @@ func (s *ExpirationNotificationService) SendOverdueSubscriptionMessage(ctx conte
 				"⚠️ *Просроченная подписка*\n\n"+
 					"📱 Клиент: [%s](%s)\n"+
 					"📅 Тариф: %s (%.0f ₽)%s\n\n"+
-					"🔗 [Ссылка для оплаты](%s)",
+					"🔗 [Ссылка на перенос](%s)",
 				whatsapp, whatsappLink, tariffName, price, passwordLine, clientLink)
 		} else {
 			text = fmt.Sprintf(
@@ -193,11 +193,10 @@ func (s *ExpirationNotificationService) SendExpiringSubscriptionMessage(ctx cont
 	// Формируем текст со ссылкой на WhatsApp в номере клиента
 	var text string
 	if sub.ClientWhatsApp != nil && *sub.ClientWhatsApp != "" {
-		var whatsappText string
-		if whatsappMsg == messages.WhatsAppMsgToday {
-			whatsappText = whatsappMsg
-		} else {
-			whatsappText = fmt.Sprintf(whatsappMsg, clientLink)
+		// Личную ссылку добавляем отдельной строкой к тексту для WhatsApp.
+		whatsappText := whatsappMsg
+		if clientLink != "" {
+			whatsappText = whatsappMsg + "\n\n" + clientLink
 		}
 		whatsappLink := GenerateWhatsAppLink(*sub.ClientWhatsApp, whatsappText)
 		if clientLink != "" {
@@ -205,7 +204,7 @@ func (s *ExpirationNotificationService) SendExpiringSubscriptionMessage(ctx cont
 				"%s\n\n"+
 					"📱 Клиент: [%s](%s)\n"+
 					"📅 Тариф: %s (%.0f ₽)\n\n"+
-					"🔗 [Ссылка для оплаты](%s)",
+					"🔗 [Ссылка на перенос](%s)",
 				headerText, whatsapp, whatsappLink, tariffName, price, clientLink)
 		} else {
 			text = fmt.Sprintf(
