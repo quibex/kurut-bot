@@ -242,6 +242,17 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 			subViews = append(subViews, view)
 		}
 
+		// Максимальный остаток дней по подпискам клиента — переносим его на новый VPN.
+		maxRemainingDays := 0
+		for _, sub := range subscriptions {
+			if sub.ExpiresAt == nil {
+				continue
+			}
+			if d := daysRemaining(*sub.ExpiresAt); d > maxRemainingDays {
+				maxRemainingDays = d
+			}
+		}
+
 		data := map[string]any{
 			"Token":              token,
 			"WhatsApp":           clientToken.WhatsApp,
@@ -249,14 +260,16 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 			"Tariffs":            activeTariffs,
 			"DefaultTariffIndex": defaultTariffIndex,
 			"HasServers":         hasServers,
-			"Error":         r.URL.Query().Get("error"),
-			"PaymentResult": r.URL.Query().Get("payment_result"),
-			"PaymentType":   r.URL.Query().Get("type"),
-			"TgChannelURL":  h.tgChannelURL,
-			"TgSupportURL":  h.tgSupportURL,
-			"WaSupportURL":  h.waSupportURL,
-			"NewVPNBotURL":  h.newVPNBotURL,
-			"NewVPNSiteURL": h.newVPNSiteURL,
+			"Error":              r.URL.Query().Get("error"),
+			"PaymentResult":      r.URL.Query().Get("payment_result"),
+			"PaymentType":        r.URL.Query().Get("type"),
+			"TgChannelURL":       h.tgChannelURL,
+			"TgSupportURL":       h.tgSupportURL,
+			"WaSupportURL":       h.waSupportURL,
+			"NewVPNBotURL":       h.newVPNBotURL,
+			"NewVPNSiteURL":      h.newVPNSiteURL,
+			"RemainingDays":      maxRemainingDays,
+			"RemainingDaysWord":  pluralizeDays(maxRemainingDays),
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

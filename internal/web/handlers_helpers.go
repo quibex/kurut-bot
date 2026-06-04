@@ -59,3 +59,34 @@ func formatRemainingTime(t time.Time) string {
 
 	return fmt.Sprintf("осталось %d %s", days, suffix)
 }
+
+// daysRemaining возвращает число целых дней до истечения (0, если уже истекло).
+func daysRemaining(t time.Time) int {
+	nowMoscow := time.Now().In(moscowLocation)
+	tMoscow := t.In(moscowLocation)
+
+	todayDate := time.Date(nowMoscow.Year(), nowMoscow.Month(), nowMoscow.Day(), 0, 0, 0, 0, moscowLocation)
+	expiryDate := time.Date(tMoscow.Year(), tMoscow.Month(), tMoscow.Day(), 0, 0, 0, 0, moscowLocation)
+
+	if !expiryDate.After(todayDate) {
+		return 0
+	}
+	return int(expiryDate.Sub(todayDate).Hours() / 24)
+}
+
+// pluralizeDays склоняет слово «день» под число (1 день, 2 дня, 5 дней).
+func pluralizeDays(days int) string {
+	lastDigit := days % 10
+	lastTwoDigits := days % 100
+
+	switch {
+	case lastTwoDigits >= 11 && lastTwoDigits <= 19:
+		return "дней"
+	case lastDigit == 1:
+		return "день"
+	case lastDigit >= 2 && lastDigit <= 4:
+		return "дня"
+	default:
+		return "дней"
+	}
+}
