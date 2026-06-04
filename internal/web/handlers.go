@@ -1,16 +1,20 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -23,6 +27,17 @@ import (
 
 //go:embed templates/*
 var templatesFS embed.FS
+
+// migrationMode отключает легаси точку входа продления/покупки на веб-портале:
+// клиентов курут-бота переносим на основной бот (kurut-pie). Серверный код
+// продления и платёжка оставлены нетронутыми — для отката достаточно вернуть false.
+// Объявлено var (не const), чтобы код ниже не попадал под unreachable-проверку vet.
+var migrationMode = true
+
+// migrationMinDays — минимальный остаток дней, при котором предлагаем БЕСПЛАТНЫЙ
+// перенос подписки (с переносом дней). Меньше — считаем «нет дней» и просто
+// предлагаем подключиться к новому VPN, без переноса остатка.
+const migrationMinDays = 5
 
 // Handlers provides HTTP handlers for web payments
 type Handlers struct {
@@ -39,6 +54,11 @@ type Handlers struct {
 	tgChannelURL        string
 	tgSupportURL        string
 	waSupportURL        string
+	newVPNBotURL        string
+	newVPNSiteURL       string
+	newVPNGrantURL      string
+	newVPNGrantSecret   string
+	httpClient          *http.Client
 	logger              *slog.Logger
 }
 
@@ -59,6 +79,10 @@ func NewHandlers(
 	tgChannelURL string,
 	tgSupportURL string,
 	waSupportURL string,
+	newVPNBotURL string,
+	newVPNSiteURL string,
+	newVPNGrantURL string,
+	newVPNGrantSecret string,
 	logger *slog.Logger,
 ) *Handlers {
 	return &Handlers{
@@ -75,6 +99,11 @@ func NewHandlers(
 		tgChannelURL:        tgChannelURL,
 		tgSupportURL:        tgSupportURL,
 		waSupportURL:        waSupportURL,
+		newVPNBotURL:        newVPNBotURL,
+		newVPNSiteURL:       newVPNSiteURL,
+		newVPNGrantURL:      newVPNGrantURL,
+		newVPNGrantSecret:   newVPNGrantSecret,
+		httpClient:          &http.Client{Timeout: 10 * time.Second},
 		logger:              logger,
 	}
 }
@@ -230,6 +259,21 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 			subViews = append(subViews, view)
 		}
 
+		// Максимальный остаток дней по подпискам клиента — переносим его на новый VPN.
+		remainingDays := maxRemainingDays(subscriptions)
+		// Перенос с остатком дней предлагаем только при достаточном остатке.
+		canMigrate := remainingDays >= migrationMinDays
+
+		// Кнопки: при переносе ведём через /migrate/ (там kurut-bot запросит грант
+		// у kurut-pie и редиректнет на персональную ссылку с переносом дней).
+		// Иначе — просто обычные ссылки на новый VPN (без переноса остатка).
+		migrateTgURL := h.newVPNBotURL
+		migrateSiteURL := h.newVPNSiteURL
+		if canMigrate {
+			migrateTgURL = "/migrate/" + token + "?via=tg"
+			migrateSiteURL = "/migrate/" + token + "?via=site"
+		}
+
 		data := map[string]any{
 			"Token":              token,
 			"WhatsApp":           clientToken.WhatsApp,
@@ -237,12 +281,19 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 			"Tariffs":            activeTariffs,
 			"DefaultTariffIndex": defaultTariffIndex,
 			"HasServers":         hasServers,
-			"Error":         r.URL.Query().Get("error"),
-			"PaymentResult": r.URL.Query().Get("payment_result"),
-			"PaymentType":   r.URL.Query().Get("type"),
-			"TgChannelURL":  h.tgChannelURL,
-			"TgSupportURL":  h.tgSupportURL,
-			"WaSupportURL":  h.waSupportURL,
+			"Error":              r.URL.Query().Get("error"),
+			"PaymentResult":      r.URL.Query().Get("payment_result"),
+			"PaymentType":        r.URL.Query().Get("type"),
+			"TgChannelURL":       h.tgChannelURL,
+			"TgSupportURL":       h.tgSupportURL,
+			"WaSupportURL":       h.waSupportURL,
+			"NewVPNBotURL":       h.newVPNBotURL,
+			"NewVPNSiteURL":      h.newVPNSiteURL,
+			"MigrateTgURL":       migrateTgURL,
+			"MigrateSiteURL":     migrateSiteURL,
+			"CanMigrate":         canMigrate,
+			"RemainingDays":      remainingDays,
+			"RemainingDaysWord":  pluralizeDays(remainingDays),
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -253,11 +304,116 @@ func (h *Handlers) ClientPageHandler() http.HandlerFunc {
 	}
 }
 
+// migrationGrantResponse — ответ kurut-pie POST /api/migration/grant.
+type migrationGrantResponse struct {
+	SubURL  string `json:"sub_url"`
+	BindURL string `json:"bind_url"`
+}
+
+// MigrateRedirectHandler обрабатывает GET /migrate/{token}?via=tg|site:
+// запрашивает у kurut-pie грант на бесплатный перенос (с остатком дней клиента)
+// и редиректит на персональную ссылку (Telegram bind_url или сайт sub_url).
+// При любой ошибке — graceful fallback на обычную ссылку нового VPN.
+func (h *Handlers) MigrateRedirectHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimPrefix(r.URL.Path, "/migrate/")
+		via := r.URL.Query().Get("via")
+
+		// Цель по умолчанию (если авто-перенос недоступен).
+		fallback := h.newVPNBotURL
+		if via == "site" {
+			fallback = h.newVPNSiteURL
+		}
+
+		if token == "" || h.newVPNGrantURL == "" || h.newVPNGrantSecret == "" {
+			http.Redirect(w, r, fallback, http.StatusSeeOther)
+			return
+		}
+
+		ctx := r.Context()
+		clientToken, err := h.clientTokenStorage.GetClientTokenByToken(ctx, token)
+		if err != nil || clientToken == nil || clientToken.WhatsApp == "" {
+			http.Redirect(w, r, fallback, http.StatusSeeOther)
+			return
+		}
+
+		subscriptions, err := h.subscriptionStore.ListSubscriptions(ctx, subs.ListCriteria{
+			ClientWhatsApp: &clientToken.WhatsApp,
+		})
+		if err != nil {
+			h.logger.Error("Failed to list subscriptions for migration", "error", err)
+			http.Redirect(w, r, fallback, http.StatusSeeOther)
+			return
+		}
+
+		days := maxRemainingDays(subscriptions)
+		if days < migrationMinDays {
+			http.Redirect(w, r, fallback, http.StatusSeeOther)
+			return
+		}
+
+		grant, err := h.requestMigrationGrant(ctx, clientToken.WhatsApp, days)
+		if err != nil || grant == nil {
+			h.logger.Error("Migration grant failed", "error", err, "whatsapp", clientToken.WhatsApp)
+			http.Redirect(w, r, fallback, http.StatusSeeOther)
+			return
+		}
+
+		target := grant.BindURL
+		if via == "site" {
+			target = grant.SubURL
+		}
+		if target == "" {
+			target = fallback
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
+	}
+}
+
+// requestMigrationGrant вызывает kurut-pie POST /api/migration/grant.
+func (h *Handlers) requestMigrationGrant(ctx context.Context, phone string, days int) (*migrationGrantResponse, error) {
+	payload, err := json.Marshal(map[string]any{"phone": phone, "days": days})
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.newVPNGrantURL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Migration-Secret", h.newVPNGrantSecret)
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("grant status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var out migrationGrantResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // handleClientSubmit handles POST /c/{token} - process payment
 func (h *Handlers) handleClientSubmit(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.URL.Path, "/c/")
 	if token == "" {
 		http.Error(w, "Недействительная ссылка", http.StatusBadRequest)
+		return
+	}
+
+	// Миграция на новый VPN: продление/покупка на легаси-портале отключены.
+	// Возвращаем клиента на страницу с предложением перейти на новый бот.
+	if migrationMode {
+		http.Redirect(w, r, "/c/"+token, http.StatusSeeOther)
 		return
 	}
 

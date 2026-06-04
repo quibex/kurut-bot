@@ -472,181 +472,35 @@
             </a>
         </div>
         {{else}}
-        <!-- Основная форма -->
-        <form method="POST" action="/c/{{.Token}}" id="clientForm">
-            {{if .Subscriptions}}
-            <!-- Шаг 1: Выбор подписки -->
-            <div class="section-title">1. Выберите подписку</div>
-
-            {{range $i, $sub := .Subscriptions}}
-            <label class="option-card" data-sub-id="{{$sub.ID}}">
-                <input type="radio" name="subscription_id" value="{{$sub.ID}}" {{if eq $i 0}}checked{{end}}>
-                <div class="option-content">
-                    <div class="option-title">{{$sub.TariffName}}</div>
-                    <div class="option-subtitle {{$sub.StatusClass}}">{{$sub.StatusText}}</div>
-                </div>
-            </label>
-            {{end}}
-
-            <div class="section-title">2. Выберите тариф</div>
+        <!-- Переход на новый VPN -->
+        <div class="warning-message">
+            {{if .CanMigrate}}
+            <p><strong>🎁 У вас осталось {{.RemainingDays}} {{.RemainingDaysWord}}</strong></p>
+            <p><b>⚠️ Этот VPN скоро перестанет работать.</b> Мы переезжаем на новый Kurut VPN и <b>бесплатно перенесём</b> вашу подписку — со всеми оставшимися днями. Это займёт меньше минуты.</p>
             {{else}}
-            <!-- Новый клиент — нет подписок, создаём новую -->
-            <input type="hidden" name="subscription_id" value="new">
+            <p><strong>🚀 Мы переехали на новый Kurut VPN</strong></p>
+            <p><b>⚠️ Этот VPN скоро перестанет работать.</b> Подключитесь к новому — он быстрее и стабильнее 👇</p>
             {{end}}
+        </div>
 
-            <!-- Тарифы -->
-            {{if not .Tariffs}}
-            <div class="warning-message">
-                <p><strong>Активных тарифов нет</strong></p>
-                <p>Попробуйте позже.</p>
-            </div>
-            {{else if not .HasServers}}
-            <div class="warning-message">
-                <p><strong>Нет доступных серверов</strong></p>
-                <p>Попробуйте позже.</p>
-            </div>
-            {{else}}
-            {{range $i, $t := .Tariffs}}
-            <label class="option-card tariff-card" data-price="{{$t.Price}}">
-                <input type="radio" name="tariff_id" value="{{$t.ID}}" {{if eq $i $.DefaultTariffIndex}}checked{{end}}>
-                <div class="option-content">
-                    <div class="option-title">{{$t.Name}}</div>
-                    <div class="option-subtitle">{{$t.DurationDays}} дней</div>
-                </div>
-                <div class="option-price">{{if eq (printf "%.0f" $t.Price) "0"}}Бесплатно{{else}}{{printf "%.0f" $t.Price}} ₽{{end}}</div>
-            </label>
-            {{end}}
+        <a href="{{.MigrateTgURL}}" target="_blank" class="btn btn-tg">
+            {{if .CanMigrate}}Перенести VPN в Telegram-бот{{else}}Подключиться через Telegram{{end}}<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+        </a>
 
-            <button type="submit" class="btn btn-primary" id="submitBtn">
-                <span id="btnText">Оплатить</span>
-                <span id="btnPrice"></span>
-            </button>
+        <a href="{{.MigrateSiteURL}}" target="_blank" class="btn btn-secondary">{{if .CanMigrate}}Перенести через сайт{{else}}Открыть сайт нового VPN{{end}}</a>
 
-            <div class="payment-instruction">
-                В способах оплаты выберите:<br>
-                <b>Прочее → СБП → Ваш Банк</b>
-            </div>
-
-            <div class="legal-section">
-                <details>
-                    <summary>Публичная оферта</summary>
-                    <div class="legal-content">
-                        <h4>1. Общие положения</h4>
-                        <p>Настоящий документ определяет политику конфиденциальности и условия использования VPN-сервиса Kurut VPN (далее — «Сервис»). Оплачивая подписку, вы подтверждаете, что ознакомились с данными условиями и принимаете их в полном объёме.</p>
-
-                        <h4>2. Назначение сервиса</h4>
-                        <p>Сервис предоставляет защищённый VPN-доступ исключительно в законных целях:</p>
-                        <ul>
-                            <li>Защита персональных данных в публичных сетях Wi-Fi</li>
-                            <li>Обеспечение конфиденциальности интернет-соединения</li>
-                            <li>Безопасный удалённый доступ к ресурсам</li>
-                        </ul>
-                        <p>Сервис <b>не предназначен</b> для обхода блокировок, нарушения законодательства или любых противоправных действий.</p>
-
-                        <h4>3. Запрещённое использование</h4>
-                        <p>Пользователям запрещается:</p>
-                        <ul>
-                            <li>Использовать Сервис для нарушения законодательства любой юрисдикции</li>
-                            <li>Распространять вредоносное ПО, спам или нежелательный контент</li>
-                            <li>Осуществлять атаки на сети, серверы и иные информационные системы</li>
-                            <li>Нарушать права третьих лиц, включая авторские и интеллектуальные права</li>
-                            <li>Передавать учётные данные третьим лицам</li>
-                            <li>Использовать Сервис для обхода блокировок, установленных уполномоченными органами</li>
-                        </ul>
-                        <p>При выявлении нарушений доступ к Сервису будет заблокирован без возврата средств.</p>
-
-                        <h4>4. Сбор и обработка данных</h4>
-                        <p>Мы собираем минимально необходимые данные:</p>
-                        <ul>
-                            <li>Контактный номер телефона (WhatsApp) — для идентификации и поддержки</li>
-                            <li>Данные об оплате — для обработки платежей через ЮKassa</li>
-                            <li>Техническая информация о подключении — для обеспечения работоспособности</li>
-                        </ul>
-                        <p>Мы <b>не ведём логов</b> вашей интернет-активности и не отслеживаем посещаемые ресурсы.</p>
-
-                        <h4>5. Хранение и защита данных</h4>
-                        <p>Персональные данные хранятся в защищённой базе данных и используются исключительно для предоставления Сервиса. Мы не передаём данные третьим лицам, за исключением случаев, предусмотренных законодательством.</p>
-
-                        <h4>6. Оплата</h4>
-                        <ul>
-                            <li>Оплата производится через платёжную систему ЮKassa</li>
-                            <li>Подписка активируется после подтверждения оплаты</li>
-                        </ul>
-
-                        <h4>7. Изменение условий</h4>
-                        <p>Мы оставляем за собой право изменять настоящие условия. Продолжение использования Сервиса после изменений означает принятие новых условий.</p>
-
-                        <h4>8. Контакты</h4>
-                        <p>По вопросам, связанным с публичной офертой, обращайтесь в поддержку через Telegram или WhatsApp.</p>
-                    </div>
-                </details>
-
-                <p class="legal-notice">Нажимая кнопку оплаты, вы соглашаетесь с условиями публичной оферты.</p>
-            </div>
-            {{end}}
-        </form>
+        <p style="margin-top: 24px; color: #666; font-size: 14px;">Нужна помощь с переходом? Напишите нам:</p>
+        <div class="support-buttons">
+            <a href="{{if .WaSupportURL}}{{.WaSupportURL}}{{else}}https://wa.me/79670042901{{end}}" class="support-btn support-btn-whatsapp" target="_blank">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                WhatsApp
+            </a>
+            <a href="{{if .TgSupportURL}}{{.TgSupportURL}}{{else}}https://t.me/kurutsupport{{end}}" class="support-btn support-btn-telegram" target="_blank">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                Telegram
+            </a>
+        </div>
         {{end}}
     </div>
-
-    <script>
-        const form = document.getElementById('clientForm');
-        const tariffCards = document.querySelectorAll('.tariff-card');
-        const allCards = document.querySelectorAll('.option-card');
-        const btnPrice = document.getElementById('btnPrice');
-        const btnText = document.getElementById('btnText');
-        const submitBtn = document.getElementById('submitBtn');
-
-        function updateUI() {
-            // Update selected state for all cards
-            allCards.forEach(card => {
-                const radio = card.querySelector('input[type="radio"]');
-                card.classList.toggle('selected', radio.checked);
-            });
-
-            // Update button price and text
-            tariffCards.forEach(card => {
-                const radio = card.querySelector('input[type="radio"]');
-                if (radio.checked) {
-                    const price = parseFloat(card.dataset.price);
-                    if (price === 0) {
-                        btnPrice.textContent = '';
-                        btnText.textContent = 'Попробовать бесплатно';
-                    } else {
-                        btnPrice.textContent = price + ' ₽';
-                        const subRadio = document.querySelector('input[name="subscription_id"]:checked');
-                        if (subRadio && subRadio.value !== 'new') {
-                            btnText.textContent = 'Продлить';
-                        } else {
-                            btnText.textContent = 'Оплатить';
-                        }
-                    }
-                }
-            });
-        }
-
-        allCards.forEach(card => {
-            card.addEventListener('click', () => {
-                const radio = card.querySelector('input[type="radio"]');
-                radio.checked = true;
-                updateUI();
-            });
-        });
-
-        updateUI();
-
-        form.addEventListener('submit', function() {
-            submitBtn.disabled = true;
-            btnText.textContent = 'Переход к оплате...';
-            btnPrice.textContent = '';
-        });
-
-        // Reset on back button
-        window.addEventListener('pageshow', function(event) {
-            if (event.persisted) {
-                submitBtn.disabled = false;
-                updateUI();
-            }
-        });
-    </script>
 </body>
 </html>

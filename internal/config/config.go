@@ -26,6 +26,13 @@ type WebConfig struct {
 	TelegramChannelURL string `env:"TG_CHANNEL_URL,default=https://t.me/kurutkyrgyz"`
 	TelegramSupportURL string `env:"TG_SUPPORT_URL,default=https://t.me/kurutsupport"`
 	WhatsAppSupportURL string `env:"WA_SUPPORT_URL,default=https://wa.me/79670042901"`
+	// Новый VPN (kurut-pie) — клиентов курут-бота постепенно переносим на основной бот.
+	NewVPNBotURL  string `env:"NEW_VPN_BOT_URL,default=https://t.me/kurut_vpn_bot"`
+	NewVPNSiteURL string `env:"NEW_VPN_SITE_URL,default=https://kurutpro.ru"`
+	// Авто-перенос: эндпоинт kurut-pie POST /api/migration/grant и общий секрет.
+	// Пустой секрет = авто-перенос выключен, кнопки ведут на обычные ссылки выше.
+	NewVPNGrantURL    string `env:"NEW_VPN_GRANT_URL,default=https://kurutpro.ru/api/migration/grant"`
+	NewVPNGrantSecret string `env:"NEW_VPN_GRANT_SECRET,default="`
 }
 
 type TelegramConfig struct {
