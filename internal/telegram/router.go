@@ -12,6 +12,7 @@ import (
 	"kurut-bot/internal/telegram/cmds"
 	"kurut-bot/internal/telegram/flows"
 	"kurut-bot/internal/telegram/flows/addserver"
+	assistantsflow "kurut-bot/internal/telegram/flows/assistants"
 	"kurut-bot/internal/telegram/flows/createtariff"
 	"kurut-bot/internal/telegram/flows/lookup"
 	"kurut-bot/internal/telegram/flows/migrateclient"
@@ -41,16 +42,17 @@ type Router struct {
 
 	// Handlers
 	createTariffHandler  *createtariff.Handler
-	addServerHandler          *addserver.Handler
-	migrateClientHandler      *migrateclient.Handler
-	mySubsCommand             *cmds.MySubsCommand
-	statsCommand              *cmds.StatsCommand
-	expirationCommand         *cmds.ExpirationCommand
-	tariffsCommand            *cmds.TariffsCommand
-	serversCommand            *cmds.ServersCommand
-	partnershipCommand        *cmds.PartnershipCommand
-	lookupHandler             *lookup.Handler
-	newClientCommand          *cmds.NewClientCommand
+	addServerHandler     *addserver.Handler
+	migrateClientHandler *migrateclient.Handler
+	mySubsCommand        *cmds.MySubsCommand
+	statsCommand         *cmds.StatsCommand
+	expirationCommand    *cmds.ExpirationCommand
+	tariffsCommand       *cmds.TariffsCommand
+	serversCommand       *cmds.ServersCommand
+	partnershipCommand   *cmds.PartnershipCommand
+	lookupHandler        *lookup.Handler
+	newClientCommand     *cmds.NewClientCommand
+	assistantsHandler    *assistantsflow.Handler
 }
 
 type stateManager interface {
@@ -206,6 +208,14 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 				return r.addServerHandler.Start(extractChatID(update))
 			}
 			return r.serversCommand.HandleCallback(ctx, update.CallbackQuery)
+		case strings.HasPrefix(callbackData, "ast_"):
+			// Assistant management callbacks (admin-only)
+			if !r.adminChecker.IsAdmin(user.TelegramID) {
+				callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ Нет прав")
+				_, _ = r.bot.Request(callback)
+				return nil
+			}
+			return r.assistantsHandler.HandleCallback(ctx, update.CallbackQuery)
 		case strings.HasPrefix(callbackData, "sub_enabled:"):
 			// Subscription enabled callback (from renewal message)
 			return r.handleSubEnabledCallback(ctx, update.CallbackQuery)
@@ -228,6 +238,11 @@ func (r *Router) Route(update *tgbotapi.Update) error {
 	// Проверяем состояние флоу миграции клиента
 	if strings.HasPrefix(string(state), "amc_") {
 		return r.migrateClientHandler.Handle(update, state)
+	}
+
+	// Проверяем состояние флоу добавления ассистента
+	if strings.HasPrefix(string(state), "asa_") {
+		return r.assistantsHandler.Handle(update, state)
 	}
 
 	// Проверяем состояние флоу поиска подписок (игнорируем текстовые сообщения)
@@ -565,6 +580,12 @@ func (r *Router) handleCommandWithUser(update *tgbotapi.Update, user *users.User
 			return r.sendHelp(chatID)
 		}
 		return r.migrateClientHandler.Start(user.ID, user.TelegramID, chatID)
+	case "assistants":
+		if !r.adminChecker.IsAdmin(user.TelegramID) {
+			_, _ = r.bot.Send(tgbotapi.NewMessage(chatID, "❌ У вас нет прав для управления ассистентами"))
+			return r.sendHelp(chatID)
+		}
+		return r.assistantsHandler.ShowMenu(ctx, chatID)
 	case "find":
 		args := update.Message.CommandArguments()
 		if args == "" {
@@ -601,9 +622,16 @@ func (r *Router) sendWelcome(chatID int64, user *users.User) error {
 			"/servers — Управление серверами\n" +
 			"/stats — Просмотр статистики\n" +
 			"/partners — Статистика партнёров\n" +
+			"/assistants — Управление ассистентами\n" +
 			"/overdue — Просроченные подписки\n" +
 			"/expiring — Истекающие подписки\n" +
 			"/exp3 — Истекающие через 3 дня"
+
+		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard,
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🧑‍💼 Ассистенты", "ast_menu"),
+			),
+		)
 	}
 
 	text += "\n\nКоманды ассистента:\n" +
@@ -653,6 +681,7 @@ func (r *Router) sendHelp(chatID int64) error {
 			"/servers — Управление серверами\n" +
 			"/stats — Просмотр статистики\n" +
 			"/partners — Статистика партнёров\n" +
+			"/assistants — Управление ассистентами\n" +
 			"/overdue — Просроченные подписки\n" +
 			"/expiring — Истекающие подписки\n" +
 			"/exp3 — Истекающие через 3 дня"
@@ -735,6 +764,7 @@ func (r *Router) editToHelp(chatID int64, messageID int) error {
 			"/servers — Управление серверами\n" +
 			"/stats — Просмотр статистики\n" +
 			"/partners — Статистика партнёров\n" +
+			"/assistants — Управление ассистентами\n" +
 			"/overdue — Просроченные подписки\n" +
 			"/expiring — Истекающие подписки\n" +
 			"/exp3 — Истекающие через 3 дня"
@@ -765,26 +795,28 @@ func NewRouter(
 	partnershipCommand *cmds.PartnershipCommand,
 	lookupHandler *lookup.Handler,
 	newClientCommand *cmds.NewClientCommand,
+	assistantsHandler *assistantsflow.Handler,
 ) *Router {
 	return &Router{
-		bot:                bot,
-		stateManager:       stateManager,
-		userService:        userService,
-		adminChecker:       adminChecker,
-		serverService:      srvService,
-		clientTokenStorage: ctStorage,
-		logger:             logger,
+		bot:                  bot,
+		stateManager:         stateManager,
+		userService:          userService,
+		adminChecker:         adminChecker,
+		serverService:        srvService,
+		clientTokenStorage:   ctStorage,
+		logger:               logger,
 		createTariffHandler:  createTariffHandler,
 		addServerHandler:     addServerHandler,
 		migrateClientHandler: migrateClientHandler,
-		mySubsCommand:       mySubsCommand,
-		statsCommand:        statsCommand,
-		newClientCommand:    newClientCommand,
-		expirationCommand:   expirationCommand,
-		tariffsCommand:      tariffsCommand,
-		serversCommand:      serversCommand,
-		partnershipCommand:  partnershipCommand,
-		lookupHandler:       lookupHandler,
+		mySubsCommand:        mySubsCommand,
+		statsCommand:         statsCommand,
+		newClientCommand:     newClientCommand,
+		expirationCommand:    expirationCommand,
+		tariffsCommand:       tariffsCommand,
+		serversCommand:       serversCommand,
+		partnershipCommand:   partnershipCommand,
+		lookupHandler:        lookupHandler,
+		assistantsHandler:    assistantsHandler,
 	}
 }
 
@@ -841,6 +873,10 @@ func (r *Router) setupAdminCommands(chatID int64) {
 		{
 			Command:     "partners",
 			Description: "Статистика партнёров",
+		},
+		{
+			Command:     "assistants",
+			Description: "Управление ассистентами",
 		},
 		{
 			Command:     "overdue",
