@@ -189,10 +189,12 @@ func (w *Worker) reconcileStalePending(ctx context.Context, stats *reconcileStat
 	return nil
 }
 
-// alertOrphanedApproved logs an alertable warning for each approved payment
-// with no linked subscription. This is a data-integrity invariant: a user paid
-// but received nothing. Requires human intervention. The monitoring exporter
-// already exposes kurut_bot_orphaned_payments as a gauge.
+// alertOrphanedApproved emits a single aggregated warning summarising approved
+// payments that have no linked subscription. This is a data-integrity signal: a
+// user paid but the payment isn't linked to a subscription. The precise count is
+// also exported as the kurut_bot_orphaned_payments gauge. New orphans are now
+// prevented at the source (renewal and migration link their payment), so any
+// remaining count is the historical backlog.
 func (w *Worker) alertOrphanedApproved(ctx context.Context, stats *reconcileStats) error {
 	orphans, err := w.paymentStorage.ListOrphanedPayments(ctx)
 	if err != nil {
@@ -200,14 +202,30 @@ func (w *Worker) alertOrphanedApproved(ctx context.Context, stats *reconcileStat
 	}
 
 	stats.orphansFound = len(orphans)
-	for _, p := range orphans {
-		w.logger.Warn("Orphaned approved payment — money taken, no subscription linked",
-			"payment_id", p.ID,
-			"user_id", p.UserID,
-			"amount", p.Amount,
-			"yookassa_id", p.YooKassaID,
-			"age_hours", int(time.Since(p.CreatedAt).Hours()))
+	if len(orphans) == 0 {
+		return nil
 	}
+
+	// Aggregate into ONE warning instead of one line per orphan. The same payments
+	// recur on every daily sweep, so per-row logging floods the error stream
+	// (thousands of lines/day) with no added signal. A sample of IDs is included
+	// for spot-checking; the full count drives the monitoring gauge.
+	const sampleSize = 10
+	sample := make([]int64, 0, sampleSize)
+	oldest := orphans[0].CreatedAt // query orders by created_at ASC, but don't assume
+	for i, p := range orphans {
+		if i < sampleSize {
+			sample = append(sample, p.ID)
+		}
+		if p.CreatedAt.Before(oldest) {
+			oldest = p.CreatedAt
+		}
+	}
+
+	w.logger.Warn("Orphaned approved payments — money taken, no subscription linked",
+		"count", len(orphans),
+		"oldest_age_hours", int(time.Since(oldest).Hours()),
+		"sample_payment_ids", sample)
 
 	return nil
 }

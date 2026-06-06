@@ -204,6 +204,14 @@ func (s *Service) MigrateSubscription(ctx context.Context, req *subs.MigrateSubs
 	}
 	created.GeneratedUserID = &generatedUserID
 
+	// Link the payment to the migrated subscription so the reconcile worker does
+	// not flag it as an orphaned approved payment (also fixes revenue attribution).
+	if req.PaymentID != nil {
+		if err := s.storage.LinkPaymentToSubscriptions(ctx, *req.PaymentID, []int64{created.ID}); err != nil {
+			return nil, errors.Errorf("failed to link payment to subscription: %v", err)
+		}
+	}
+
 	return &subs.CreateSubscriptionResult{
 		Subscription:     created,
 		GeneratedUserID:  generatedUserID,

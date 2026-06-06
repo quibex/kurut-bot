@@ -68,7 +68,7 @@ type UpdateParams struct {
 type CreateSubscriptionRequest struct {
 	UserID                 int64
 	TariffID               int64
-	ServerID               *int64  // Если задан — используется конкретный сервер, иначе авто-выбор
+	ServerID               *int64 // Если задан — используется конкретный сервер, иначе авто-выбор
 	PaymentID              *int64
 	ClientWhatsApp         string
 	CreatedByTelegramID    int64
@@ -81,7 +81,8 @@ type CreateSubscriptionRequest struct {
 type MigrateSubscriptionRequest struct {
 	UserID              int64
 	TariffID            int64
-	ServerID            int64 // Конкретный сервер (выбирается вручную)
+	ServerID            int64  // Конкретный сервер (выбирается вручную)
+	PaymentID           *int64 // Платёж для привязки к созданной подписке (иначе она помечается как orphaned)
 	ClientWhatsApp      string
 	CreatedByTelegramID int64
 }
