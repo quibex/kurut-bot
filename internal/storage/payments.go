@@ -230,6 +230,7 @@ func (s *storageImpl) CreatePaymentSubscription(ctx context.Context, req payment
 
 	q, args, err := s.stmpBuilder().
 		Insert(paymentSubscriptionsTable).
+		Options("OR IGNORE"). // idempotent: re-linking an already-linked payment is a no-op (PK = payment_id+subscription_id)
 		SetMap(params).
 		ToSql()
 	if err != nil {

@@ -245,6 +245,7 @@ func (w *Worker) handleApprovedOrderPayment(ctx context.Context, order *orders.P
 			UserID:              order.AdminUserID,
 			TariffID:            order.TariffID,
 			ServerID:            *order.ServerID,
+			PaymentID:           &order.PaymentID,
 			ClientWhatsApp:      order.ClientWhatsApp,
 			CreatedByTelegramID: order.AssistantTelegramID,
 		}
@@ -517,6 +518,19 @@ func (w *Worker) handleApprovedRenewalPayment(ctx context.Context, msg *submessa
 	// Extend subscription
 	if err := w.subscriptionStorage.ExtendSubscription(ctx, msg.SubscriptionID, tariff.DurationDays); err != nil {
 		return fmt.Errorf("extend subscription: %w", err)
+	}
+
+	// Link the renewal payment to the subscription so the reconcile worker does
+	// not flag it as an orphaned approved payment (also fixes revenue attribution).
+	// Non-fatal: the renewal itself already succeeded above.
+	if msg.PaymentID != nil {
+		if err := w.subscriptionStorage.LinkPaymentToSubscriptions(ctx, *msg.PaymentID, []int64{msg.SubscriptionID}); err != nil {
+			w.logger.Error("Failed to link renewal payment to subscription",
+				"msg_id", msg.ID,
+				"payment_id", *msg.PaymentID,
+				"subscription_id", msg.SubscriptionID,
+				"error", err)
+		}
 	}
 
 	// Set status to active (if was expired/disabled)

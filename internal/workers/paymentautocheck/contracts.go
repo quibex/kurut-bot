@@ -46,6 +46,7 @@ type (
 		GetSubscription(ctx context.Context, criteria subs.GetCriteria) (*subs.Subscription, error)
 		UpdateSubscription(ctx context.Context, criteria subs.GetCriteria, params subs.UpdateParams) (*subs.Subscription, error)
 		UpdateSubscriptionTariff(ctx context.Context, subscriptionID int64, tariffID int64) error
+		LinkPaymentToSubscriptions(ctx context.Context, paymentID int64, subscriptionIDs []int64) error
 	}
 
 	// TariffService provides tariff operations
