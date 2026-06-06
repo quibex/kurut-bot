@@ -16,6 +16,7 @@ import (
 	"kurut-bot/internal/telegram"
 	"kurut-bot/internal/telegram/cmds"
 	"kurut-bot/internal/telegram/flows/addserver"
+	assistantsflow "kurut-bot/internal/telegram/flows/assistants"
 	"kurut-bot/internal/telegram/flows/createtariff"
 	lookupflow "kurut-bot/internal/telegram/flows/lookup"
 	"kurut-bot/internal/telegram/flows/migrateclient"
@@ -38,7 +39,7 @@ type Services struct {
 	WebHandlers         *web.Handlers
 }
 
-func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger *slog.Logger, _ *telegram.ConfigStore) (*Services, error) {
+func newServices(ctx context.Context, clients *Clients, cfg *config.Config, logger *slog.Logger, _ *telegram.ConfigStore) (*Services, error) {
 	var s Services
 
 	// Инициализируем telegram сервисы
@@ -57,8 +58,11 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 	// Создаем StateManager
 	stateManager := states.NewManager()
 
-	// Создаем AdminChecker
-	adminChecker := telegram.NewAdminChecker(&cfg.Telegram)
+	// Создаем AdminChecker (ростер ассистентов: env ∪ панель-управляемая БД)
+	adminChecker := telegram.NewAdminChecker(&cfg.Telegram, storageImpl)
+	if err := adminChecker.ReloadAssistants(ctx); err != nil {
+		logger.Warn("failed to load assistant roster from DB", "err", err)
+	}
 
 	// Создаем YooKassa client
 	yookassaClient, err := yookassa.NewClient(cfg.YooKassa.ShopID, cfg.YooKassa.SecretKey, cfg.YooKassa.ReturnURL, logger)
@@ -83,6 +87,15 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		clients.TelegramBot,
 		stateManager,
 		serverService,
+		logger,
+	)
+
+	// Создаем assistantsHandler (управление ассистентами из админ-панели)
+	assistantsHandler := assistantsflow.NewHandler(
+		clients.TelegramBot.GetBotAPI(),
+		stateManager,
+		storageImpl,
+		adminChecker,
 		logger,
 	)
 
@@ -234,6 +247,7 @@ func newServices(_ context.Context, clients *Clients, cfg *config.Config, logger
 		partnershipCommand,
 		lookupHandler,
 		newClientCommand,
+		assistantsHandler,
 	)
 
 	// Создаем менеджер воркеров

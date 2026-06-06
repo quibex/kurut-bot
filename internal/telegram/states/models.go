@@ -77,3 +77,8 @@ const (
 	LookupViewSub      State = "lkp_view"
 	LookupSelectServer State = "lkp_transfer"
 )
+
+// admin add assistant states (asa -> admin setup assistant)
+const (
+	AdminAddAssistantWaitTarget State = "asa_wt_target"
+)
