@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 kurut-bot is a Telegram bot for selling VPN subscriptions (WireGuard-based). It handles user registration, subscription management, payment processing via YooKassa, and WireGuard server management. The bot supports Russian and Kyrgyz languages.
 
+> **Status (as of 2026-06): winding down, but still live.** kurut-bot is the older Go bot, running in prod alongside `kurut-pie` on `bot-prod`. New-user acquisition collapsed ~2026-05-03 and the active base is shrinking (~−5 subs/day). kurut-moning has dropped kurut-bot's business metrics from the "Общая аналитика" overview as deprecated (commit `65bd232`). Most new work lands in `kurut-pie` — check with the operator before investing in new features here. (This file's architecture/command sections were last reconciled with the code in 2026-01; verify lower sections against source before relying on them.)
+
 ## Common Commands
 
 ```bash
