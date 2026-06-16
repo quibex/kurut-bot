@@ -42,6 +42,33 @@ type Worker struct {
 	processingOrders   sync.Map
 	processingMessages sync.Map
 	processingTokens   sync.Map
+
+	// terminalPolls counts how many times each payment_id has been re-polled
+	// while YooKassa reports a terminal (rejected/cancelled) status, so we can
+	// drop it from the active set after a small retry budget instead of
+	// re-checking it forever. Key: payment_id (int64) -> *atomic.Int32.
+	terminalPolls sync.Map
+}
+
+// maxTerminalPolls caps how many times the auto-checker re-polls a payment that
+// YooKassa already reports as rejected/cancelled before we drop it from the
+// active set: 1 initial observation + 2 additional retries. Without this cap a
+// cancelled payment stayed "active" forever and was re-checked every 30s,
+// flooding logs and hammering YooKassa (kurut-z5ug).
+const maxTerminalPolls = 3
+
+// terminalPollExhausted records one observation of a payment in a terminal
+// (rejected/cancelled) state and reports whether the retry budget is spent and
+// the payment should be dropped from the active set.
+func (w *Worker) terminalPollExhausted(paymentID int64) bool {
+	v, _ := w.terminalPolls.LoadOrStore(paymentID, new(atomic.Int32))
+	return v.(*atomic.Int32).Add(1) >= maxTerminalPolls
+}
+
+// forgetTerminalPolls clears the retry counter once a payment leaves the active
+// set, keeping the map bounded.
+func (w *Worker) forgetTerminalPolls(paymentID int64) {
+	w.terminalPolls.Delete(paymentID)
 }
 
 // NewWorker creates a new payment autocheck worker
@@ -215,11 +242,27 @@ func (w *Worker) processOrder(ctx context.Context, order *orders.PendingOrder) e
 	case payment.StatusApproved:
 		return w.handleApprovedOrderPayment(ctx, order)
 	case payment.StatusRejected, payment.StatusCancelled:
-		w.logger.Info("Order payment rejected/cancelled",
+		if w.terminalPollExhausted(order.PaymentID) {
+			// Retry budget spent — stop re-polling. A user retry creates a fresh
+			// order/payment (the web flow cancels old pending orders first), so
+			// nothing is lost by cancelling this one.
+			if err := w.orderStorage.UpdatePendingOrderStatus(ctx, order.ID, orders.StatusCancelled); err != nil {
+				w.logProcessingErr("Failed to cancel terminal order", err,
+					"order_id", order.ID,
+					"payment_id", order.PaymentID)
+				return nil
+			}
+			w.forgetTerminalPolls(order.PaymentID)
+			w.logger.Info("Order payment terminal, stopping checks",
+				"order_id", order.ID,
+				"payment_id", order.PaymentID,
+				"status", paymentObj.Status)
+			return nil
+		}
+		w.logger.Info("Order payment rejected/cancelled (will retry)",
 			"order_id", order.ID,
 			"payment_id", order.PaymentID,
 			"status", paymentObj.Status)
-		// Don't delete - user can refresh the payment link
 		return nil
 	case payment.StatusPending:
 		// Still pending, will check again on the next tick
@@ -467,11 +510,27 @@ func (w *Worker) processSubscriptionMessage(ctx context.Context, msg *submessage
 	case payment.StatusApproved:
 		return w.handleApprovedRenewalPayment(ctx, msg)
 	case payment.StatusRejected, payment.StatusCancelled:
-		w.logger.Info("Renewal payment rejected/cancelled",
+		if w.terminalPollExhausted(*msg.PaymentID) {
+			// Retry budget spent — stop re-polling. A user retry creates a fresh
+			// message+payment (web handlers cancel the old one first), so
+			// deactivating this terminal message loses nothing.
+			if err := w.messageStorage.DeactivateSubscriptionMessage(ctx, msg.ID); err != nil {
+				w.logProcessingErr("Failed to deactivate terminal renewal message", err,
+					"msg_id", msg.ID,
+					"payment_id", *msg.PaymentID)
+				return nil
+			}
+			w.forgetTerminalPolls(*msg.PaymentID)
+			w.logger.Info("Renewal payment terminal, stopping checks",
+				"msg_id", msg.ID,
+				"payment_id", *msg.PaymentID,
+				"status", paymentObj.Status)
+			return nil
+		}
+		w.logger.Info("Renewal payment rejected/cancelled (will retry)",
 			"msg_id", msg.ID,
 			"payment_id", *msg.PaymentID,
 			"status", paymentObj.Status)
-		// Don't deactivate - user can create new payment link
 		return nil
 	case payment.StatusPending:
 		// Still pending, will check again

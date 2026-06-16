@@ -19,6 +19,7 @@ type (
 	OrderStorage interface {
 		ListPendingOrdersWithPayments(ctx context.Context) ([]*orders.PendingOrder, error)
 		DeletePendingOrder(ctx context.Context, id int64) error
+		UpdatePendingOrderStatus(ctx context.Context, id int64, status orders.Status) error
 	}
 
 	// MessageStorage provides operations for subscription messages
